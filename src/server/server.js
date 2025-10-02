@@ -13677,35 +13677,51 @@ app.post('/api/dlt/patterns/generate', async (req, res) => {
         // 反转数据，使其按期号升序排列
         historicalData.reverse();
 
-        // 2. 为每期数据添加热温冷比（如果有的话）
+        // 2. 为每期数据添加热温冷比
         for (let i = 0; i < historicalData.length; i++) {
-            const issue = historicalData[i].Issue.toString();
-            const baseIssue = (historicalData[i].Issue - 1).toString();
+            const currentIssue = historicalData[i].Issue.toString();
+            const previousIssue = (historicalData[i].Issue - 1).toString();
 
-            // 尝试获取热温冷数据
-            const htcData = await DLTRedCombinationsHotWarmColdOptimized.findOne({
-                base_issue: baseIssue,
-                target_issue: issue
-            });
+            // 获取当前期的中奖红球
+            const redBalls = [
+                historicalData[i].Red1,
+                historicalData[i].Red2,
+                historicalData[i].Red3,
+                historicalData[i].Red4,
+                historicalData[i].Red5
+            ];
 
-            if (htcData && htcData.hit_analysis && htcData.hit_analysis.target_winning_reds) {
-                // 计算实际热温冷比
-                const redBalls = htcData.hit_analysis.target_winning_reds;
+            // 获取上一期的遗漏数据
+            const omissionRecord = await DLTRedMissing.findOne({ Issue: previousIssue });
 
-                // 获取遗漏数据
-                const omissionRecord = await DLTRedMissing.findOne({ Issue: baseIssue });
+            if (omissionRecord) {
+                let hot = 0, warm = 0, cold = 0;
 
-                if (omissionRecord) {
-                    let hot = 0, warm = 0, cold = 0;
-                    redBalls.forEach(num => {
-                        const omission = omissionRecord[num.toString()] || 0;
-                        if (omission <= 4) hot++;
-                        else if (omission >= 5 && omission <= 9) warm++;
-                        else cold++;
-                    });
+                redBalls.forEach(num => {
+                    // 获取该号码的遗漏值
+                    const fieldName = num.toString();
+                    const omission = omissionRecord[fieldName];
 
+                    // 只有当遗漏值存在且为有效数字时才计数
+                    if (typeof omission === 'number' && omission >= 0) {
+                        if (omission <= 4) {
+                            hot++;
+                        } else if (omission >= 5 && omission <= 9) {
+                            warm++;
+                        } else {
+                            cold++;
+                        }
+                    }
+                });
+
+                // 只有当统计完成且总数为5时才设置热温冷比
+                if (hot + warm + cold === 5) {
                     historicalData[i].htcRatio = `${hot}:${warm}:${cold}`;
+                } else {
+                    log(`⚠️ 期号 ${currentIssue} 热温冷比计算异常: ${hot}:${warm}:${cold} (总数应为5)`);
                 }
+            } else {
+                log(`⚠️ 找不到期号 ${previousIssue} 的遗漏数据`);
             }
         }
 
