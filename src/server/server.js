@@ -579,6 +579,170 @@ predictionTaskResultSchema.index({ created_at: -1 });
 
 const PredictionTaskResult = mongoose.model('HIT_DLT_PredictionTaskResult', predictionTaskResultSchema);
 
+// ========== 规律生成功能 Schema 定义 ==========
+
+// 1. 规律库表
+const dltPatternSchema = new mongoose.Schema({
+    pattern_id: { type: String, required: true, unique: true }, // 规律ID: "PATTERN_20250101_001"
+    pattern_type: {
+        type: String,
+        required: true,
+        enum: ['sum_pattern', 'span_pattern', 'zone_ratio_pattern', 'odd_even_pattern',
+               'htc_ratio_pattern', 'consecutive_pattern', 'repeat_number_pattern',
+               'combination_pattern', 'exclusion_pattern']
+    },
+    pattern_name: { type: String, required: true }, // 规律名称
+    description: { type: String, required: true },  // 规律描述
+
+    // 规律参数
+    parameters: {
+        cycle: Number,              // 周期（如果是周期性规律）
+        range: [Number],            // 数值范围 [min, max]
+        threshold: Number,          // 阈值
+        correlation: Object,        // 关联条件
+        transition: Object,         // 转换规则（用于转换类规律）
+        keyValues: [String]         // 关键值列表（如关键的热温冷比）
+    },
+
+    // 规律统计
+    statistics: {
+        confidence: { type: Number, required: true, min: 0, max: 1 },     // 置信度 0-1
+        accuracy: { type: Number, required: true, min: 0, max: 1 },       // 历史准确率 0-1
+        frequency: { type: Number, required: true, min: 0, max: 1 },      // 出现频率 0-1
+        support: { type: Number, required: true },                        // 支持度（样本数）
+        lastOccurrence: String,                                           // 最后出现期号
+        occurrenceCount: Number                                           // 历史出现次数
+    },
+
+    // 规律验证
+    validation: {
+        trainingPeriods: Number,    // 训练期数
+        testPeriods: Number,        // 测试期数
+        hitCount: Number,           // 命中次数
+        missCount: Number,          // 未命中次数
+        validationDate: Date,       // 验证日期
+        precision: Number,          // 精确率
+        recall: Number,             // 召回率
+        f1Score: Number             // F1分数
+    },
+
+    // 规律趋势
+    trend: {
+        status: {
+            type: String,
+            enum: ['active', 'weakening', 'strengthening', 'archived', 'invalid'],
+            default: 'active'
+        },
+        recentAccuracy: Number,     // 最近20期准确率
+        trendDirection: {           // 趋势方向
+            type: String,
+            enum: ['up', 'down', 'stable']
+        },
+        slope: Number               // 趋势斜率
+    },
+
+    // 评分信息
+    score: {
+        totalScore: { type: Number, min: 0, max: 100 },  // 综合得分
+        grade: {                                          // 等级
+            type: String,
+            enum: ['S', 'A', 'B', 'C', 'D']
+        },
+        breakdown: {                                      // 分项得分
+            accuracyScore: Number,
+            stabilityScore: Number,
+            recencyScore: Number,
+            supportScore: Number,
+            trendScore: Number
+        }
+    },
+
+    created_at: { type: Date, default: Date.now },
+    updated_at: { type: Date, default: Date.now },
+    status: {
+        type: String,
+        enum: ['active', 'archived', 'invalid'],
+        default: 'active'
+    }
+});
+
+// 规律库索引
+dltPatternSchema.index({ pattern_id: 1 });
+dltPatternSchema.index({ pattern_type: 1 });
+dltPatternSchema.index({ status: 1 });
+dltPatternSchema.index({ 'statistics.confidence': -1 });
+dltPatternSchema.index({ 'statistics.accuracy': -1 });
+dltPatternSchema.index({ 'score.totalScore': -1 });
+dltPatternSchema.index({ 'score.grade': 1 });
+dltPatternSchema.index({ created_at: -1 });
+
+const DLTPattern = mongoose.model('HIT_DLT_Pattern', dltPatternSchema);
+
+// 2. 规律历史记录表
+const dltPatternHistorySchema = new mongoose.Schema({
+    pattern_id: { type: String, required: true },     // 关联规律ID
+    issue: { type: String, required: true },          // 期号
+    expected: Object,                                 // 规律预期值
+    actual: Object,                                   // 实际结果
+    hit: { type: Boolean, required: true },           // 是否命中
+    deviation: Number,                                // 偏差值
+    recorded_at: { type: Date, default: Date.now }
+});
+
+// 规律历史索引
+dltPatternHistorySchema.index({ pattern_id: 1 });
+dltPatternHistorySchema.index({ issue: 1 });
+dltPatternHistorySchema.index({ pattern_id: 1, issue: 1 }, { unique: true });
+dltPatternHistorySchema.index({ recorded_at: -1 });
+dltPatternHistorySchema.index({ hit: 1 });
+
+const DLTPatternHistory = mongoose.model('HIT_DLT_PatternHistory', dltPatternHistorySchema);
+
+// 3. 规律推荐表
+const dltPatternRecommendationSchema = new mongoose.Schema({
+    session_id: { type: String, required: true, unique: true },  // 会话ID
+    target_issue: { type: String, required: true },              // 目标期号
+
+    // 应用的规律列表
+    applied_patterns: [{
+        pattern_id: String,
+        pattern_name: String,
+        pattern_type: String,
+        weight: { type: Number, min: 0, max: 1 },               // 权重 0-1
+        reason: String                                           // 应用原因
+    }],
+
+    // 推荐的筛选条件
+    recommended_filters: {
+        sumRange: [Number],                    // 和值范围 [min, max]
+        spanRange: [Number],                   // 跨度范围
+        zoneRatios: [String],                  // 区间比列表
+        oddEvenRatios: [String],               // 奇偶比列表
+        htcRatios: [String],                   // 热温冷比列表
+        excludeHtcRatios: [String],            // 排除的热温冷比
+        consecutiveCount: [Number],            // 连号数量范围
+        excludeConditions: Object              // 其他排除条件
+    },
+
+    // 预测结果
+    prediction: {
+        expectedAccuracy: Number,              // 预期准确率
+        confidence: Number,                    // 置信度
+        estimatedCombinations: Number          // 预计组合数量
+    },
+
+    created_at: { type: Date, default: Date.now }
+});
+
+// 规律推荐索引
+dltPatternRecommendationSchema.index({ session_id: 1 });
+dltPatternRecommendationSchema.index({ target_issue: 1 });
+dltPatternRecommendationSchema.index({ created_at: -1 });
+
+const DLTPatternRecommendation = mongoose.model('HIT_DLT_PatternRecommendation', dltPatternRecommendationSchema);
+
+// ========== 规律生成功能 Schema 定义完成 ==========
+
 // ========== 新方案 Schema 定义完成 ==========
 
 
