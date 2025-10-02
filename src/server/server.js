@@ -13639,6 +13639,626 @@ async function getSSQRecentHwcRatiosFromHistory(targetIssue, periods) {
     }
 }
 
+// ========== 规律生成功能 API ==========
+
+// 引入规律相关模块
+const PatternDiscoveryEngine = require('./patternDiscovery');
+const PatternScoringSystem = require('./patternScoring');
+
+/**
+ * 规律生成API
+ * POST /api/dlt/patterns/generate
+ */
+app.post('/api/dlt/patterns/generate', async (req, res) => {
+    try {
+        const {
+            analysisType = 'full',
+            periods = 200,
+            patternTypes = null,
+            minConfidence = 0.6,
+            minSupport = 10
+        } = req.body;
+
+        log(`🔍 开始生成规律 - 分析期数: ${periods}, 最小置信度: ${minConfidence}`);
+
+        // 1. 获取历史数据
+        const historicalData = await DLT.find({})
+            .sort({ Issue: -1 })
+            .limit(periods)
+            .lean();
+
+        if (historicalData.length < minSupport) {
+            return res.json({
+                success: false,
+                message: `历史数据不足，仅${historicalData.length}期，需要至少${minSupport}期`
+            });
+        }
+
+        // 反转数据，使其按期号升序排列
+        historicalData.reverse();
+
+        // 2. 为每期数据添加热温冷比（如果有的话）
+        for (let i = 0; i < historicalData.length; i++) {
+            const issue = historicalData[i].Issue.toString();
+            const baseIssue = (historicalData[i].Issue - 1).toString();
+
+            // 尝试获取热温冷数据
+            const htcData = await DLTRedCombinationsHotWarmColdOptimized.findOne({
+                base_issue: baseIssue,
+                target_issue: issue
+            });
+
+            if (htcData && htcData.hit_analysis && htcData.hit_analysis.target_winning_reds) {
+                // 计算实际热温冷比
+                const redBalls = htcData.hit_analysis.target_winning_reds;
+
+                // 获取遗漏数据
+                const omissionRecord = await DLTRedMissing.findOne({ Issue: baseIssue });
+
+                if (omissionRecord) {
+                    let hot = 0, warm = 0, cold = 0;
+                    redBalls.forEach(num => {
+                        const omission = omissionRecord[num.toString()] || 0;
+                        if (omission <= 4) hot++;
+                        else if (omission >= 5 && omission <= 9) warm++;
+                        else cold++;
+                    });
+
+                    historicalData[i].htcRatio = `${hot}:${warm}:${cold}`;
+                }
+            }
+        }
+
+        // 3. 初始化规律发现引擎
+        const discoveryEngine = new PatternDiscoveryEngine({
+            minConfidence,
+            minSupport,
+            analysisWindow: periods
+        });
+
+        // 4. 发现规律
+        const patterns = await discoveryEngine.discoverAllPatterns(historicalData, patternTypes);
+
+        if (patterns.length === 0) {
+            return res.json({
+                success: false,
+                message: '未发现符合条件的规律'
+            });
+        }
+
+        // 5. 初始化评分系统
+        const scoringSystem = new PatternScoringSystem();
+
+        // 6. 对规律进行评分
+        const scoredPatterns = await scoringSystem.scorePatterns(patterns, historicalData);
+
+        // 7. 生成规律ID并保存到数据库
+        const savedPatterns = [];
+        const timestamp = Date.now();
+
+        for (let i = 0; i < scoredPatterns.length; i++) {
+            const pattern = scoredPatterns[i];
+            const patternId = `PATTERN_${timestamp}_${(i + 1).toString().padStart(3, '0')}`;
+
+            const patternDoc = new DLTPattern({
+                pattern_id: patternId,
+                pattern_type: pattern.type,
+                pattern_name: pattern.name,
+                description: pattern.description,
+                parameters: pattern.parameters,
+                statistics: pattern.statistics,
+                validation: pattern.validation,
+                trend: {
+                    status: 'active',
+                    recentAccuracy: pattern.validation.accuracy,
+                    trendDirection: 'stable',
+                    slope: 0
+                },
+                score: pattern.score,
+                status: 'active'
+            });
+
+            await patternDoc.save();
+            savedPatterns.push(patternDoc);
+        }
+
+        log(`✅ 规律生成完成 - 共生成${savedPatterns.length}个规律`);
+
+        // 8. 统计结果
+        const patternsByType = {};
+        savedPatterns.forEach(p => {
+            patternsByType[p.pattern_type] = (patternsByType[p.pattern_type] || 0) + 1;
+        });
+
+        res.json({
+            success: true,
+            data: {
+                generatedPatterns: savedPatterns.length,
+                validPatterns: savedPatterns.filter(p => p.score.grade !== 'D').length,
+                patternsByType,
+                executionTime: `${((Date.now() - timestamp) / 1000).toFixed(2)}秒`,
+                timestamp: new Date().toISOString(),
+                patterns: savedPatterns.map(p => ({
+                    pattern_id: p.pattern_id,
+                    pattern_name: p.pattern_name,
+                    pattern_type: p.pattern_type,
+                    grade: p.score.grade,
+                    totalScore: p.score.totalScore
+                }))
+            }
+        });
+
+    } catch (error) {
+        log(`❌ 规律生成失败: ${error.message}`);
+        console.error(error);
+        res.json({
+            success: false,
+            message: `规律生成失败: ${error.message}`
+        });
+    }
+});
+
+/**
+ * 规律查询API
+ * GET /api/dlt/patterns/list
+ */
+app.get('/api/dlt/patterns/list', async (req, res) => {
+    try {
+        const {
+            type = null,
+            minConfidence = 0,
+            minScore = 0,
+            status = 'active',
+            grade = null,
+            limit = 20,
+            page = 1
+        } = req.query;
+
+        log(`📚 查询规律库 - 类型: ${type || '全部'}, 最小分数: ${minScore}`);
+
+        // 构建查询条件
+        const query = {};
+        if (type) query.pattern_type = type;
+        if (status) query.status = status;
+        if (grade) query['score.grade'] = grade;
+        if (minConfidence > 0) query['statistics.confidence'] = { $gte: parseFloat(minConfidence) };
+        if (minScore > 0) query['score.totalScore'] = { $gte: parseFloat(minScore) };
+
+        // 查询规律
+        const total = await DLTPattern.countDocuments(query);
+        const patterns = await DLTPattern.find(query)
+            .sort({ 'score.totalScore': -1, created_at: -1 })
+            .skip((parseInt(page) - 1) * parseInt(limit))
+            .limit(parseInt(limit))
+            .lean();
+
+        res.json({
+            success: true,
+            data: {
+                patterns: patterns.map(p => ({
+                    pattern_id: p.pattern_id,
+                    pattern_name: p.pattern_name,
+                    pattern_type: p.pattern_type,
+                    description: p.description,
+                    confidence: p.statistics.confidence,
+                    accuracy: p.statistics.accuracy,
+                    grade: p.score.grade,
+                    totalScore: p.score.totalScore,
+                    trend: p.trend,
+                    created_at: p.created_at
+                })),
+                total,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(total / parseInt(limit))
+            }
+        });
+
+    } catch (error) {
+        log(`❌ 规律查询失败: ${error.message}`);
+        res.json({
+            success: false,
+            message: `规律查询失败: ${error.message}`
+        });
+    }
+});
+
+/**
+ * 规律详情API
+ * GET /api/dlt/patterns/detail/:patternId
+ */
+app.get('/api/dlt/patterns/detail/:patternId', async (req, res) => {
+    try {
+        const { patternId } = req.params;
+
+        const pattern = await DLTPattern.findOne({ pattern_id: patternId }).lean();
+
+        if (!pattern) {
+            return res.json({
+                success: false,
+                message: '规律不存在'
+            });
+        }
+
+        // 获取规律的历史记录
+        const history = await DLTPatternHistory.find({ pattern_id: patternId })
+            .sort({ recorded_at: -1 })
+            .limit(20)
+            .lean();
+
+        res.json({
+            success: true,
+            data: {
+                pattern,
+                history
+            }
+        });
+
+    } catch (error) {
+        log(`❌ 获取规律详情失败: ${error.message}`);
+        res.json({
+            success: false,
+            message: `获取规律详情失败: ${error.message}`
+        });
+    }
+});
+
+/**
+ * 规律智能推荐API
+ * POST /api/dlt/patterns/recommend
+ */
+app.post('/api/dlt/patterns/recommend', async (req, res) => {
+    try {
+        const {
+            targetIssue,
+            patternIds = null,
+            autoSelect = true,
+            maxPatterns = 5
+        } = req.body;
+
+        log(`🎯 生成智能推荐 - 目标期号: ${targetIssue}`);
+
+        let selectedPatterns = [];
+
+        if (autoSelect) {
+            // 自动选择最优规律组合
+            selectedPatterns = await DLTPattern.find({
+                status: 'active',
+                'score.grade': { $in: ['S', 'A', 'B'] }
+            })
+                .sort({ 'score.totalScore': -1 })
+                .limit(maxPatterns)
+                .lean();
+        } else if (patternIds && patternIds.length > 0) {
+            // 使用指定的规律
+            selectedPatterns = await DLTPattern.find({
+                pattern_id: { $in: patternIds }
+            }).lean();
+        }
+
+        if (selectedPatterns.length === 0) {
+            return res.json({
+                success: false,
+                message: '没有可用的规律'
+            });
+        }
+
+        // 构建推荐筛选条件
+        const recommendedFilters = {
+            sumRange: [],
+            spanRange: [],
+            zoneRatios: [],
+            oddEvenRatios: [],
+            htcRatios: [],
+            excludeHtcRatios: [],
+            consecutiveCount: [],
+            excludeConditions: {}
+        };
+
+        const appliedPatterns = [];
+
+        // 应用每个规律
+        selectedPatterns.forEach((pattern, index) => {
+            const weight = 1 - (index * 0.1);  // 权重递减
+
+            appliedPatterns.push({
+                pattern_id: pattern.pattern_id,
+                pattern_name: pattern.pattern_name,
+                pattern_type: pattern.pattern_type,
+                weight: weight,
+                reason: `${pattern.score.grade}级规律，得分${pattern.score.totalScore.toFixed(1)}`
+            });
+
+            // 根据规律类型添加筛选条件
+            if (pattern.pattern_type === 'sum_pattern' && pattern.parameters.range) {
+                recommendedFilters.sumRange = pattern.parameters.range;
+            } else if (pattern.pattern_type === 'span_pattern' && pattern.parameters.range) {
+                recommendedFilters.spanRange = pattern.parameters.range;
+            } else if (pattern.pattern_type === 'zone_ratio_pattern' && pattern.parameters.keyValues) {
+                recommendedFilters.zoneRatios.push(...pattern.parameters.keyValues);
+            } else if (pattern.pattern_type === 'odd_even_pattern' && pattern.parameters.keyValues) {
+                recommendedFilters.oddEvenRatios.push(...pattern.parameters.keyValues);
+            } else if (pattern.pattern_type === 'htc_ratio_pattern' && pattern.parameters.keyValues) {
+                if (pattern.pattern_name.includes('排除') || pattern.pattern_name.includes('罕见')) {
+                    recommendedFilters.excludeHtcRatios.push(...pattern.parameters.keyValues);
+                } else {
+                    recommendedFilters.htcRatios.push(...pattern.parameters.keyValues);
+                }
+            }
+        });
+
+        // 去重
+        recommendedFilters.zoneRatios = [...new Set(recommendedFilters.zoneRatios)];
+        recommendedFilters.oddEvenRatios = [...new Set(recommendedFilters.oddEvenRatios)];
+        recommendedFilters.htcRatios = [...new Set(recommendedFilters.htcRatios)];
+        recommendedFilters.excludeHtcRatios = [...new Set(recommendedFilters.excludeHtcRatios)];
+
+        // 计算预期效果
+        const avgAccuracy = selectedPatterns.reduce((sum, p) => sum + p.statistics.accuracy, 0) / selectedPatterns.length;
+        const avgConfidence = selectedPatterns.reduce((sum, p) => sum + p.statistics.confidence, 0) / selectedPatterns.length;
+
+        // 生成会话ID
+        const sessionId = `REC_${Date.now()}`;
+
+        // 保存推荐记录
+        const recommendation = new DLTPatternRecommendation({
+            session_id: sessionId,
+            target_issue: targetIssue,
+            applied_patterns: appliedPatterns,
+            recommended_filters: recommendedFilters,
+            prediction: {
+                expectedAccuracy: avgAccuracy,
+                confidence: avgConfidence,
+                estimatedCombinations: 8500  // 估算值
+            }
+        });
+
+        await recommendation.save();
+
+        res.json({
+            success: true,
+            data: {
+                sessionId,
+                appliedPatterns,
+                recommendedFilters,
+                prediction: {
+                    expectedAccuracy: (avgAccuracy * 100).toFixed(1) + '%',
+                    confidence: (avgConfidence * 100).toFixed(1) + '%',
+                    estimatedCombinations: 8500
+                }
+            }
+        });
+
+    } catch (error) {
+        log(`❌ 智能推荐失败: ${error.message}`);
+        console.error(error);
+        res.json({
+            success: false,
+            message: `智能推荐失败: ${error.message}`
+        });
+    }
+});
+
+/**
+ * 规律验证API
+ * POST /api/dlt/patterns/validate/:patternId
+ */
+app.post('/api/dlt/patterns/validate/:patternId', async (req, res) => {
+    try {
+        const { patternId } = req.params;
+        const { testPeriods = 50 } = req.body;
+
+        log(`✅ 开始验证规律: ${patternId}, 测试期数: ${testPeriods}`);
+
+        // 获取规律
+        const pattern = await DLTPattern.findOne({ pattern_id: patternId }).lean();
+
+        if (!pattern) {
+            return res.json({
+                success: false,
+                message: '规律不存在'
+            });
+        }
+
+        // 获取测试数据
+        const testData = await DLT.find({})
+            .sort({ Issue: -1 })
+            .limit(testPeriods)
+            .lean();
+
+        testData.reverse();
+
+        // 初始化评分系统
+        const scoringSystem = new PatternScoringSystem();
+
+        // 验证规律
+        const validation = await scoringSystem.validatePattern(pattern, testData);
+
+        // 更新规律的验证信息
+        await DLTPattern.updateOne(
+            { pattern_id: patternId },
+            {
+                $set: {
+                    'validation.testPeriods': testPeriods,
+                    'validation.hitCount': validation.hitCount,
+                    'validation.missCount': validation.missCount,
+                    'validation.validationDate': new Date(),
+                    'validation.precision': validation.accuracy,
+                    'validation.recall': validation.accuracy,
+                    'validation.f1Score': validation.accuracy,
+                    updated_at: new Date()
+                }
+            }
+        );
+
+        // 获取最近的命中记录
+        const recentPerformance = [];
+        for (let i = Math.max(0, testData.length - 20); i < testData.length; i++) {
+            const data = testData[i];
+            const hit = scoringSystem.checkPatternHit(pattern, data);
+
+            let expected = '', actual = '';
+            if (pattern.type === 'htc_ratio_pattern' && pattern.parameters.keyValues) {
+                expected = pattern.parameters.keyValues.join('或');
+                actual = data.htcRatio || '未知';
+            }
+
+            recentPerformance.push({
+                issue: data.Issue.toString(),
+                expected,
+                actual,
+                hit
+            });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                pattern_id: patternId,
+                validation: {
+                    testPeriods,
+                    hitCount: validation.hitCount,
+                    missCount: validation.missCount,
+                    accuracy: (validation.accuracy * 100).toFixed(1) + '%',
+                    precision: (validation.accuracy * 100).toFixed(1) + '%',
+                    recall: (validation.accuracy * 100).toFixed(1) + '%',
+                    f1Score: (validation.accuracy * 100).toFixed(1) + '%'
+                },
+                recentPerformance
+            }
+        });
+
+    } catch (error) {
+        log(`❌ 规律验证失败: ${error.message}`);
+        console.error(error);
+        res.json({
+            success: false,
+            message: `规律验证失败: ${error.message}`
+        });
+    }
+});
+
+/**
+ * 规律趋势分析API
+ * GET /api/dlt/patterns/trend/:patternId
+ */
+app.get('/api/dlt/patterns/trend/:patternId', async (req, res) => {
+    try {
+        const { patternId } = req.params;
+        const { periods = 100 } = req.query;
+
+        const pattern = await DLTPattern.findOne({ pattern_id: patternId }).lean();
+
+        if (!pattern) {
+            return res.json({
+                success: false,
+                message: '规律不存在'
+            });
+        }
+
+        // 获取历史数据
+        const historicalData = await DLT.find({})
+            .sort({ Issue: -1 })
+            .limit(parseInt(periods))
+            .lean();
+
+        historicalData.reverse();
+
+        // 分段计算准确率
+        const segmentSize = 20;
+        const trendData = [];
+        const scoringSystem = new PatternScoringSystem();
+
+        for (let i = 0; i < historicalData.length; i += segmentSize) {
+            const segment = historicalData.slice(i, i + segmentSize);
+            if (segment.length < 10) continue;
+
+            const validation = await scoringSystem.validatePattern(pattern, segment);
+
+            const startIssue = segment[0].Issue;
+            const endIssue = segment[segment.length - 1].Issue;
+
+            trendData.push({
+                period: `${startIssue}-${endIssue}`,
+                accuracy: parseFloat((validation.accuracy * 100).toFixed(1))
+            });
+        }
+
+        // 计算趋势
+        let trendDirection = 'stable';
+        let slope = 0;
+
+        if (trendData.length >= 2) {
+            const firstAccuracy = trendData[0].accuracy;
+            const lastAccuracy = trendData[trendData.length - 1].accuracy;
+            slope = (lastAccuracy - firstAccuracy) / 100;
+
+            if (slope > 0.05) trendDirection = 'strengthening';
+            else if (slope < -0.05) trendDirection = 'weakening';
+        }
+
+        res.json({
+            success: true,
+            data: {
+                pattern_id: patternId,
+                trendData,
+                trend: {
+                    direction: trendDirection,
+                    slope: slope.toFixed(3),
+                    status: slope > 0 ? 'active' : (slope < -0.1 ? 'weakening' : 'active'),
+                    recommendation: slope > 0 ? '该规律近期准确率上升，推荐使用' :
+                                   (slope < -0.1 ? '该规律准确率下降，谨慎使用' : '该规律表现稳定')
+                }
+            }
+        });
+
+    } catch (error) {
+        log(`❌ 趋势分析失败: ${error.message}`);
+        res.json({
+            success: false,
+            message: `趋势分析失败: ${error.message}`
+        });
+    }
+});
+
+/**
+ * 删除规律API
+ * DELETE /api/dlt/patterns/:patternId
+ */
+app.delete('/api/dlt/patterns/:patternId', async (req, res) => {
+    try {
+        const { patternId } = req.params;
+
+        const result = await DLTPattern.deleteOne({ pattern_id: patternId });
+
+        if (result.deletedCount === 0) {
+            return res.json({
+                success: false,
+                message: '规律不存在'
+            });
+        }
+
+        // 同时删除历史记录
+        await DLTPatternHistory.deleteMany({ pattern_id: patternId });
+
+        log(`🗑️ 删除规律: ${patternId}`);
+
+        res.json({
+            success: true,
+            message: '规律已删除'
+        });
+
+    } catch (error) {
+        log(`❌ 删除规律失败: ${error.message}`);
+        res.json({
+            success: false,
+            message: `删除规律失败: ${error.message}`
+        });
+    }
+});
+
+// ========== 规律生成功能 API 结束 ==========
+
 // ===== CSV导出辅助函数 =====
 
 /**

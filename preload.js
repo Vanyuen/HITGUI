@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   backupDatabase: () => ipcRenderer.invoke('backup-database'),
   restoreDatabase: () => ipcRenderer.invoke('restore-database'),
 
+  // 窗口管理
+  openPatternAnalysis: () => ipcRenderer.invoke('open-pattern-analysis'),
+
   // 平台信息
   platform: process.platform,
 

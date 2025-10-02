@@ -2116,4 +2116,20 @@ function collectDLTFilterConditions() {
     return conditions;
 }
 
+/**
+ * 打开规律分析窗口
+ */
+async function openPatternAnalysis() {
+    try {
+        console.log('🎯 正在打开规律分析窗口...');
+        const result = await window.electronAPI.openPatternAnalysis();
+        if (result.success) {
+            console.log('✅ 规律分析窗口已打开');
+        }
+    } catch (error) {
+        console.error('❌ 打开规律分析窗口失败:', error);
+        alert('打开规律分析窗口失败: ' + error.message);
+    }
+}
+
 // 旧版大乐透显示函数已删除，请使用新版界面 (dlt-module.js 中的 displayDLTCombinationResultsV3)

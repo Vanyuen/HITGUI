@@ -310,6 +310,34 @@ ipcMain.handle('restore-database', async () => {
   return { success: false, error: '用户取消操作' };
 });
 
+// IPC handler for opening pattern analysis window
+ipcMain.handle('open-pattern-analysis', () => {
+  const patternWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 1200,
+    minHeight: 700,
+    parent: mainWindow,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      preload: path.join(__dirname, 'preload.js'),
+      webSecurity: false
+    },
+    icon: path.join(__dirname, 'build/icon.png'),
+    title: 'HIT大乐透 - 规律分析系统'
+  });
+
+  patternWindow.loadURL('http://localhost:3003/pattern-analysis.html');
+
+  if (isDev) {
+    patternWindow.webContents.openDevTools();
+  }
+
+  return { success: true };
+});
+
 // 处理未捕获的异常
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);

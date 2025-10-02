@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>规律生成与分析 - HIT大乐透数据分析系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header {
+            padding: 20px 30px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            color: #333;
+        }
+
+        .tab-nav {
+            display: flex;
+            gap: 10px;
+            padding: 0 30px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .tab-btn {
+            padding: 15px 25px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-size: 15px;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .tab-btn:hover {
+            color: #3498db;
+        }
+
+        .tab-btn.active {
+            color: #3498db;
+            border-bottom-color: #3498db;
+            background: white;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 30px;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .config-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #229954;
+        }
+
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .pattern-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .pattern-card {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.3s;
+        }
+
+        .pattern-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .grade-badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .grade-S { background: #ff6b6b; color: white; }
+        .grade-A { background: #f39c12; color: white; }
+        .grade-B { background: #3498db; color: white; }
+        .grade-C { background: #95a5a6; color: white; }
+        .grade-D { background: #bdc3c7; color: white; }
+
+        .type-tag {
+            display: inline-block;
+            padding: 3px 8px;
+            background: #ecf0f1;
+            border-radius: 3px;
+            font-size: 12px;
+            color: #7f8c8d;
+        }
+
+        .card-body h4 {
+            font-size: 16px;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .description {
+            color: #7f8c8d;
+            font-size: 14px;
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .stat {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .stat label {
+            display: block;
+            font-size: 12px;
+            color: #7f8c8d;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .meter {
+            height: 5px;
+            background: #ecf0f1;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+
+        .meter-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db, #27ae60);
+            transition: width 0.3s;
+        }
+
+        .trend-icon {
+            display: inline-block;
+            margin-right: 5px;
+        }
+
+        .trend {
+            font-size: 13px;
+            color: #27ae60;
+            margin-top: 10px;
+        }
+
+        .card-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .filter-toolbar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            align-items: center;
+        }
+
+        .filter-toolbar select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .recommendation-result {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        .applied-patterns ul {
+            list-style: none;
+        }
+
+        .applied-patterns li {
+            padding: 10px;
+            background: white;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .pattern-name {
+            font-weight: 500;
+            color: #2c3e50;
+        }
+
+        .weight {
+            color: #7f8c8d;
+            font-size: 13px;
+        }
+
+        .reason {
+            color: #3498db;
+            font-size: 13px;
+        }
+
+        .filter-summary {
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+        }
+
+        .filter-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #ecf0f1;
+        }
+
+        .filter-item:last-child {
+            border-bottom: none;
+        }
+
+        .estimate-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .stat-box {
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+        }
+
+        .stat-box .label {
+            color: #7f8c8d;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+
+        .stat-box .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #27ae60;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #ecf0f1;
+            border-radius: 5px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db, #27ae60);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            transition: width 0.3s;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #7f8c8d;
+        }
+
+        .empty-state-icon {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 规律生成与分析</h1>
+            <button onclick="window.close()" class="btn btn-secondary">关闭</button>
+        </div>
+
+        <div class="tab-nav">
+            <button class="tab-btn active" onclick="switchTab('discovery')">规律发现</button>
+            <button class="tab-btn" onclick="switchTab('library')">规律库</button>
+            <button class="tab-btn" onclick="switchTab('recommend')">智能推荐</button>
+            <button class="tab-btn" onclick="switchTab('validate')">规律验证</button>
+        </div>
+
+        <!-- 规律发现面板 -->
+        <div id="discovery-tab" class="tab-content active">
+            <div class="config-section">
+                <h3>🔍 自动发现规律</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>分析期数:</label>
+                        <input type="number" id="analysis-periods" value="200" min="50" max="500">
+                    </div>
+                    <div class="form-group">
+                        <label>最小置信度:</label>
+                        <input type="number" id="min-confidence" value="0.7" min="0.5" max="1" step="0.05">
+                    </div>
+                    <div class="form-group">
+                        <label>最小支持度:</label>
+                        <input type="number" id="min-support" value="10" min="5" max="50">
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-top: 15px;">
+                    <label>规律类型:</label>
+                    <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                        <label><input type="checkbox" value="sum_pattern" checked> 和值规律</label>
+                        <label><input type="checkbox" value="span_pattern" checked> 跨度规律</label>
+                        <label><input type="checkbox" value="zone_ratio_pattern" checked> 区间比规律</label>
+                        <label><input type="checkbox" value="odd_even_pattern" checked> 奇偶比规律</label>
+                        <label><input type="checkbox" value="htc_ratio_pattern" checked> 热温冷比规律</label>
+                        <label><input type="checkbox" value="consecutive_pattern"> 连号规律</label>
+                        <label><input type="checkbox" value="repeat_number_pattern"> 重号规律</label>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" onclick="generatePatterns()" style="margin-top: 15px;">
+                    开始分析
+                </button>
+            </div>
+
+            <div id="discovery-loading" class="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>正在分析历史数据，发现规律中...</p>
+            </div>
+
+            <div id="discovery-result" style="display: none;"></div>
+        </div>
+
+        <!-- 规律库面板 -->
+        <div id="library-tab" class="tab-content">
+            <div class="filter-toolbar">
+                <select id="filter-type" onchange="loadPatterns()">
+                    <option value="">全部类型</option>
+                    <option value="sum_pattern">和值规律</option>
+                    <option value="span_pattern">跨度规律</option>
+                    <option value="zone_ratio_pattern">区间比规律</option>
+                    <option value="odd_even_pattern">奇偶比规律</option>
+                    <option value="htc_ratio_pattern">热温冷比规律</option>
+                    <option value="consecutive_pattern">连号规律</option>
+                    <option value="repeat_number_pattern">重号规律</option>
+                </select>
+
+                <select id="filter-grade" onchange="loadPatterns()">
+                    <option value="">全部等级</option>
+                    <option value="S">S级 (≥90分)</option>
+                    <option value="A">A级 (≥80分)</option>
+                    <option value="B">B级 (≥70分)</option>
+                </select>
+
+                <button class="btn btn-primary btn-sm" onclick="loadPatterns()">刷新</button>
+            </div>
+
+            <div id="patterns-container">
+                <div class="empty-state">
+                    <div class="empty-state-icon">📚</div>
+                    <p>暂无规律数据，请先生成规律</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 智能推荐面板 -->
+        <div id="recommend-tab" class="tab-content">
+            <div class="config-section">
+                <h3>🎯 基于规律的智能推荐</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>目标期号:</label>
+                        <input type="text" id="target-issue" placeholder="例如: 25088">
+                    </div>
+                    <div class="form-group">
+                        <label>最大应用规律数:</label>
+                        <input type="number" id="max-patterns" value="5" min="1" max="10">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="auto-select" checked>
+                        自动选择最优规律组合
+                    </label>
+                </div>
+
+                <button class="btn btn-primary" onclick="getRecommendation()">
+                    生成推荐
+                </button>
+            </div>
+
+            <div id="recommend-result" style="display: none;"></div>
+        </div>
+
+        <!-- 规律验证面板 -->
+        <div id="validate-tab" class="tab-content">
+            <div class="config-section">
+                <h3>✅ 规律验证与回测</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>选择规律:</label>
+                        <select id="pattern-to-validate">
+                            <option value="">请选择规律</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>验证期数:</label>
+                        <input type="number" id="test-periods" value="50" min="20" max="200">
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" onclick="validatePattern()">
+                    开始验证
+                </button>
+            </div>
+
+            <div id="validate-result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3000/api/dlt';
+
+        // 切换标签页
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+            event.target.classList.add('active');
+            document.getElementById(`${tabName}-tab`).classList.add('active');
+
+            // 加载规律库时刷新数据
+            if (tabName === 'library') {
+                loadPatterns();
+            } else if (tabName === 'validate') {
+                loadPatternsForValidation();
+            }
+        }
+
+        // 生成规律
+        async function generatePatterns() {
+            const periods = document.getElementById('analysis-periods').value;
+            const minConfidence = document.getElementById('min-confidence').value;
+            const minSupport = document.getElementById('min-support').value;
+
+            // 获取选中的规律类型
+            const patternTypes = [];
+            document.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+                patternTypes.push(cb.value);
+            });
+
+            if (patternTypes.length === 0) {
+                alert('请至少选择一种规律类型');
+                return;
+            }
+
+            document.getElementById('discovery-loading').style.display = 'block';
+            document.getElementById('discovery-result').style.display = 'none';
+
+            try {
+                const response = await fetch(`${API_BASE}/patterns/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        periods: parseInt(periods),
+                        minConfidence: parseFloat(minConfidence),
+                        minSupport: parseInt(minSupport),
+                        patternTypes
+                    })
+                });
+
+                const data = await response.json();
+
+                document.getElementById('discovery-loading').style.display = 'none';
+
+                if (data.success) {
+                    displayGenerationResult(data.data);
+                } else {
+                    alert('生成失败: ' + data.message);
+                }
+            } catch (error) {
+                document.getElementById('discovery-loading').style.display = 'none';
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 显示生成结果
+        function displayGenerationResult(data) {
+            const resultDiv = document.getElementById('discovery-result');
+            resultDiv.style.display = 'block';
+
+            const typeNames = {
+                'sum_pattern': '和值规律',
+                'span_pattern': '跨度规律',
+                'zone_ratio_pattern': '区间比规律',
+                'odd_even_pattern': '奇偶比规律',
+                'htc_ratio_pattern': '热温冷比规律',
+                'consecutive_pattern': '连号规律',
+                'repeat_number_pattern': '重号规律'
+            };
+
+            let html = `
+                <div class="alert alert-success">
+                    <h4>✅ 规律生成成功！</h4>
+                    <p>共生成 <strong>${data.generatedPatterns}</strong> 个规律，
+                    其中有效规律 <strong>${data.validPatterns}</strong> 个</p>
+                    <p>耗时: ${data.executionTime}</p>
+                </div>
+                <h4>规律分布:</h4>
+                <div class="stats" style="margin-bottom: 20px;">
+            `;
+
+            for (const [type, count] of Object.entries(data.patternsByType)) {
+                html += `
+                    <div class="stat">
+                        <label>${typeNames[type] || type}</label>
+                        <div class="stat-value">${count} 个</div>
+                    </div>
+                `;
+            }
+
+            html += '</div><h4>生成的规律:</h4>';
+
+            data.patterns.forEach(pattern => {
+                html += `
+                    <div class="pattern-card">
+                        <div class="card-header">
+                            <span class="grade-badge grade-${pattern.grade}">${pattern.grade}</span>
+                            <span class="type-tag">${typeNames[pattern.pattern_type] || pattern.pattern_type}</span>
+                        </div>
+                        <div class="card-body">
+                            <h4>${pattern.pattern_name}</h4>
+                            <div class="stat">
+                                <label>得分</label>
+                                <div class="stat-value">${pattern.totalScore.toFixed(1)}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            resultDiv.innerHTML = html;
+        }
+
+        // 加载规律库
+        async function loadPatterns() {
+            const type = document.getElementById('filter-type').value;
+            const grade = document.getElementById('filter-grade').value;
+
+            try {
+                const params = new URLSearchParams();
+                if (type) params.append('type', type);
+                if (grade) params.append('grade', grade);
+                params.append('limit', '50');
+
+                const response = await fetch(`${API_BASE}/patterns/list?${params}`);
+                const data = await response.json();
+
+                if (data.success && data.data.patterns.length > 0) {
+                    displayPatterns(data.data.patterns);
+                } else {
+                    document.getElementById('patterns-container').innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📚</div>
+                            <p>暂无规律数据</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('加载规律失败:', error);
+            }
+        }
+
+        // 显示规律卡片
+        function displayPatterns(patterns) {
+            const typeNames = {
+                'sum_pattern': '和值规律',
+                'span_pattern': '跨度规律',
+                'zone_ratio_pattern': '区间比规律',
+                'odd_even_pattern': '奇偶比规律',
+                'htc_ratio_pattern': '热温冷比规律',
+                'consecutive_pattern': '连号规律',
+                'repeat_number_pattern': '重号规律'
+            };
+
+            let html = '<div class="pattern-cards">';
+            patterns.forEach(pattern => {
+                const trendIcon = pattern.trend.trendDirection === 'up' ? '📈' :
+                                 pattern.trend.trendDirection === 'down' ? '📉' : '━';
+
+                html += `
+                    <div class="pattern-card">
+                        <div class="card-header">
+                            <span class="grade-badge grade-${pattern.grade}">${pattern.grade}</span>
+                            <span class="type-tag">${typeNames[pattern.pattern_type] || pattern.pattern_type}</span>
+                        </div>
+                        <div class="card-body">
+                            <h4>${pattern.pattern_name}</h4>
+                            <p class="description">${pattern.description}</p>
+                            <div class="stats">
+                                <div class="stat">
+                                    <label>置信度</label>
+                                    <div class="stat-value">${(pattern.confidence * 100).toFixed(0)}%</div>
+                                    <div class="meter">
+                                        <div class="meter-fill" style="width: ${pattern.confidence * 100}%"></div>
+                                    </div>
+                                </div>
+                                <div class="stat">
+                                    <label>准确率</label>
+                                    <div class="stat-value">${(pattern.accuracy * 100).toFixed(0)}%</div>
+                                    <div class="meter">
+                                        <div class="meter-fill" style="width: ${pattern.accuracy * 100}%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="trend">
+                                <span class="trend-icon">${trendIcon}</span>
+                                ${pattern.trend.status === 'strengthening' ? '趋势增强' :
+                                  pattern.trend.status === 'weakening' ? '趋势减弱' : '趋势稳定'}
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn btn-sm btn-primary" onclick="viewPatternDetail('${pattern.pattern_id}')">详情</button>
+                                <button class="btn btn-sm btn-success" onclick="applyPattern('${pattern.pattern_id}')">应用</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+
+            document.getElementById('patterns-container').innerHTML = html;
+        }
+
+        // 获取智能推荐
+        async function getRecommendation() {
+            const targetIssue = document.getElementById('target-issue').value;
+            const maxPatterns = document.getElementById('max-patterns').value;
+            const autoSelect = document.getElementById('auto-select').checked;
+
+            if (!targetIssue) {
+                alert('请输入目标期号');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/patterns/recommend`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        targetIssue,
+                        autoSelect,
+                        maxPatterns: parseInt(maxPatterns)
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    displayRecommendation(data.data);
+                } else {
+                    alert('推荐失败: ' + data.message);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 显示推荐结果
+        function displayRecommendation(data) {
+            const resultDiv = document.getElementById('recommend-result');
+            resultDiv.style.display = 'block';
+
+            let html = `
+                <div class="recommendation-result">
+                    <h4>应用的规律 (${data.appliedPatterns.length}条)</h4>
+                    <div class="applied-patterns">
+                        <ul>
+            `;
+
+            data.appliedPatterns.forEach(pattern => {
+                html += `
+                    <li>
+                        <span class="pattern-name">${pattern.pattern_name}</span>
+                        <div>
+                            <span class="weight">权重: ${(pattern.weight * 100).toFixed(0)}%</span>
+                            <span class="reason">${pattern.reason}</span>
+                        </div>
+                    </li>
+                `;
+            });
+
+            html += `
+                        </ul>
+                    </div>
+                    <h4 style="margin-top: 20px;">推荐的筛选条件</h4>
+                    <div class="filter-summary">
+            `;
+
+            if (data.recommendedFilters.sumRange && data.recommendedFilters.sumRange.length > 0) {
+                html += `
+                    <div class="filter-item">
+                        <label>和值范围:</label>
+                        <span>${data.recommendedFilters.sumRange[0]} - ${data.recommendedFilters.sumRange[1]}</span>
+                    </div>
+                `;
+            }
+
+            if (data.recommendedFilters.htcRatios && data.recommendedFilters.htcRatios.length > 0) {
+                html += `
+                    <div class="filter-item">
+                        <label>热温冷比:</label>
+                        <span>${data.recommendedFilters.htcRatios.join(', ')}</span>
+                    </div>
+                `;
+            }
+
+            if (data.recommendedFilters.zoneRatios && data.recommendedFilters.zoneRatios.length > 0) {
+                html += `
+                    <div class="filter-item">
+                        <label>区间比:</label>
+                        <span>${data.recommendedFilters.zoneRatios.join(', ')}</span>
+                    </div>
+                `;
+            }
+
+            html += `
+                    </div>
+                    <button class="btn btn-success" onclick="applyToPredict()" style="margin-top: 15px;">
+                        应用到组合预测功能
+                    </button>
+                    <h4 style="margin-top: 20px;">预期效果</h4>
+                    <div class="estimate-stats">
+                        <div class="stat-box">
+                            <div class="label">预期准确率</div>
+                            <div class="value">${data.prediction.expectedAccuracy}</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="label">置信度</div>
+                            <div class="value">${data.prediction.confidence}</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="label">预计组合数</div>
+                            <div class="value">${data.prediction.estimatedCombinations}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            resultDiv.innerHTML = html;
+        }
+
+        // 加载规律用于验证
+        async function loadPatternsForValidation() {
+            try {
+                const response = await fetch(`${API_BASE}/patterns/list?limit=100`);
+                const data = await response.json();
+
+                const select = document.getElementById('pattern-to-validate');
+                select.innerHTML = '<option value="">请选择规律</option>';
+
+                if (data.success && data.data.patterns.length > 0) {
+                    data.data.patterns.forEach(pattern => {
+                        const option = document.createElement('option');
+                        option.value = pattern.pattern_id;
+                        option.textContent = `${pattern.pattern_name} (${pattern.grade}级)`;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('加载规律失败:', error);
+            }
+        }
+
+        // 验证规律
+        async function validatePattern() {
+            const patternId = document.getElementById('pattern-to-validate').value;
+            const testPeriods = document.getElementById('test-periods').value;
+
+            if (!patternId) {
+                alert('请选择要验证的规律');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/patterns/validate/${patternId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ testPeriods: parseInt(testPeriods) })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    displayValidationResult(data.data);
+                } else {
+                    alert('验证失败: ' + data.message);
+                }
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            }
+        }
+
+        // 显示验证结果
+        function displayValidationResult(data) {
+            const resultDiv = document.getElementById('validate-result');
+            resultDiv.style.display = 'block';
+
+            let html = `
+                <div class="alert alert-success">
+                    <h4>✅ 验证完成</h4>
+                    <div class="stats">
+                        <div class="stat">
+                            <label>命中次数</label>
+                            <div class="stat-value" style="color: #27ae60;">${data.validation.hitCount}</div>
+                        </div>
+                        <div class="stat">
+                            <label>未命中次数</label>
+                            <div class="stat-value" style="color: #e74c3c;">${data.validation.missCount}</div>
+                        </div>
+                        <div class="stat">
+                            <label>准确率</label>
+                            <div class="stat-value">${data.validation.accuracy}</div>
+                        </div>
+                    </div>
+                </div>
+                <h4>最近20期验证记录</h4>
+                <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+                    <thead>
+                        <tr style="background: #f8f9fa;">
+                            <th style="padding: 10px; border: 1px solid #ddd;">期号</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">规律预期</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">实际结果</th>
+                            <th style="padding: 10px; border: 1px solid #ddd;">命中</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            data.recentPerformance.forEach(record => {
+                const hitColor = record.hit ? '#27ae60' : '#e74c3c';
+                const hitIcon = record.hit ? '✓' : '✗';
+                html += `
+                    <tr>
+                        <td style="padding: 8px; border: 1px solid #ddd;">${record.issue}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">${record.expected}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">${record.actual}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd; color: ${hitColor}; font-weight: bold;">${hitIcon}</td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            resultDiv.innerHTML = html;
+        }
+
+        // 应用规律到组合预测（需要实现与组合预测功能的联动）
+        function applyToPredict() {
+            alert('此功能将在组合预测界面中集成，敬请期待！');
+        }
+
+        // 查看规律详情
+        function viewPatternDetail(patternId) {
+            alert(`查看规律详情: ${patternId}\n此功能正在开发中...`);
+        }
+
+        // 应用单个规律
+        function applyPattern(patternId) {
+            alert(`应用规律: ${patternId}\n此功能将集成到组合预测中...`);
+        }
+
+        // 页面加载完成后初始化
+        window.addEventListener('load', () => {
+            console.log('规律分析界面已加载');
+        });
+    </script>
+</body>
+</html>
