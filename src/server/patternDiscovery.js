@@ -304,9 +304,15 @@ class PatternDiscoveryEngine {
             .filter(d => d.htcRatio && d.htcRatio !== '')
             .map(d => d.htcRatio);
 
-        if (htcSequence.length < this.minSupport) {
-            console.warn(`⚠️ 热温冷数据不足：仅${htcSequence.length}期，需要至少${this.minSupport}期`);
+        console.log(`📊 热温冷数据统计: 总期数${historicalData.length}, 有效数据${htcSequence.length}期`);
+
+        if (htcSequence.length === 0) {
+            console.warn(`⚠️ 没有任何热温冷数据，无法生成规律`);
             return patterns;
+        }
+
+        if (htcSequence.length < this.minSupport) {
+            console.warn(`⚠️ 热温冷数据较少：仅${htcSequence.length}期，建议至少${this.minSupport}期，但仍会生成基础分布规律`);
         }
 
         // 1. 热温冷周期检测

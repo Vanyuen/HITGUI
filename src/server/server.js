@@ -13678,6 +13678,9 @@ app.post('/api/dlt/patterns/generate', async (req, res) => {
         historicalData.reverse();
 
         // 2. 为每期数据添加热温冷比
+        let htcSuccessCount = 0;
+        let missingDataCount = 0;
+
         for (let i = 0; i < historicalData.length; i++) {
             const currentIssue = historicalData[i].Issue.toString();
             const previousIssue = (historicalData[i].Issue - 1).toString();
@@ -13717,12 +13720,25 @@ app.post('/api/dlt/patterns/generate', async (req, res) => {
                 // 只有当统计完成且总数为5时才设置热温冷比
                 if (hot + warm + cold === 5) {
                     historicalData[i].htcRatio = `${hot}:${warm}:${cold}`;
+                    htcSuccessCount++;
                 } else {
                     log(`⚠️ 期号 ${currentIssue} 热温冷比计算异常: ${hot}:${warm}:${cold} (总数应为5)`);
                 }
             } else {
-                log(`⚠️ 找不到期号 ${previousIssue} 的遗漏数据`);
+                missingDataCount++;
+                if (missingDataCount <= 3) {
+                    log(`⚠️ 找不到期号 ${previousIssue} 的遗漏数据`);
+                }
             }
+        }
+
+        log(`📊 热温冷比计算统计: 成功${htcSuccessCount}期, 遗漏数据缺失${missingDataCount}期, 总计${historicalData.length}期`);
+
+        if (htcSuccessCount === 0) {
+            return res.json({
+                success: false,
+                message: `热温冷比数据不足，数据库中缺少遗漏数据。请确保 DLTRedMissing 表有数据。`
+            });
         }
 
         // 3. 初始化规律发现引擎
