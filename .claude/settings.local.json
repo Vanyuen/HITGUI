@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm start)",
+      "Bash(tasklist:*)",
+      "Bash(taskkill:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(node:*)",
+      "Bash(del insert-test-data.js test-data.json)",
+      "Bash(mongosh:*)",
+      "Bash(mongo:*)",
+      "Bash(dir)",
+      "Bash(dir:*)",
+      "Bash(cmd /c:*)",
+      "Bash(grep:*)",
+      "Read(//e/**)",
+      "Bash(cd:*)",
+      "Bash(del check-continuity.js)",
+      "Bash(powershell:*)",
+      "Bash(del check-tasks.js check-collections.js check-all-collections.js list-tasks.js check-combo-collections.js check-period-collections.js check-hit-dlts.js check-red-missing.js check-red-missing2.js)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

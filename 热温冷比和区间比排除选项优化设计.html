@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HIT大乐透 - 热温冷比和区间比排除选项设计</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', 'SimHei', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 600;
+        }
+
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 16px;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .section {
+            margin-bottom: 50px;
+            background: #f8f9ff;
+            border-radius: 12px;
+            padding: 30px;
+            border-left: 4px solid #4facfe;
+        }
+
+        .section-title {
+            display: flex;
+            align-items: center;
+            margin-bottom: 25px;
+            font-size: 20px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .section-title .icon {
+            font-size: 24px;
+            margin-right: 12px;
+        }
+
+        .options-container {
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+
+        .option-group {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e1e8ed;
+        }
+
+        .group-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f1f3f5;
+        }
+
+        .group-title {
+            font-weight: 600;
+            color: #495057;
+            font-size: 16px;
+        }
+
+        .group-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .badge-extreme {
+            background: #ffe8e8;
+            color: #dc3545;
+        }
+
+        .badge-high {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .badge-balanced {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .ratio-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .ratio-item {
+            display: flex;
+            align-items: center;
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 12px 16px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .ratio-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .ratio-item:hover {
+            border-color: #4facfe;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(79, 172, 254, 0.2);
+        }
+
+        .ratio-item:hover::before {
+            opacity: 0.05;
+        }
+
+        .ratio-item input[type="checkbox"] {
+            margin-right: 10px;
+            width: 18px;
+            height: 18px;
+            accent-color: #4facfe;
+            position: relative;
+            z-index: 1;
+        }
+
+        .ratio-item label {
+            font-weight: 500;
+            color: #495057;
+            cursor: pointer;
+            position: relative;
+            z-index: 1;
+            flex: 1;
+            margin: 0;
+        }
+
+        .ratio-item.checked {
+            background: #e7f3ff;
+            border-color: #4facfe;
+            box-shadow: 0 4px 12px rgba(79, 172, 254, 0.15);
+        }
+
+        .quick-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .quick-btn {
+            padding: 8px 16px;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            background: white;
+            color: #495057;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .quick-btn:hover {
+            border-color: #4facfe;
+            background: #4facfe;
+            color: white;
+        }
+
+        .stats-info {
+            background: #f1f3f5;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            border-left: 4px solid #6c757d;
+        }
+
+        .stats-title {
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 8px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: #4facfe;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 2px;
+        }
+
+        .recommendation {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 30px;
+        }
+
+        .recommendation h3 {
+            margin: 0 0 10px 0;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+        }
+
+        .recommendation .icon {
+            margin-right: 10px;
+            font-size: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                padding: 20px;
+            }
+
+            .ratio-grid {
+                grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+                gap: 8px;
+            }
+
+            .ratio-item {
+                padding: 8px 12px;
+                font-size: 14px;
+            }
+
+            .quick-actions {
+                justify-content: center;
+            }
+        }
+
+        /* 动画效果 */
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .option-group {
+            animation: slideIn 0.6s ease forwards;
+        }
+
+        .option-group:nth-child(1) { animation-delay: 0.1s; }
+        .option-group:nth-child(2) { animation-delay: 0.2s; }
+        .option-group:nth-child(3) { animation-delay: 0.3s; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 HIT大乐透组合批量预测</h1>
+            <p>热温冷比排除 & 区间比排除 - 智能选项配置</p>
+        </div>
+
+        <div class="content">
+            <!-- 热温冷比排除选项 -->
+            <div class="section">
+                <div class="section-title">
+                    <span class="icon">🌡️</span>
+                    <span>热温冷比排除选项 (热:温:冷)</span>
+                </div>
+
+                <div class="quick-actions">
+                    <button class="quick-btn" onclick="selectHwcGroup('extreme')">选择极端</button>
+                    <button class="quick-btn" onclick="selectHwcGroup('high')">选择高倾向</button>
+                    <button class="quick-btn" onclick="selectHwcGroup('balanced')">选择平衡</button>
+                    <button class="quick-btn" onclick="selectHwcGroup('all')">全选</button>
+                    <button class="quick-btn" onclick="selectHwcGroup('none')">清空</button>
+                </div>
+
+                <div class="options-container">
+                    <!-- 极端比例组 -->
+                    <div class="option-group">
+                        <div class="group-header">
+                            <span class="group-title">极端比例</span>
+                            <span class="group-badge badge-extreme">高风险</span>
+                        </div>
+                        <div class="ratio-grid">
+                            <div class="ratio-item" data-group="extreme">
+                                <input type="checkbox" id="hwc-5-0-0" value="5:0:0">
+                                <label for="hwc-5-0-0">5:0:0</label>
+                            </div>
+                            <div class="ratio-item" data-group="extreme">
+                                <input type="checkbox" id="hwc-0-5-0" value="0:5:0">
+                                <label for="hwc-0-5-0">0:5:0</label>
+                            </div>
+                            <div class="ratio-item" data-group="extreme">
+                                <input type="checkbox" id="hwc-0-0-5" value="0:0:5">
+                                <label for="hwc-0-0-5">0:0:5</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 高倾向比例组 -->
+                    <div class="option-group">
+                        <div class="group-header">
+                            <span class="group-title">高倾向比例</span>
+                            <span class="group-badge badge-high">中风险</span>
+                        </div>
+                        <div class="ratio-grid">
+                            <div class="ratio-item" data-group="high">
+                                <input type="checkbox" id="hwc-4-1-0" value="4:1:0">
+                                <label for="hwc-4-1-0">4:1:0</label>
+                            </div>
+                            <div class="ratio-item" data-group="high">
+                                <input type="checkbox" id="hwc-4-0-1" value="4:0:1">
+                                <label for="hwc-4-0-1">4:0:1</label>
+                            </div>
+                            <div class="ratio-item" data-group="high">
+                                <input type="checkbox" id="hwc-1-4-0" value="1:4:0">
+                                <label for="hwc-1-4-0">1:4:0</label>
+                            </div>
+                            <div class="ratio-item" data-group="high">
+                                <input type="checkbox" id="hwc-0-4-1" value="0:4:1">
+                                <label for="hwc-0-4-1">0:4:1</label>
+                            </div>
+                            <div class="ratio-item" data-group="high">
+                                <input type="checkbox" id="hwc-1-0-4" value="1:0:4">
+                                <label for="hwc-1-0-4">1:0:4</label>
+                            </div>
+                            <div class="ratio-item" data-group="high">
+                                <input type="checkbox" id="hwc-0-1-4" value="0:1:4">
+                                <label for="hwc-0-1-4">0:1:4</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 平衡比例组 -->
+                    <div class="option-group">
+                        <div class="group-header">
+                            <span class="group-title">平衡比例</span>
+                            <span class="group-badge badge-balanced">推荐保留</span>
+                        </div>
+                        <div class="ratio-grid">
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="hwc-3-2-0" value="3:2:0">
+                                <label for="hwc-3-2-0">3:2:0</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="hwc-3-1-1" value="3:1:1">
+                                <label for="hwc-3-1-1">3:1:1</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="hwc-3-0-2" value="3:0:2">
+                                <label for="hwc-3-0-2">3:0:2</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="hwc-2-3-0" value="2:3:0">
+                                <label for="hwc-2-3-0">2:3:0</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="hwc-2-2-1" value="2:2:1">
+                                <label for="hwc-2-2-1">2:2:1</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="hwc-2-1-2" value="2:1:2">
+                                <label for="hwc-2-1-2">2:1:2</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="hwc-2-0-3" value="2:0:3">
+                                <label for="hwc-2-0-3">2:0:3</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="hwc-1-3-1" value="1:3:1">
+                                <label for="hwc-1-3-1">1:3:1</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="hwc-1-2-2" value="1:2:2">
+                                <label for="hwc-1-2-2">1:2:2</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="hwc-1-1-3" value="1:1:3">
+                                <label for="hwc-1-1-3">1:1:3</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="hwc-0-3-2" value="0:3:2">
+                                <label for="hwc-0-3-2">0:3:2</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="hwc-0-2-3" value="0:2:3">
+                                <label for="hwc-0-2-3">0:2:3</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stats-info">
+                    <div class="stats-title">📊 热温冷比选择统计</div>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value" id="hwc-selected-count">0</div>
+                            <div class="stat-label">已选择</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="hwc-total-count">21</div>
+                            <div class="stat-label">总数</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="hwc-exclude-percent">0%</div>
+                            <div class="stat-label">排除率</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 区间比排除选项 -->
+            <div class="section">
+                <div class="section-title">
+                    <span class="icon">🎯</span>
+                    <span>区间比排除选项 (一区1-12:二区13-24:三区25-35)</span>
+                </div>
+
+                <div class="quick-actions">
+                    <button class="quick-btn" onclick="selectZoneGroup('extreme')">选择极端</button>
+                    <button class="quick-btn" onclick="selectZoneGroup('high')">选择高倾向</button>
+                    <button class="quick-btn" onclick="selectZoneGroup('balanced')">选择平衡</button>
+                    <button class="quick-btn" onclick="selectZoneGroup('all')">全选</button>
+                    <button class="quick-btn" onclick="selectZoneGroup('none')">清空</button>
+                </div>
+
+                <div class="options-container">
+                    <!-- 极端比例组 -->
+                    <div class="option-group">
+                        <div class="group-header">
+                            <span class="group-title">极端比例</span>
+                            <span class="group-badge badge-extreme">高风险</span>
+                        </div>
+                        <div class="ratio-grid">
+                            <div class="ratio-item" data-group="extreme">
+                                <input type="checkbox" id="zone-5-0-0" value="5:0:0">
+                                <label for="zone-5-0-0">5:0:0</label>
+                            </div>
+                            <div class="ratio-item" data-group="extreme">
+                                <input type="checkbox" id="zone-0-5-0" value="0:5:0">
+                                <label for="zone-0-5-0">0:5:0</label>
+                            </div>
+                            <div class="ratio-item" data-group="extreme">
+                                <input type="checkbox" id="zone-0-0-5" value="0:0:5">
+                                <label for="zone-0-0-5">0:0:5</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 高倾向比例组 -->
+                    <div class="option-group">
+                        <div class="group-header">
+                            <span class="group-title">高倾向比例</span>
+                            <span class="group-badge badge-high">中风险</span>
+                        </div>
+                        <div class="ratio-grid">
+                            <div class="ratio-item" data-group="high">
+                                <input type="checkbox" id="zone-4-1-0" value="4:1:0">
+                                <label for="zone-4-1-0">4:1:0</label>
+                            </div>
+                            <div class="ratio-item" data-group="high">
+                                <input type="checkbox" id="zone-4-0-1" value="4:0:1">
+                                <label for="zone-4-0-1">4:0:1</label>
+                            </div>
+                            <div class="ratio-item" data-group="high">
+                                <input type="checkbox" id="zone-1-4-0" value="1:4:0">
+                                <label for="zone-1-4-0">1:4:0</label>
+                            </div>
+                            <div class="ratio-item" data-group="high">
+                                <input type="checkbox" id="zone-0-4-1" value="0:4:1">
+                                <label for="zone-0-4-1">0:4:1</label>
+                            </div>
+                            <div class="ratio-item" data-group="high">
+                                <input type="checkbox" id="zone-1-0-4" value="1:0:4">
+                                <label for="zone-1-0-4">1:0:4</label>
+                            </div>
+                            <div class="ratio-item" data-group="high">
+                                <input type="checkbox" id="zone-0-1-4" value="0:1:4">
+                                <label for="zone-0-1-4">0:1:4</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 平衡比例组 -->
+                    <div class="option-group">
+                        <div class="group-header">
+                            <span class="group-title">平衡比例</span>
+                            <span class="group-badge badge-balanced">推荐保留</span>
+                        </div>
+                        <div class="ratio-grid">
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="zone-3-2-0" value="3:2:0">
+                                <label for="zone-3-2-0">3:2:0</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="zone-3-1-1" value="3:1:1">
+                                <label for="zone-3-1-1">3:1:1</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="zone-3-0-2" value="3:0:2">
+                                <label for="zone-3-0-2">3:0:2</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="zone-2-3-0" value="2:3:0">
+                                <label for="zone-2-3-0">2:3:0</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="zone-2-2-1" value="2:2:1">
+                                <label for="zone-2-2-1">2:2:1</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="zone-2-1-2" value="2:1:2">
+                                <label for="zone-2-1-2">2:1:2</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="zone-2-0-3" value="2:0:3">
+                                <label for="zone-2-0-3">2:0:3</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="zone-1-3-1" value="1:3:1">
+                                <label for="zone-1-3-1">1:3:1</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="zone-1-2-2" value="1:2:2">
+                                <label for="zone-1-2-2">1:2:2</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="zone-1-1-3" value="1:1:3">
+                                <label for="zone-1-1-3">1:1:3</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="zone-0-3-2" value="0:3:2">
+                                <label for="zone-0-3-2">0:3:2</label>
+                            </div>
+                            <div class="ratio-item" data-group="balanced">
+                                <input type="checkbox" id="zone-0-2-3" value="0:2:3">
+                                <label for="zone-0-2-3">0:2:3</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stats-info">
+                    <div class="stats-title">📊 区间比选择统计</div>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value" id="zone-selected-count">0</div>
+                            <div class="stat-label">已选择</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="zone-total-count">21</div>
+                            <div class="stat-label">总数</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="zone-exclude-percent">0%</div>
+                            <div class="stat-label">排除率</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 智能推荐 -->
+            <div class="recommendation">
+                <h3><span class="icon">💡</span>智能推荐</h3>
+                <p><strong>新手建议：</strong>建议排除极端比例(5:0:0, 0:5:0, 0:0:5)，保留平衡比例以获得更稳定的预测结果。</p>
+                <p><strong>进阶策略：</strong>根据最近30期的历史数据，动态调整排除策略，避免过度集中在某一类型。</p>
+                <p><strong>优化提示：</strong>排除率建议控制在20%-40%之间，既能过滤不合理组合，又保证足够的预测组合数量。</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 热温冷比选择统计更新
+        function updateHwcStats() {
+            const checkboxes = document.querySelectorAll('input[id^="hwc-"]');
+            const selectedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+            const totalCount = checkboxes.length;
+            const excludePercent = Math.round((selectedCount / totalCount) * 100);
+
+            document.getElementById('hwc-selected-count').textContent = selectedCount;
+            document.getElementById('hwc-exclude-percent').textContent = excludePercent + '%';
+        }
+
+        // 区间比选择统计更新
+        function updateZoneStats() {
+            const checkboxes = document.querySelectorAll('input[id^="zone-"]');
+            const selectedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+            const totalCount = checkboxes.length;
+            const excludePercent = Math.round((selectedCount / totalCount) * 100);
+
+            document.getElementById('zone-selected-count').textContent = selectedCount;
+            document.getElementById('zone-exclude-percent').textContent = excludePercent + '%';
+        }
+
+        // 热温冷比快速选择
+        function selectHwcGroup(type) {
+            const checkboxes = document.querySelectorAll('input[id^="hwc-"]');
+
+            checkboxes.forEach(cb => {
+                const item = cb.closest('.ratio-item');
+                switch(type) {
+                    case 'extreme':
+                        cb.checked = item.dataset.group === 'extreme';
+                        break;
+                    case 'high':
+                        cb.checked = item.dataset.group === 'high';
+                        break;
+                    case 'balanced':
+                        cb.checked = item.dataset.group === 'balanced';
+                        break;
+                    case 'all':
+                        cb.checked = true;
+                        break;
+                    case 'none':
+                        cb.checked = false;
+                        break;
+                }
+                updateItemStyle(item, cb.checked);
+            });
+
+            updateHwcStats();
+        }
+
+        // 区间比快速选择
+        function selectZoneGroup(type) {
+            const checkboxes = document.querySelectorAll('input[id^="zone-"]');
+
+            checkboxes.forEach(cb => {
+                const item = cb.closest('.ratio-item');
+                switch(type) {
+                    case 'extreme':
+                        cb.checked = item.dataset.group === 'extreme';
+                        break;
+                    case 'high':
+                        cb.checked = item.dataset.group === 'high';
+                        break;
+                    case 'balanced':
+                        cb.checked = item.dataset.group === 'balanced';
+                        break;
+                    case 'all':
+                        cb.checked = true;
+                        break;
+                    case 'none':
+                        cb.checked = false;
+                        break;
+                }
+                updateItemStyle(item, cb.checked);
+            });
+
+            updateZoneStats();
+        }
+
+        // 更新选项样式
+        function updateItemStyle(item, checked) {
+            if (checked) {
+                item.classList.add('checked');
+            } else {
+                item.classList.remove('checked');
+            }
+        }
+
+        // 初始化事件监听
+        document.addEventListener('DOMContentLoaded', function() {
+            // 热温冷比复选框事件
+            document.querySelectorAll('input[id^="hwc-"]').forEach(cb => {
+                cb.addEventListener('change', function() {
+                    updateItemStyle(this.closest('.ratio-item'), this.checked);
+                    updateHwcStats();
+                });
+            });
+
+            // 区间比复选框事件
+            document.querySelectorAll('input[id^="zone-"]').forEach(cb => {
+                cb.addEventListener('change', function() {
+                    updateItemStyle(this.closest('.ratio-item'), this.checked);
+                    updateZoneStats();
+                });
+            });
+
+            // 初始化统计
+            updateHwcStats();
+            updateZoneStats();
+        });
+    </script>
+</body>
+</html>

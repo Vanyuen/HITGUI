@@ -1,0 +1,119 @@
+/* 
+ * 滚动条统一管理 - 确保只有一个主滚动条
+ * 此文件应该在所有其他CSS文件之后加载以覆盖设置
+ */
+
+/* ===== 主滚动条策略 ===== */
+/* 只在主内容区域保留滚动条 */
+.main-content {
+    overflow: auto !important;
+    min-height: calc(100vh - 60px) !important;
+}
+
+/* ===== 移除所有内部滚动条 ===== */
+/* 面板相关容器 */
+.panel,
+.panel-container,
+.panel-content {
+    overflow: visible !important;
+    max-height: none !important;
+}
+
+/* 内容区域 */
+.content-body {
+    overflow-y: visible !important;
+    overflow-x: visible !important;
+}
+
+/* 组合预测相关容器 */
+#dlt-combination-content,
+.combination-results-container,
+.prediction-results,
+.prediction-table-container {
+    overflow: visible !important;
+    max-height: none !important;
+}
+
+/* 表格容器 - 组合预测专用 */
+.table-container.prediction-table,
+.combinations-table-container {
+    overflow: visible !important;
+    max-height: none !important;
+}
+
+/* DLT 表格容器 */
+.dlt-trend-table-container {
+    overflow: visible !important;
+    min-height: calc(100vh - 300px) !important;
+    max-height: none !important;
+}
+
+/* ===== 保留必要的滚动条 ===== */
+/* 开奖历史表格 - 保留垂直滚动用于浏览历史数据 */
+.table-container:not(.prediction-table) {
+    max-height: 600px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* 模态框 - 保留滚动 */
+.modal-body {
+    overflow-y: auto;
+}
+
+/* 小型选择器 - 保留滚动 */
+.number-selector-grid {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+/* 走势图表格 - 只保留水平滚动 */
+.trend-table-container,
+.sum-table-container {
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+}
+
+/* ===== 调试样式 ===== */
+/* 在开发时可以启用这些样式来可视化滚动容器 */
+/*
+.main-content {
+    border: 2px solid green !important;
+}
+
+[style*="overflow"] {
+    border: 1px dashed red !important;
+}
+*/
+
+/* ===== 响应式调整 ===== */
+@media (max-width: 768px) {
+    .main-content {
+        min-height: calc(100vh - 50px) !important;
+    }
+}
+
+/* ===== 滚动条美化 - 只影响主滚动条 ===== */
+.main-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.main-content::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.main-content::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+.main-content::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
+}
+
+/* Firefox 滚动条样式 */
+.main-content {
+    scrollbar-width: thin;
+    scrollbar-color: #c1c1c1 #f1f1f1;
+}

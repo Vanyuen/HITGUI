@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>简单测试页面</title>
+</head>
+<body>
+    <h1>服务器运行正常</h1>
+    <p>当前时间: <span id="time"></span></p>
+    
+    <div>
+        <h2>测试命中数API</h2>
+        <button onclick="testAPI()">测试API调用</button>
+        <div id="result"></div>
+    </div>
+
+    <script>
+        // 显示当前时间
+        document.getElementById('time').textContent = new Date().toLocaleString();
+        
+        // 测试API
+        async function testAPI() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '正在测试...';
+            
+            try {
+                const response = await fetch('/api/dlt/new-combination-prediction?targetIssue=25087&baseIssue=25086&limit=3');
+                const data = await response.json();
+                
+                console.log('API测试结果:', data);
+                
+                if (data.success) {
+                    const historyData = data.data.historyData;
+                    resultDiv.innerHTML = `
+                        <h3 style="color: green;">✅ API调用成功</h3>
+                        <p>组合数量: ${data.data.combinations?.length || 0}</p>
+                        <p>历史数据: ${historyData ? historyData.length + '期' : '无'}</p>
+                        ${historyData && historyData.length > 0 ? `
+                            <p>最新一期: ${historyData[0].Issue}期 - 红球 ${historyData[0].Red1} ${historyData[0].Red2} ${historyData[0].Red3} ${historyData[0].Red4} ${historyData[0].Red5}</p>
+                        ` : ''}
+                    `;
+                } else {
+                    resultDiv.innerHTML = `<p style="color: red;">❌ API失败: ${data.message}</p>`;
+                }
+            } catch (error) {
+                console.error('API测试错误:', error);
+                resultDiv.innerHTML = `<p style="color: red;">❌ 请求失败: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

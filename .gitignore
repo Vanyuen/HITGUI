@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build outputs
+dist/
+build/
+*.exe
+*.msi
+*.dmg
+*.pkg
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lottery.log
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+.env.local
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+nul
+
+# MongoDB data
+data/
+*.lock
+
+# Test files
+coverage/
+.nyc_output/
+
+# Exports
+exports/*.csv
+exports/*.xlsx
+exports/*.json
+exports/*.txt
+
+# Database dumps
+*.dump
+*.bson
