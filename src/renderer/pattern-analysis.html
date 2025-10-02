@@ -1213,7 +1213,7 @@
             `;
 
             try {
-                const response = await fetch(`${API_BASE}/patterns/${patternId}`);
+                const response = await fetch(`${API_BASE}/patterns/detail/${patternId}`);
                 if (!response.ok) throw new Error('获取规律详情失败');
 
                 const data = await response.json();
