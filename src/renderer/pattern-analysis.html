@@ -1217,7 +1217,18 @@
                 if (!response.ok) throw new Error('获取规律详情失败');
 
                 const data = await response.json();
-                const pattern = data.data;
+
+                if (!data.success) {
+                    throw new Error(data.message || '获取规律详情失败');
+                }
+
+                const pattern = data.data.pattern;
+
+                // 提供默认值防止字段不存在
+                const statistics = pattern.statistics || {};
+                const score = pattern.score || { totalScore: 0, grade: 'D', breakdown: {} };
+                const breakdown = score.breakdown || {};
+                const trend = pattern.trend || { status: 'unknown', recentAccuracy: null };
 
                 // 规律类型名称映射
                 const typeNames = {
@@ -1231,15 +1242,17 @@
                 };
 
                 // 格式化参数显示
-                let parametersHTML = '';
-                if (pattern.parameters.range) {
-                    parametersHTML = `范围: ${pattern.parameters.range[0]} - ${pattern.parameters.range[1]}`;
-                } else if (pattern.parameters.keyValues) {
-                    parametersHTML = `关键值: ${pattern.parameters.keyValues.join(', ')}`;
-                } else if (pattern.parameters.minConsecutive) {
-                    parametersHTML = `最小连号数: ${pattern.parameters.minConsecutive}`;
-                } else if (pattern.parameters.minRepeats) {
-                    parametersHTML = `最小重号数: ${pattern.parameters.minRepeats}`;
+                let parametersHTML = '暂无参数';
+                if (pattern.parameters) {
+                    if (pattern.parameters.range) {
+                        parametersHTML = `范围: ${pattern.parameters.range[0]} - ${pattern.parameters.range[1]}`;
+                    } else if (pattern.parameters.keyValues) {
+                        parametersHTML = `关键值: ${pattern.parameters.keyValues.join(', ')}`;
+                    } else if (pattern.parameters.minConsecutive) {
+                        parametersHTML = `最小连号数: ${pattern.parameters.minConsecutive}`;
+                    } else if (pattern.parameters.minRepeats) {
+                        parametersHTML = `最小重号数: ${pattern.parameters.minRepeats}`;
+                    }
                 }
 
                 // 生成详情HTML
@@ -1265,7 +1278,7 @@
                             </div>
                             <div class="detail-item">
                                 <label>评级</label>
-                                <div class="value"><span class="grade-badge grade-${pattern.score.grade}">${pattern.score.grade}</span></div>
+                                <div class="value"><span class="grade-badge grade-${score.grade}">${score.grade}</span></div>
                             </div>
                         </div>
                     </div>
@@ -1276,7 +1289,7 @@
                             <label>参数配置</label>
                             <div class="value">${parametersHTML}</div>
                         </div>
-                        ${pattern.parameters.cycles ? `
+                        ${(pattern.parameters && pattern.parameters.cycles) ? `
                         <div class="detail-full">
                             <label>周期性</label>
                             <div class="value">周期: ${pattern.parameters.cycles.join(', ')}</div>
@@ -1289,27 +1302,27 @@
                         <div class="detail-grid">
                             <div class="detail-item">
                                 <label>置信度</label>
-                                <div class="value">${(pattern.statistics.confidence * 100).toFixed(1)}%</div>
+                                <div class="value">${((statistics.confidence || 0) * 100).toFixed(1)}%</div>
                             </div>
                             <div class="detail-item">
                                 <label>准确率</label>
-                                <div class="value">${(pattern.statistics.accuracy * 100).toFixed(1)}%</div>
+                                <div class="value">${((statistics.accuracy || 0) * 100).toFixed(1)}%</div>
                             </div>
                             <div class="detail-item">
                                 <label>出现频率</label>
-                                <div class="value">${(pattern.statistics.frequency * 100).toFixed(1)}%</div>
+                                <div class="value">${((statistics.frequency || 0) * 100).toFixed(1)}%</div>
                             </div>
                             <div class="detail-item">
                                 <label>支持度</label>
-                                <div class="value">${pattern.statistics.support} 期</div>
+                                <div class="value">${statistics.support || 0} 期</div>
                             </div>
                             <div class="detail-item">
                                 <label>最后出现</label>
-                                <div class="value">${pattern.statistics.lastOccurrence || '未知'}</div>
+                                <div class="value">${statistics.lastOccurrence || '未知'}</div>
                             </div>
                             <div class="detail-item">
                                 <label>首次发现</label>
-                                <div class="value">${pattern.statistics.firstOccurrence || '未知'}</div>
+                                <div class="value">${statistics.firstOccurrence || '未知'}</div>
                             </div>
                         </div>
                     </div>
@@ -1318,28 +1331,28 @@
                         <h3>评分详情</h3>
                         <div class="detail-full">
                             <label>综合得分</label>
-                            <div class="value" style="font-size: 24px; color: #3498db;">${pattern.score.totalScore.toFixed(1)} 分</div>
+                            <div class="value" style="font-size: 24px; color: #3498db;">${(score.totalScore || 0).toFixed(1)} 分</div>
                         </div>
                         <div class="score-breakdown">
                             <div class="score-item">
                                 <label>准确率得分</label>
-                                <div class="value">${pattern.score.breakdown.accuracyScore.toFixed(0)}</div>
+                                <div class="value">${(breakdown.accuracyScore || 0).toFixed(0)}</div>
                             </div>
                             <div class="score-item">
                                 <label>稳定性得分</label>
-                                <div class="value">${pattern.score.breakdown.stabilityScore.toFixed(0)}</div>
+                                <div class="value">${(breakdown.stabilityScore || 0).toFixed(0)}</div>
                             </div>
                             <div class="score-item">
                                 <label>时效性得分</label>
-                                <div class="value">${pattern.score.breakdown.recencyScore.toFixed(0)}</div>
+                                <div class="value">${(breakdown.recencyScore || 0).toFixed(0)}</div>
                             </div>
                             <div class="score-item">
                                 <label>支持度得分</label>
-                                <div class="value">${pattern.score.breakdown.supportScore.toFixed(0)}</div>
+                                <div class="value">${(breakdown.supportScore || 0).toFixed(0)}</div>
                             </div>
                             <div class="score-item">
                                 <label>趋势得分</label>
-                                <div class="value">${pattern.score.breakdown.trendScore.toFixed(0)}</div>
+                                <div class="value">${(breakdown.trendScore || 0).toFixed(0)}</div>
                             </div>
                         </div>
                     </div>
@@ -1350,15 +1363,15 @@
                             <div class="detail-item">
                                 <label>趋势状态</label>
                                 <div class="value">
-                                    ${pattern.trend.status === 'strengthening' ? '📈 增强中' :
-                                      pattern.trend.status === 'weakening' ? '📉 减弱中' :
-                                      pattern.trend.status === 'active' ? '✅ 活跃' :
-                                      pattern.trend.status === 'invalid' ? '❌ 失效' : '📊 稳定'}
+                                    ${trend.status === 'strengthening' ? '📈 增强中' :
+                                      trend.status === 'weakening' ? '📉 减弱中' :
+                                      trend.status === 'active' ? '✅ 活跃' :
+                                      trend.status === 'invalid' ? '❌ 失效' : '📊 稳定'}
                                 </div>
                             </div>
                             <div class="detail-item">
                                 <label>近期准确率</label>
-                                <div class="value">${pattern.trend.recentAccuracy ? (pattern.trend.recentAccuracy * 100).toFixed(1) + '%' : '暂无数据'}</div>
+                                <div class="value">${trend.recentAccuracy ? (trend.recentAccuracy * 100).toFixed(1) + '%' : '暂无数据'}</div>
                             </div>
                         </div>
                     </div>
