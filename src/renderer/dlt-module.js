@@ -933,7 +933,7 @@ function displayDLTHistoryData(data, pagination) {
         
         // 日期列
         const dateCell = document.createElement('td');
-        dateCell.textContent = record.DrawingDay || '';
+        dateCell.textContent = record.DrawDate ? new Date(record.DrawDate).toLocaleDateString('zh-CN') : '';
         row.appendChild(dateCell);
         
         // 号码列 - 使用与双色球一致的样式
@@ -1027,15 +1027,95 @@ function initDLTHistoryRefresh() {
     refreshBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             console.log('Refreshing DLT history data...');
-            
+
             // 刷新时清除缓存，确保获取最新数据
             dltHistoryCache.clear();
-            
+
             // 重置到第一页并重新加载
             dltCurrentPage = 1;
             loadDLTHistoryData(dltCurrentPage, true);
         });
     });
+
+    // 统一更新按钮
+    const btnUpdateAll = document.getElementById('btn-update-all');
+    if (btnUpdateAll) {
+        btnUpdateAll.addEventListener('click', showUpdateDialog);
+    }
+
+    // 数据状态按钮
+    const btnDataStatus = document.getElementById('btn-data-status');
+    if (btnDataStatus) {
+        btnDataStatus.addEventListener('click', showDataStatusDialog);
+    }
+}
+
+/**
+ * 显示统一更新对话框
+ */
+async function showUpdateDialog() {
+    const confirmed = confirm('确定要执行快速修复吗？\n\n此操作将：\n1. 重新生成遗漏值表\n2. 清理过期缓存\n3. 验证数据完整性\n\n预计耗时: 30-60秒');
+
+    if (!confirmed) return;
+
+    try {
+        const response = await fetch('http://localhost:3003/api/dlt/repair-data', {
+            method: 'POST'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert('✅ 修复任务已启动！\n\n请等待30-60秒后刷新数据查看结果。\n任务详情请查看控制台日志。');
+        } else {
+            alert('❌ 启动失败: ' + result.message);
+        }
+    } catch (error) {
+        alert('❌ 请求失败: ' + error.message);
+    }
+}
+
+/**
+ * 显示数据状态对话框
+ */
+async function showDataStatusDialog() {
+    try {
+        const response = await fetch('http://localhost:3003/api/dlt/data-status');
+        const result = await response.json();
+
+        if (result.success) {
+            const data = result.data;
+            let message = `📊 数据状态报告\n\n`;
+            message += `最新期号: ${data.latestIssue}\n`;
+            message += `总记录数: ${data.totalRecords} 期\n\n`;
+            message += `数据表状态:\n`;
+
+            data.tables.forEach(table => {
+                const icon = table.status === 'ok' ? '✅' : '⚠️';
+                message += `${icon} ${table.name}: ${table.count} 期`;
+                if (table.lag && table.lag > 0) {
+                    message += ` (落后${table.lag}期)`;
+                }
+                message += `\n`;
+            });
+
+            if (data.needsUpdate) {
+                message += `\n⚠️ 发现数据问题:\n`;
+                data.issues.forEach(issue => {
+                    message += `  - ${issue.table}: ${issue.message}\n`;
+                });
+                message += `\n建议点击"统一更新"按钮修复。`;
+            } else {
+                message += `\n✅ 所有数据表状态正常！`;
+            }
+
+            alert(message);
+        } else {
+            alert('❌ 获取数据状态失败: ' + result.message);
+        }
+    } catch (error) {
+        alert('❌ 请求失败: ' + error.message);
+    }
 }
 
 // ===== 大乐透走势图模块 =====
@@ -4107,9 +4187,12 @@ function initNewDLTCombinationFilters() {
     
     // 初始化区间比排除最近期功能
     initZoneExcludeRecentPeriods();
-    
+
     // 初始化热温冷比排除最近期功能
     initHwcExcludeRecentPeriods();
+
+    // 初始化相克排除功能
+    initConflictExcludeFilter();
 }
 
 /**
@@ -4281,7 +4364,93 @@ async function loadNewDLTCombinationPrediction() {
         
         // 显示加载状态
         showLoadingState();
-        
+
+        // 如果启用相克排除，先获取相克数据（使用新的每个号码单独统计API）
+        if (filters.conflictExclude?.enabled) {
+            console.log('🔍 相克排除已启用，开始获取相克数据（每个号码单独统计）...');
+            try {
+                const conflictParams = new URLSearchParams({
+                    targetIssue: filters.targetIssue,
+                    analysisPeriods: filters.conflictExclude.analysisPeriods,
+                    topN: filters.conflictExclude.perBallTopN || filters.conflictExclude.topN || 5
+                });
+
+                const conflictResponse = await fetch(`/api/dlt/conflict-per-ball?${conflictParams.toString()}`);
+                const conflictResult = await conflictResponse.json();
+
+                if (conflictResult.success) {
+                    console.log('✅ 相克数据获取成功');
+                    console.log('- 分析期数:', conflictResult.data.analysisPeriods);
+                    console.log('- 每个号码Top N:', conflictResult.data.topN);
+
+                    // 将相克Map转换为前端使用的格式
+                    const conflictMap = new Map();
+                    const backendMap = conflictResult.data.conflictMap;
+
+                    for (let ballNum = 1; ballNum <= 35; ballNum++) {
+                        const formattedNum = formatBallNumber(ballNum);
+                        const conflictNumbers = backendMap[ballNum] || [];
+                        const numberSet = new Set(conflictNumbers.map(n => formatBallNumber(n)));
+                        conflictMap.set(formattedNum, numberSet);
+                    }
+
+                    // 将相克Map添加到filters中
+                    filters.conflictMap = conflictMap;
+
+                    // 统计信息
+                    let totalPairs = 0;
+                    conflictMap.forEach(pairs => {
+                        totalPairs += pairs.size;
+                    });
+                    totalPairs = totalPairs / 2;
+                    console.log('- 相克关系数量:', totalPairs);
+                } else {
+                    console.warn('⚠️ 相克数据获取失败:', conflictResult.message);
+                    alert('相克数据获取失败: ' + conflictResult.message + '\n将继续不使用相克排除功能');
+                    filters.conflictExclude = null;
+                }
+            } catch (error) {
+                console.error('❌ 相克数据获取异常:', error);
+                alert('相克数据获取异常，将继续不使用相克排除功能');
+                filters.conflictExclude = null;
+            }
+        }
+
+        // 如果启用同出排除，先获取同出数据
+        if (filters.coOccurrence?.enabled) {
+            console.log('🔗 同出排除已启用，开始获取同出数据...');
+            try {
+                const coOccurrenceMap = await getCoOccurrenceData(
+                    filters.coOccurrence.periods,
+                    filters.targetIssue
+                );
+
+                if (coOccurrenceMap && coOccurrenceMap.size > 0) {
+                    console.log('✅ 同出数据获取成功');
+                    console.log('- 涉及号码数量:', coOccurrenceMap.size);
+
+                    // 统计同出对数
+                    let totalPairs = 0;
+                    coOccurrenceMap.forEach(pairs => {
+                        totalPairs += pairs.size;
+                    });
+                    totalPairs = totalPairs / 2;
+                    console.log('- 同出关系数量:', totalPairs);
+
+                    // 将同出数据添加到filters中
+                    filters.coOccurrenceMap = coOccurrenceMap;
+                } else {
+                    console.warn('⚠️ 同出数据为空');
+                    alert('同出数据获取失败或无可用数据\n将继续不使用同出排除功能');
+                    filters.coOccurrence = null;
+                }
+            } catch (error) {
+                console.error('❌ 同出数据获取异常:', error);
+                alert('同出数据获取异常，将继续不使用同出排除功能');
+                filters.coOccurrence = null;
+            }
+        }
+
         // 构建查询参数
         const params = new URLSearchParams();
         Object.keys(filters).forEach(key => {
@@ -4314,8 +4483,30 @@ async function loadNewDLTCombinationPrediction() {
             if (result.data?.combinations?.length === 0) {
                 console.warn('⚠️ API返回成功但组合数据为空！');
             }
-            
-            
+
+            // 将排除数据附加到result.data中，供displayNewCombinationResults使用
+            if (!result.data.filters) {
+                result.data.filters = {};
+            }
+
+            // 附加相克对数据（旧方式兼容）
+            if (filters.conflictPairs) {
+                result.data.filters.conflictPairs = filters.conflictPairs;
+                console.log('✅ 相克对数据已附加到结果中');
+            }
+
+            // 附加相克Map数据（新方式）
+            if (filters.conflictMap) {
+                result.data.filters.conflictMap = filters.conflictMap;
+                console.log('✅ 相克Map数据已附加到结果中');
+            }
+
+            // 附加同出Map数据
+            if (filters.coOccurrenceMap) {
+                result.data.filters.coOccurrenceMap = filters.coOccurrenceMap;
+                console.log('✅ 同出Map数据已附加到结果中');
+            }
+
             // 直接使用API返回的数据，不进行转换
             displayNewCombinationResults(result.data);
         } else {
@@ -4508,7 +4699,38 @@ function getNewCombinationFilters() {
     if (hwcRatios.length > 0) {
         filters.hotWarmColdRatios = hwcRatios.join(',');
     }
-    
+
+    // 获取相克排除配置
+    const conflictEnabled = document.getElementById('enable-conflict-exclude');
+    if (conflictEnabled && conflictEnabled.checked) {
+        const globalTopEnabled = document.getElementById('enable-global-conflict-top')?.checked || false;
+        const perBallTopEnabled = document.getElementById('enable-per-ball-conflict-top')?.checked || false;
+        const hotProtectionEnabled = document.getElementById('enable-hot-protection')?.checked || false;
+
+        filters.conflictExclude = {
+            enabled: true,
+            analysisPeriods: parseInt(document.getElementById('conflict-analysis-periods').value) || 3,
+            globalTopEnabled: globalTopEnabled,
+            topN: globalTopEnabled ? (parseInt(document.getElementById('conflict-top-n').value) || 5) : 0,
+            perBallTopEnabled: perBallTopEnabled,
+            perBallTopN: perBallTopEnabled ? (parseInt(document.getElementById('conflict-per-ball-top-n').value) || 5) : 0,
+            includeBackBalls: document.getElementById('enable-back-conflict-exclude')?.checked || false,
+            hotProtection: {
+                enabled: hotProtectionEnabled && perBallTopEnabled, // 只在启用每个号码Top时才生效
+                topHotCount: hotProtectionEnabled ? (parseInt(document.getElementById('hot-protection-top-count')?.value) || 3) : 0
+            }
+        };
+    }
+
+    // 获取同出排除配置
+    const cooccurrenceEnabled = document.getElementById('batch-exclude-cooccurrence');
+    if (cooccurrenceEnabled && cooccurrenceEnabled.checked) {
+        filters.coOccurrence = {  // 🔧 修复: 改为coOccurrence与后端一致
+            enabled: true,
+            periods: parseInt(document.getElementById('batch-cooccurrence-periods').value) || 1
+        };
+    }
+
     return filters;
 }
 
@@ -4805,14 +5027,59 @@ function displayNewCombinationResults(data) {
         长度: data.historyData?.length || 0,
         前3期: data.historyData?.slice(0, 3) || []
     });
-    
+
     const contentDiv = document.getElementById('dlt-combination-content');
     if (!contentDiv) {
         console.error('❌ 未找到 dlt-combination-content 容器');
         return;
     }
-    
-    const combinations = data.combinations || [];
+
+    let combinations = data.combinations || [];
+
+    // 应用相克排除筛选（客户端筛选，使用新的每个号码Map方式）
+    if (data.filters?.conflictMap) {
+        console.log('🔍 开始应用相克排除筛选（每个号码Top N）...');
+        const originalCount = combinations.length;
+        combinations = filterByExclusionMap(combinations, data.filters.conflictMap, '相克');
+        const filteredCount = combinations.length;
+        const excludedCount = originalCount - filteredCount;
+        console.log(`✅ 相克筛选完成: 原始${originalCount}组 → 筛选后${filteredCount}组 (排除${excludedCount}组)`);
+
+        // 更新数据卷信息
+        if (data.filterSummary?.dataVolume) {
+            data.filterSummary.dataVolume.conflictExcluded = excludedCount;
+        }
+    }
+    // 兼容旧的相克排除方式（如果使用旧API）
+    else if (data.filters?.conflictPairs) {
+        console.log('🔍 开始应用相克排除筛选（旧方式）...');
+        const originalCount = combinations.length;
+        combinations = filterByConflictPairs(combinations, data.filters.conflictPairs);
+        const filteredCount = combinations.length;
+        const excludedCount = originalCount - filteredCount;
+        console.log(`✅ 相克筛选完成: 原始${originalCount}组 → 筛选后${filteredCount}组 (排除${excludedCount}组)`);
+
+        // 更新数据卷信息
+        if (data.filterSummary?.dataVolume) {
+            data.filterSummary.dataVolume.conflictExcluded = excludedCount;
+        }
+    }
+
+    // 应用同出排除筛选（客户端筛选）
+    if (data.filters?.coOccurrenceMap) {
+        console.log('🔗 开始应用同出排除筛选（每个号码最近N期）...');
+        const originalCount = combinations.length;
+        combinations = filterByExclusionMap(combinations, data.filters.coOccurrenceMap, '同出');
+        const filteredCount = combinations.length;
+        const excludedCount = originalCount - filteredCount;
+        console.log(`✅ 同出筛选完成: 原始${originalCount}组 → 筛选后${filteredCount}组 (排除${excludedCount}组)`);
+
+        // 更新数据卷信息
+        if (data.filterSummary?.dataVolume) {
+            data.filterSummary.dataVolume.coOccurrenceExcluded = excludedCount;
+        }
+    }
+
     const pagination = data.pagination || {};
     const filters = data.filters || {};
     const filterSummary = data.filterSummary || {};
@@ -6638,7 +6905,7 @@ function initZoneExcludeRecentPeriods() {
 function initHwcExcludeRecentPeriods() {
     const excludeCheckbox = document.getElementById('new-hwc-exclude-recent-enabled');
     const periodsInput = document.getElementById('new-hwc-exclude-recent-periods');
-    
+
     if (excludeCheckbox && periodsInput) {
         excludeCheckbox.addEventListener('change', function() {
             if (this.checked) {
@@ -6648,7 +6915,7 @@ function initHwcExcludeRecentPeriods() {
                 periodsInput.disabled = true;
             }
         });
-        
+
         // 添加输入验证
         periodsInput.addEventListener('input', (e) => {
             const value = parseInt(e.target.value);
@@ -6659,6 +6926,373 @@ function initHwcExcludeRecentPeriods() {
             }
         });
     }
+}
+
+// ==================== 同出排除功能 ====================
+
+/**
+ * 缓存同出关系数据
+ */
+let cachedCoOccurrence = null;
+let coOccurrenceCacheKey = null;
+
+/**
+ * 格式化号码为两位数字符串
+ * @param {number|string} num - 号码
+ * @returns {string} 格式化后的号码（如 '01', '02'）
+ */
+function formatBallNumber(num) {
+    return String(num).padStart(2, '0');
+}
+
+/**
+ * 调用后端API获取每个号码的同出关系Map
+ * @param {number} periods - 每个号码统计最近几期
+ * @param {string} targetIssue - 目标期号
+ * @returns {Promise<Map>} 同出关系Map
+ */
+async function buildCoOccurrenceMap(periods, targetIssue) {
+    try {
+        console.log(`[同出排除] 调用后端API获取同出数据: 目标期=${targetIssue}, 每个号码最近${periods}期`);
+
+        // 调用新的后端API
+        const params = new URLSearchParams({
+            targetIssue: targetIssue,
+            periods: periods
+        });
+
+        const response = await fetch(`http://localhost:3003/api/dlt/cooccurrence-per-ball?${params.toString()}`);
+        if (!response.ok) {
+            throw new Error(`HTTP错误: ${response.status}`);
+        }
+
+        const result = await response.json();
+        if (!result.success) {
+            throw new Error(result.message || '后端API返回失败');
+        }
+
+        console.log(`[同出排除] 后端返回数据成功，分析了${result.data.analyzedDataCount}期历史数据`);
+
+        // 将后端返回的对象转换为Map结构
+        const coOccurrenceMap = new Map();
+        const backendMap = result.data.coOccurrenceMap;
+
+        for (let ballNum = 1; ballNum <= 35; ballNum++) {
+            const formattedNum = formatBallNumber(ballNum);
+            const coOccurredNumbers = backendMap[ballNum] || [];
+
+            // 转换为Set并格式化号码
+            const numberSet = new Set(coOccurredNumbers.map(n => formatBallNumber(n)));
+            coOccurrenceMap.set(formattedNum, numberSet);
+        }
+
+        // 统计信息
+        let totalPairs = 0;
+        coOccurrenceMap.forEach(pairs => {
+            totalPairs += pairs.size;
+        });
+        totalPairs = totalPairs / 2; // 因为是双向的，所以要除以2
+
+        console.log(`[同出排除] 建立完成: ${coOccurrenceMap.size}个号码，共${totalPairs}组同出关系`);
+
+        // 输出示例
+        if (coOccurrenceMap.size > 0) {
+            const firstKey = coOccurrenceMap.keys().next().value;
+            console.log(`[同出排除] 示例: ${firstKey}的同出号码:`, Array.from(coOccurrenceMap.get(firstKey)));
+        }
+
+        return coOccurrenceMap;
+
+    } catch (error) {
+        console.error('[同出排除] 获取同出数据失败:', error);
+        return new Map(); // 返回空Map，不影响其他功能
+    }
+}
+
+/**
+ * 获取同出关系数据（带缓存）
+ * @param {number} periods - 分析期数
+ * @param {string} targetIssue - 目标期号
+ * @returns {Promise<Map>} 同出关系Map
+ */
+async function getCoOccurrenceData(periods, targetIssue) {
+    const cacheKey = `co-${periods}-${targetIssue}`;
+
+    // 检查缓存
+    if (cachedCoOccurrence && coOccurrenceCacheKey === cacheKey) {
+        console.log('[同出排除] 使用缓存数据');
+        return cachedCoOccurrence;
+    }
+
+    // 重新构建
+    console.log('[同出排除] 缓存失效，重新构建数据');
+    cachedCoOccurrence = await buildCoOccurrenceMap(periods, targetIssue);
+    coOccurrenceCacheKey = cacheKey;
+
+    return cachedCoOccurrence;
+}
+
+/**
+ * 通用的排除筛选函数（相克排除和同出排除共用）
+ * @param {Array} combinations - 组合数组
+ * @param {Map} exclusionMap - 排除关系Map（每个号码对应一个Set）
+ * @param {string} type - 类型名称（用于日志）
+ * @returns {Array} 筛选后的组合数组
+ */
+function filterByExclusionMap(combinations, exclusionMap, type = '排除') {
+    if (!exclusionMap || exclusionMap.size === 0) {
+        console.log(`⚠️ 无${type}数据，不进行筛选`);
+        return combinations;
+    }
+
+    console.log(`[${type}筛选] 开始筛选，原始组合数: ${combinations.length}`);
+
+    let excludedCount = 0;
+
+    const filtered = combinations.filter(combo => {
+        const frontNumbers = (combo.redNumbers || []).map(n => formatBallNumber(n));
+
+        // 检查任意两个号码是否存在排除关系
+        for (let i = 0; i < frontNumbers.length; i++) {
+            for (let j = i + 1; j < frontNumbers.length; j++) {
+                const num1 = frontNumbers[i];
+                const num2 = frontNumbers[j];
+
+                // 如果num1的排除列表包含num2，则排除该组合
+                if (exclusionMap.has(num1) && exclusionMap.get(num1).has(num2)) {
+                    excludedCount++;
+                    return false; // 排除此组合
+                }
+            }
+        }
+
+        return true; // 保留此组合
+    });
+
+    console.log(`[${type}筛选] 筛选完成: 原始${combinations.length}组 → 筛选后${filtered.length}组 (排除${excludedCount}组)`);
+
+    return filtered;
+}
+
+/**
+ * 清除同出关系缓存
+ */
+function clearCoOccurrenceCache() {
+    cachedCoOccurrence = null;
+    coOccurrenceCacheKey = null;
+    console.log('[同出排除] 缓存已清除');
+}
+
+/**
+ * 根据相克对筛选组合
+ * @param {Array} combinations - 组合数组
+ * @param {Object} conflictPairs - 相克对数据 { front: [...], back: [...] }
+ * @returns {Array} 筛选后的组合数组
+ */
+function filterByConflictPairs(combinations, conflictPairs) {
+    if (!conflictPairs || (!conflictPairs.front?.length && !conflictPairs.back?.length)) {
+        console.log('⚠️ 无相克对数据，不进行筛选');
+        return combinations;
+    }
+
+    const frontPairs = conflictPairs.front || [];
+    const backPairs = conflictPairs.back || [];
+
+    console.log(`📊 相克对数据: 前区${frontPairs.length}对, 后区${backPairs.length}对`);
+
+    // 将相克对转换为Set以便快速查找
+    const frontConflictSet = new Set();
+    frontPairs.forEach(item => {
+        const [a, b] = item.pair;
+        frontConflictSet.add(`${a},${b}`);
+        frontConflictSet.add(`${b},${a}`); // 双向添加
+    });
+
+    const backConflictSet = new Set();
+    backPairs.forEach(item => {
+        const [a, b] = item.pair;
+        backConflictSet.add(`${a},${b}`);
+        backConflictSet.add(`${b},${a}`); // 双向添加
+    });
+
+    // 筛选组合
+    const filtered = combinations.filter(combo => {
+        // 检查前区相克
+        if (frontConflictSet.size > 0) {
+            const frontNumbers = combo.redNumbers || [];
+
+            // 遍历前区号码的所有组合对
+            for (let i = 0; i < frontNumbers.length; i++) {
+                for (let j = i + 1; j < frontNumbers.length; j++) {
+                    const key = `${frontNumbers[i]},${frontNumbers[j]}`;
+                    if (frontConflictSet.has(key)) {
+                        // 包含相克对，排除此组合
+                        return false;
+                    }
+                }
+            }
+        }
+
+        // 检查后区相克
+        if (backConflictSet.size > 0 && combo.blueNumbers) {
+            const backNumbers = combo.blueNumbers || [];
+
+            // 遍历后区号码的所有组合对
+            for (let i = 0; i < backNumbers.length; i++) {
+                for (let j = i + 1; j < backNumbers.length; j++) {
+                    const key = `${backNumbers[i]},${backNumbers[j]}`;
+                    if (backConflictSet.has(key)) {
+                        // 包含相克对，排除此组合
+                        return false;
+                    }
+                }
+            }
+        }
+
+        // 不包含任何相克对，保留
+        return true;
+    });
+
+    return filtered;
+}
+
+/**
+ * 初始化相克排除筛选条件
+ */
+function initConflictExcludeFilter() {
+    const enableCheckbox = document.getElementById('enable-conflict-exclude');
+    const settingsContainer = document.getElementById('conflict-settings-container');
+    const infoContainer = document.getElementById('conflict-info-container');
+    const periodsInput = document.getElementById('conflict-analysis-periods');
+    const topNInput = document.getElementById('conflict-top-n');
+    const perBallTopNInput = document.getElementById('conflict-per-ball-top-n');
+    const enableGlobalTop = document.getElementById('enable-global-conflict-top');
+    const enablePerBallTop = document.getElementById('enable-per-ball-conflict-top');
+    const enableBackConflict = document.getElementById('enable-back-conflict-exclude');
+    const previewElement = document.getElementById('conflict-preview');
+    const previewText = document.getElementById('conflict-preview-text');
+
+    if (!enableCheckbox) {
+        console.warn('相克排除主开关未找到');
+        return;
+    }
+
+    // 主开关事件
+    enableCheckbox.addEventListener('change', function() {
+        if (this.checked) {
+            settingsContainer.style.display = 'grid';
+            infoContainer.style.display = 'block';
+            updateConflictPreview();
+        } else {
+            settingsContainer.style.display = 'none';
+            infoContainer.style.display = 'none';
+            if (previewElement) {
+                previewElement.style.display = 'none';
+            }
+        }
+    });
+
+    // 分析期数输入验证
+    if (periodsInput) {
+        periodsInput.addEventListener('input', (e) => {
+            const value = parseInt(e.target.value);
+            if (isNaN(value) || value < 3 || value > 20) {
+                e.target.style.borderColor = '#dc3545';
+                e.target.title = '分析期数必须在3-20之间';
+            } else {
+                e.target.style.borderColor = '#007bff';
+                e.target.title = '';
+            }
+            updateConflictPreview();
+        });
+    }
+
+    // Top N输入验证
+    if (topNInput) {
+        topNInput.addEventListener('input', (e) => {
+            const value = parseInt(e.target.value);
+            if (isNaN(value) || value < 1 || value > 20) {
+                e.target.style.borderColor = '#dc3545';
+                e.target.title = 'Top数量必须在1-20之间';
+            } else {
+                e.target.style.borderColor = '#007bff';
+                e.target.title = '';
+            }
+            updateConflictPreview();
+        });
+    }
+
+    // 全局Top勾选框联动
+    if (enableGlobalTop && topNInput) {
+        enableGlobalTop.addEventListener('change', function() {
+            topNInput.disabled = !this.checked;
+            updateConflictPreview();
+        });
+    }
+
+    // 每个号码Top勾选框联动
+    const enableHotProtection = document.getElementById('enable-hot-protection');
+    const hotProtectionTopCount = document.getElementById('hot-protection-top-count');
+
+    if (enablePerBallTop && perBallTopNInput) {
+        enablePerBallTop.addEventListener('change', function() {
+            perBallTopNInput.disabled = !this.checked;
+            // 只有勾选"每个号码排除Top"时，热号保护才可用
+            if (enableHotProtection) {
+                enableHotProtection.disabled = !this.checked;
+                if (!this.checked) {
+                    enableHotProtection.checked = false;
+                    if (hotProtectionTopCount) hotProtectionTopCount.disabled = true;
+                }
+            }
+            updateConflictPreview();
+        });
+    }
+
+    // 热号保护勾选框联动
+    if (enableHotProtection && hotProtectionTopCount) {
+        enableHotProtection.addEventListener('change', function() {
+            hotProtectionTopCount.disabled = !this.checked;
+            updateConflictPreview();
+        });
+    }
+
+    // 后区开关事件
+    if (enableBackConflict) {
+        enableBackConflict.addEventListener('change', updateConflictPreview);
+    }
+
+    // 更新配置预览
+    function updateConflictPreview() {
+        if (!enableCheckbox.checked || !previewElement || !previewText) return;
+
+        const periods = parseInt(periodsInput.value) || 3;
+        const globalEnabled = enableGlobalTop?.checked || false;
+        const perBallEnabled = enablePerBallTop?.checked || false;
+        const topN = parseInt(topNInput.value) || 5;
+        const perBallTopN = parseInt(perBallTopNInput.value) || 5;
+        const includeBack = enableBackConflict?.checked || false;
+        const hotProtectionEnabled = enableHotProtection?.checked || false;
+        const hotTopCount = parseInt(hotProtectionTopCount?.value) || 3;
+
+        let parts = [];
+        parts.push(`分析前${periods}期数据`);
+        if (globalEnabled) {
+            parts.push(`全局Top ${topN}`);
+        }
+        if (perBallEnabled) {
+            parts.push(`每个号码Top ${perBallTopN}`);
+            if (hotProtectionEnabled) {
+                parts.push(`🔥保护热号前${hotTopCount}名`);
+            }
+        }
+        const backText = includeBack ? '（含后区）' : '（仅前区）';
+
+        previewText.textContent = parts.join(', ') + ' ' + backText;
+        previewElement.style.display = 'block';
+    }
+
+    console.log('相克排除筛选条件初始化完成');
 }
 
 /**
@@ -9628,6 +10262,10 @@ function validateAndGetBatchConfig() {
     // 获取筛选条件
     config.filters = getBatchFilters();
 
+    // 获取排除条件
+    config.exclude_conditions = getBatchExcludeConditions();
+    console.log('📋 排除条件已收集:', config.exclude_conditions);
+
     // 获取其他配置选项
     const combinationMode = getCombinationMode();
     config.combinationMode = combinationMode;
@@ -9777,6 +10415,46 @@ function getBatchFilters() {
         }
     }
 
+    // 相克排除
+    const conflictEnabled = document.getElementById('batch-exclude-conflict')?.checked || false;
+    if (conflictEnabled) {
+        const globalTopEnabled = document.getElementById('batch-enable-global-conflict-top')?.checked || false;
+        const perBallTopEnabled = document.getElementById('batch-enable-per-ball-conflict-top')?.checked || false;
+
+        filters.conflictExclude = {
+            enabled: true,
+            globalTopEnabled: globalTopEnabled,
+            globalAnalysisPeriods: globalTopEnabled ? (parseInt(document.getElementById('batch-global-conflict-periods')?.value) || 2700) : 0,
+            topN: globalTopEnabled ? (parseInt(document.getElementById('batch-conflict-top-n')?.value) || 18) : 0,
+            perBallTopEnabled: perBallTopEnabled,
+            perBallAnalysisPeriods: perBallTopEnabled ? (parseInt(document.getElementById('batch-per-ball-conflict-periods')?.value) || 2700) : 0,
+            perBallTopN: perBallTopEnabled ? (parseInt(document.getElementById('batch-conflict-per-ball-top-n')?.value) || 1) : 0,
+            includeBackBalls: document.getElementById('batch-enable-back-conflict-exclude')?.checked || false,
+            hotProtection: {
+                enabled: perBallTopEnabled, // 只在启用每个号码Top时才生效
+                topHotCount: perBallTopEnabled ? (parseInt(document.getElementById('batch-hot-protection-top-count')?.value) || 3) : 0
+            }
+        };
+        console.log('🔍 相克排除配置已收集:', filters.conflictExclude);
+    } else {
+        console.log('⚠️ 相克排除未启用');
+    }
+
+    // 同出排除
+    const coOccurrenceEnabled = document.getElementById('batch-exclude-cooccurrence')?.checked || false;
+    if (coOccurrenceEnabled) {
+        const periods = parseInt(document.getElementById('batch-cooccurrence-periods')?.value) || 1;
+
+        filters.coOccurrence = {  // 🔧 修复: 改为coOccurrence与后端一致
+            enabled: true,
+            periods: periods
+        };
+        console.log('🔗 同出排除配置已收集:', filters.coOccurrence);
+    } else {
+        console.log('⚠️ 同出排除未启用');
+    }
+
+    console.log('📦 getBatchFilters 最终返回:', filters);
     return filters;
 }
 
@@ -9966,6 +10644,40 @@ function getBatchExcludeConditions() {
         }
     }
 
+    // 相克排除
+    const conflictEnabled = document.getElementById('batch-exclude-conflict')?.checked || false;
+    if (conflictEnabled) {
+        const globalTopEnabled = document.getElementById('batch-enable-global-conflict-top')?.checked || false;
+        const perBallTopEnabled = document.getElementById('batch-enable-per-ball-conflict-top')?.checked || false;
+
+        conditions.conflict = {
+            enabled: true,
+            globalTopEnabled: globalTopEnabled,
+            globalAnalysisPeriods: globalTopEnabled ? (parseInt(document.getElementById('batch-global-conflict-periods')?.value) || 2700) : 0,
+            topN: globalTopEnabled ? (parseInt(document.getElementById('batch-conflict-top-n')?.value) || 18) : 0,
+            perBallTopEnabled: perBallTopEnabled,
+            perBallAnalysisPeriods: perBallTopEnabled ? (parseInt(document.getElementById('batch-per-ball-conflict-periods')?.value) || 2700) : 0,
+            perBallTopN: perBallTopEnabled ? (parseInt(document.getElementById('batch-conflict-per-ball-top-n')?.value) || 1) : 0,
+            includeBackBalls: document.getElementById('batch-enable-back-conflict-exclude')?.checked || false,
+            hotProtection: {
+                enabled: perBallTopEnabled, // 只在启用每个号码Top时才生效
+                topHotCount: perBallTopEnabled ? (parseInt(document.getElementById('batch-hot-protection-top-count')?.value) || 3) : 0
+            }
+        };
+    }
+
+    // 同出排除
+    const coOccurrenceEnabled = document.getElementById('batch-exclude-cooccurrence')?.checked || false;
+    if (coOccurrenceEnabled) {
+        const periods = parseInt(document.getElementById('batch-cooccurrence-periods')?.value) || 1;
+
+        conditions.coOccurrence = {
+            enabled: true,
+            periods: periods
+        };
+        console.log('🔗 同出排除条件已收集:', conditions.coOccurrence);
+    }
+
     return conditions;
 }
 
@@ -9973,9 +10685,10 @@ function getBatchExcludeConditions() {
  * 执行批量预测
  */
 async function executeBatchPrediction(config) {
-    const { rangeConfig, filters, maxRedCombinations, maxBlueCombinations, enableValidation, trulyUnlimited, displayMode, combinationMode } = config;
+    const { rangeConfig, filters, exclude_conditions, maxRedCombinations, maxBlueCombinations, enableValidation, trulyUnlimited, displayMode, combinationMode } = config;
 
     console.log(`🚀 开始执行流式批量预测，期号配置:`, rangeConfig);
+    console.log(`🚀 排除条件:`, exclude_conditions);
 
     try {
         // 调用后端API进行流式批量预测
@@ -9987,6 +10700,7 @@ async function executeBatchPrediction(config) {
             body: JSON.stringify({
                 rangeConfig: rangeConfig,  // 传递期号范围配置
                 filters: filters,
+                exclude_conditions: exclude_conditions,  // 传递排除条件
                 maxRedCombinations: maxRedCombinations,
                 maxBlueCombinations: maxBlueCombinations,
                 enableValidation: enableValidation,
@@ -13484,6 +14198,7 @@ function renderTaskDetail(data) {
 
     // 更新筛选条件
     const conditionsDiv = document.getElementById('modal-conditions');
+    console.log('🔍 任务详情中的exclude_conditions:', JSON.stringify(task.exclude_conditions, null, 2));
     conditionsDiv.innerHTML = renderExcludeConditions(task.exclude_conditions);
 
     // 更新结果表格
@@ -13522,7 +14237,11 @@ function renderTaskDetail(data) {
  * 渲染排除条件
  */
 function renderExcludeConditions(conditions) {
-    if (!conditions) return '<div>无排除条件</div>';
+    console.log('🎨 renderExcludeConditions 收到的参数:', JSON.stringify(conditions, null, 2));
+    if (!conditions) {
+        console.log('⚠️ conditions 为空，返回"无排除条件"');
+        return '<div>无排除条件</div>';
+    }
 
     let html = '';
 
@@ -13629,6 +14348,43 @@ function renderExcludeConditions(conditions) {
         }
     }
 
+    // 相克排除
+    if (conditions.conflict && conditions.conflict.enabled) {
+        console.log('✅ 检测到相克排除条件:', conditions.conflict);
+        let conflictDetails = [];
+        conflictDetails.push(`分析${conditions.conflict.analysisPeriods}期`);
+        if (conditions.conflict.globalTopEnabled && conditions.conflict.topN > 0) {
+            conflictDetails.push(`全局Top ${conditions.conflict.topN}`);
+        }
+        if (conditions.conflict.perBallTopEnabled && conditions.conflict.perBallTopN > 0) {
+            conflictDetails.push(`每个号码Top ${conditions.conflict.perBallTopN}`);
+            // 热号保护
+            if (conditions.conflict.hotProtection && conditions.conflict.hotProtection.enabled && conditions.conflict.hotProtection.topHotCount > 0) {
+                conflictDetails.push(`🔥保护热号前${conditions.conflict.hotProtection.topHotCount}名`);
+            }
+        }
+        if (conditions.conflict.includeBackBalls) {
+            conflictDetails.push('含后区相克');
+        }
+        const conflictHtml = `<div>✅ 相克排除: ${conflictDetails.join(', ')}</div>`;
+        console.log('⚔️ 相克HTML片段:', conflictHtml);
+        html += conflictHtml;
+    } else {
+        console.log('❌ 未检测到相克排除条件，conflict存在:', !!conditions.conflict, 'enabled:', conditions.conflict?.enabled);
+    }
+
+    // 同出排除
+    if (conditions.coOccurrence && conditions.coOccurrence.enabled) {
+        console.log('✅ 检测到同出排除条件:', conditions.coOccurrence);
+        const coOccurrenceHtml = `<div>✅ 同出排除: 排除最近${conditions.coOccurrence.periods}期同出号码</div>`;
+        console.log('🔗 同出HTML片段:', coOccurrenceHtml);
+        html += coOccurrenceHtml;
+    } else {
+        console.log('❌ 未检测到同出排除条件，coOccurrence存在:', !!conditions.coOccurrence, 'enabled:', conditions.coOccurrence?.enabled);
+    }
+
+    console.log('📊 最终html长度:', html.length);
+    console.log('📊 最终返回内容:', html || '<div>无排除条件</div>');
     return html || '<div>无排除条件</div>';
 }
 
@@ -13896,12 +14652,219 @@ function closeExportProgressModal() {
  * 查看单期详情
  */
 async function viewPeriodDetail(taskId, period) {
-    alert(`单期详情查看功能开发中...\n任务ID: ${taskId}\n期号: ${period}`);
+    try {
+        console.log(`📊 查看单期详情: 任务ID=${taskId}, 期号=${period}`);
+
+        // 显示弹窗
+        const modal = document.getElementById('period-detail-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+        }
+
+        // 更新标题
+        document.getElementById('period-modal-title').textContent = `📊 期号 ${period} 详细分析`;
+
+        // 加载数据
+        const response = await fetch(`${API_BASE_URL}/api/dlt/prediction-tasks/${taskId}/results/${period}`);
+        const result = await response.json();
+
+        if (result.success) {
+            renderPeriodDetail(result.data);
+        } else {
+            alert('加载单期详情失败: ' + result.message);
+            closePeriodDetailModal();
+        }
+    } catch (error) {
+        console.error('❌ 查看单期详情失败:', error);
+        alert('查看单期详情失败: ' + error.message);
+    }
+}
+
+/**
+ * 渲染单期详情
+ */
+function renderPeriodDetail(data) {
+    try {
+        const { conflict_data, cooccurrence_data, statistics } = data;
+
+        // 渲染相克数据
+        const conflictSection = document.getElementById('conflict-section');
+        if (!conflictSection) {
+            console.error('❌ 找不到DOM元素: conflict-section');
+            return;
+        }
+
+        if (conflict_data && conflict_data.enabled) {
+            conflictSection.style.display = 'block';
+
+            // 基本参数
+            const periodsEl = document.getElementById('conflict-periods');
+            const topnEl = document.getElementById('conflict-topn');
+            const perBallTopnEl = document.getElementById('conflict-per-ball-topn');
+            if (periodsEl) periodsEl.textContent = `前${conflict_data.analysis_periods}期`;
+            if (topnEl) topnEl.textContent = (conflict_data.globalTopEnabled && conflict_data.topN > 0) ? `${conflict_data.topN}对（含并列）` : '未使用';
+            if (perBallTopnEl) perBallTopnEl.textContent = (conflict_data.perBallTopEnabled && conflict_data.perBallTopN > 0) ? `前${conflict_data.perBallTopN}名` : '未使用';
+
+            // 相克号码对
+            const pairsList = document.getElementById('conflict-pairs');
+            if (pairsList) {
+                if (conflict_data.conflict_pairs && conflict_data.conflict_pairs.length > 0) {
+                    const pairsHtml = conflict_data.conflict_pairs.map((item, index) => {
+                        if (!item || !item.pair || item.pair.length < 2) {
+                            console.warn('⚠️ 无效的相克数据项:', item);
+                            return '';
+                        }
+                        const num1 = String(item.pair[0]).padStart(2, '0');
+                        const num2 = String(item.pair[1]).padStart(2, '0');
+                        return `<span class="conflict-pair">${index + 1}. ${num1} ↔️ ${num2} <em>(${item.score}次)</em></span>`;
+                    }).filter(html => html).join('');
+                    pairsList.innerHTML = `<div class="pairs-grid">${pairsHtml}</div>`;
+                } else {
+                    pairsList.innerHTML = '<div class="no-data">暂无相克数据</div>';
+                }
+            }
+
+            // 统计数据
+            const beforeEl = document.getElementById('conflict-before');
+            const afterEl = document.getElementById('conflict-after');
+            const excludedEl = document.getElementById('conflict-excluded');
+            if (beforeEl) beforeEl.textContent = (conflict_data.combinations_before || 0).toLocaleString();
+            if (afterEl) afterEl.textContent = (conflict_data.combinations_after || 0).toLocaleString();
+            if (excludedEl) excludedEl.textContent = (conflict_data.excluded_count || 0).toLocaleString();
+        } else {
+            conflictSection.style.display = 'none';
+        }
+
+        // 渲染同出数据
+        const cooccurrenceSection = document.getElementById('cooccurrence-section');
+        if (cooccurrenceSection) {
+            if (cooccurrence_data && cooccurrence_data.enabled) {
+                cooccurrenceSection.style.display = 'block';
+
+                // 基本参数
+                const periodsEl = document.getElementById('cooccurrence-periods');
+                const pairsCountEl = document.getElementById('cooccurrence-pairs-count');
+                if (periodsEl) periodsEl.textContent = `最近${cooccurrence_data.periods}次出现`;
+                if (pairsCountEl) pairsCountEl.textContent = `${cooccurrence_data.cooccurrence_pairs?.length || 0}对`;
+
+                // 同出详情列表 (显示前10个号码)
+                const detailsList = document.getElementById('cooccurrence-details');
+                if (detailsList) {
+                    if (cooccurrence_data.cooccurrence_pairs && cooccurrence_data.cooccurrence_pairs.length > 0) {
+                        // 从API获取analyzedDetails,如果没有则根据pairs生成简化显示
+                        const pairsCount = cooccurrence_data.cooccurrence_pairs.length;
+                        const samplePairs = cooccurrence_data.cooccurrence_pairs.slice(0, 10);
+
+                        const detailsHtml = samplePairs.map((pair, index) => {
+                            const num1 = String(pair[0]).padStart(2, '0');
+                            const num2 = String(pair[1]).padStart(2, '0');
+                            return `<span class="cooccurrence-pair">${index + 1}. ${num1} ↔️ ${num2}</span>`;
+                        }).join('');
+
+                        detailsList.innerHTML = `
+                            <div class="pairs-grid">${detailsHtml}</div>
+                            <div class="summary-text" style="margin-top: 10px; color: #666; font-size: 14px;">
+                                ${pairsCount > 10 ? `...等共 <strong>${pairsCount}</strong> 对同出号码` : `共 <strong>${pairsCount}</strong> 对同出号码`}
+                            </div>
+                        `;
+                    } else {
+                        detailsList.innerHTML = '<div class="no-data">暂无同出数据</div>';
+                    }
+                }
+
+                // 统计数据
+                const beforeEl = document.getElementById('cooccurrence-before');
+                const afterEl = document.getElementById('cooccurrence-after');
+                const excludedEl = document.getElementById('cooccurrence-excluded');
+                if (beforeEl) beforeEl.textContent = (cooccurrence_data.combinations_before || 0).toLocaleString();
+                if (afterEl) afterEl.textContent = (cooccurrence_data.combinations_after || 0).toLocaleString();
+                if (excludedEl) excludedEl.textContent = (cooccurrence_data.excluded_count || 0).toLocaleString();
+            } else {
+                cooccurrenceSection.style.display = 'none';
+            }
+        }
+
+        // 渲染命中情况
+        const hitInfo = document.getElementById('hit-info');
+        if (!hitInfo) {
+            console.error('❌ 找不到DOM元素: hit-info');
+            return;
+        }
+
+        if (statistics) {
+            hitInfo.innerHTML = `
+                <div class="hit-stats-grid">
+                    <div class="hit-stat-item">
+                        <span class="stat-label">红球最高命中：</span>
+                        <span class="stat-value">${statistics.red_hit_analysis?.best_hit || 0}个</span>
+                    </div>
+                    <div class="hit-stat-item">
+                        <span class="stat-label">蓝球最高命中：</span>
+                        <span class="stat-value">${statistics.blue_hit_analysis?.best_hit || 0}个</span>
+                    </div>
+                    <div class="hit-stat-item">
+                        <span class="stat-label">一等奖：</span>
+                        <span class="stat-value">${statistics.prize_stats?.first_prize?.count || 0}次</span>
+                    </div>
+                    <div class="hit-stat-item">
+                        <span class="stat-label">二等奖：</span>
+                        <span class="stat-value">${statistics.prize_stats?.second_prize?.count || 0}次</span>
+                    </div>
+                    <div class="hit-stat-item">
+                        <span class="stat-label">命中率：</span>
+                        <span class="stat-value">${(statistics.hit_rate || 0).toFixed(2)}%</span>
+                    </div>
+                    <div class="hit-stat-item">
+                        <span class="stat-label">总奖金：</span>
+                        <span class="stat-value highlight-prize">¥${(statistics.total_prize || 0).toLocaleString()}</span>
+                    </div>
+                </div>
+            `;
+        } else {
+            hitInfo.innerHTML = '<div class="no-data">暂无命中数据</div>';
+        }
+    } catch (error) {
+        console.error('❌ 渲染单期详情失败:', error);
+        alert('渲染单期详情失败: ' + error.message);
+    }
+}
+
+/**
+ * 关闭单期详情弹窗
+ */
+function closePeriodDetailModal() {
+    const modal = document.getElementById('period-detail-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
 }
 
 // 将任务管理函数添加到全局作用域
 window.viewTaskDetail = viewTaskDetail;
 window.deleteTask = deleteTask;
+window.viewPeriodDetail = viewPeriodDetail;
+
+// 绑定单期详情弹窗关闭按钮
+document.addEventListener('DOMContentLoaded', function() {
+    const closePeriodModalBtn = document.getElementById('close-period-modal');
+    const closePeriodModalFooterBtn = document.getElementById('close-period-modal-footer');
+
+    if (closePeriodModalBtn) {
+        closePeriodModalBtn.addEventListener('click', closePeriodDetailModal);
+    }
+    if (closePeriodModalFooterBtn) {
+        closePeriodModalFooterBtn.addEventListener('click', closePeriodDetailModal);
+    }
+
+    // 点击遮罩层关闭
+    const periodModal = document.getElementById('period-detail-modal');
+    if (periodModal) {
+        const overlay = periodModal.querySelector('.period-modal-overlay');
+        if (overlay) {
+            overlay.addEventListener('click', closePeriodDetailModal);
+        }
+    }
+});
 window.exportTaskQuick = exportTaskQuick;
 window.exportSinglePeriod = exportSinglePeriod;
 window.viewPeriodDetail = viewPeriodDetail;

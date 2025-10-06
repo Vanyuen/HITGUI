@@ -11,6 +11,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// 工具函数：根据日期计算星期
+function getWeekDay(date) {
+    const days = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+    return days[new Date(date).getDay()];
+}
+
 // 设置宽松的CSP策略，允许所有必要的脚本执行
 app.use((req, res, next) => {
     res.setHeader(
@@ -56,20 +62,22 @@ const UnionLotto = mongoose.model('HIT_UnionLotto', unionLottoSchema);
 
 // 定义大乐透模型
 const dltSchema = new mongoose.Schema({
-    ID: { type: Number, required: true, unique: true },
+    ID: { type: Number, required: true, unique: true },  // 手动指定
     Issue: { type: Number, required: true, unique: true },
-    DrawingDay: { type: String },
-    DrawingWeek: { type: String, required: true },
-    Red1: { type: Number, required: true },
-    Red2: { type: Number, required: true },
-    Red3: { type: Number, required: true },
-    Red4: { type: Number, required: true },
-    Red5: { type: Number, required: true },
-    Blue1: { type: Number, required: true },
-    Blue2: { type: Number, required: true },
-    drawDate: { type: Date, required: true },
-    Sales: { type: String },
-    Pool: { type: String },
+    Red1: { type: Number, required: true, min: 1, max: 35 },
+    Red2: { type: Number, required: true, min: 1, max: 35 },
+    Red3: { type: Number, required: true, min: 1, max: 35 },
+    Red4: { type: Number, required: true, min: 1, max: 35 },
+    Red5: { type: Number, required: true, min: 1, max: 35 },
+    Blue1: { type: Number, required: true, min: 1, max: 12 },
+    Blue2: { type: Number, required: true, min: 1, max: 12 },
+    PoolPrize: { type: String },           // 奖池奖金(元)
+    FirstPrizeCount: { type: Number },     // 一等奖注数
+    FirstPrizeAmount: { type: String },    // 一等奖奖金
+    SecondPrizeCount: { type: Number },    // 二等奖注数
+    SecondPrizeAmount: { type: String },   // 二等奖奖金
+    TotalSales: { type: String },          // 总投注额(元)
+    DrawDate: { type: Date, required: true }, // 开奖日期
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -435,7 +443,9 @@ const predictionTaskSchema = new mongoose.Schema({
         span: { type: Object }, // 跨度排除
         hwc: { type: Object }, // 热温冷比排除
         zone: { type: Object }, // 区间比排除
-        oddEven: { type: Object } // 奇偶比排除
+        oddEven: { type: Object }, // 奇偶比排除
+        conflict: { type: Object }, // 相克排除
+        coOccurrence: { type: Object } // 同出排除
     },
     output_config: {
         combination_mode: { type: String, required: true }, // 组合模式
@@ -565,6 +575,32 @@ const predictionTaskResultSchema = new mongoose.Schema({
 
         hit_rate: { type: Number, default: 0 }, // 命中率 (%)
         total_prize: { type: Number, default: 0 } // 本期总奖金
+    },
+
+    // 相克排除数据
+    conflict_data: {
+        enabled: { type: Boolean, default: false },
+        analysis_periods: { type: Number }, // 分析期数
+        topN: { type: Number }, // Top N
+        conflict_pairs: [{  // 相克号码对
+            pair: { type: [Number] }, // [01, 27]
+            score: { type: Number } // 相克次数
+        }],
+        combinations_before: { type: Number }, // 排除前组合数
+        combinations_after: { type: Number },  // 排除后组合数
+        excluded_count: { type: Number }       // 实际排除数量
+    },
+
+    // 同出排除数据
+    cooccurrence_data: {
+        enabled: { type: Boolean, default: false },
+        periods: { type: Number }, // 分析期数
+        cooccurrence_pairs: [{  // 同出号码对
+            pair: { type: [Number] } // [12, 14]
+        }],
+        combinations_before: { type: Number }, // 排除前组合数
+        combinations_after: { type: Number },  // 排除后组合数
+        excluded_count: { type: Number }       // 实际排除数量
     },
 
     created_at: { type: Date, default: Date.now } // 创建时间
@@ -818,7 +854,7 @@ app.get('/api/lotteries', async (req, res) => {
   try {
     const { page = 1, limit = 30 } = req.query;
     const lotteries = await UnionLotto.find()
-      .sort({ drawDate: -1 })
+      .sort({ DrawDate: -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
     
@@ -2536,6 +2572,310 @@ app.get('/api/dlt/conflict/excel', async (req, res) => {
     }
 });
 
+// 大乐透相克Top N分析接口
+app.get('/api/dlt/conflict-topn', async (req, res) => {
+    try {
+        const { targetIssue, baseIssue, analysisPeriods, topN, includeBackBalls } = req.query;
+
+        log(`计算相克Top N: 目标期=${targetIssue}, 基准期=${baseIssue}, 分析${analysisPeriods}期, Top=${topN}, 后区=${includeBackBalls}`);
+
+        if (!targetIssue) {
+            return res.status(400).json({
+                success: false,
+                message: '缺少目标期号参数'
+            });
+        }
+
+        const periods = parseInt(analysisPeriods) || 3;
+        const topNCount = parseInt(topN) || 5;
+        const includeBack = includeBackBalls === 'true';
+
+        // 先查找目标期号对应的ID
+        const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+        if (!targetRecord) {
+            return res.json({
+                success: false,
+                message: `未找到期号${targetIssue}的数据`
+            });
+        }
+
+        const targetID = targetRecord.ID;
+        const startID = targetID - periods;
+
+        log(`目标期号${targetIssue}对应ID=${targetID}, 分析ID范围: ${startID} ~ ${targetID - 1}`);
+
+        // 查询指定ID范围的数据（目标期往前推N期）
+        const data = await DLT.find({
+            ID: {
+                $gte: startID,
+                $lt: targetID
+            }
+        }).sort({ ID: 1 }).lean();
+
+        if (data.length === 0) {
+            return res.json({
+                success: false,
+                message: `未找到ID ${startID}到${targetID}之间的数据`
+            });
+        }
+
+        log(`查询到${data.length}期数据，计算相克矩阵...`);
+
+        // 计算相克矩阵
+        const conflictMatrix = calculateDLTConflictMatrixForPeriods(data);
+
+        // 提取前区Top N相克对
+        const frontConflictPairs = extractTopNConflictPairs(conflictMatrix, topNCount, 35);
+
+        // 提取后区Top N相克对（如果启用）
+        let backConflictPairs = [];
+        if (includeBack) {
+            const backConflictMatrix = calculateBackBallsConflictMatrix(data);
+            backConflictPairs = extractTopNBackConflictPairs(backConflictMatrix, topNCount);
+        }
+
+        log(`前区相克对${frontConflictPairs.length}个，后区相克对${backConflictPairs.length}个`);
+
+        res.json({
+            success: true,
+            data: {
+                targetIssue: targetIssue,
+                analysisPeriods: periods,
+                analyzedDataCount: data.length,
+                startIssue: data[0].Issue,
+                endIssue: data[data.length - 1].Issue,
+                frontConflictPairs: frontConflictPairs,
+                backConflictPairs: backConflictPairs,
+                topN: topNCount,
+                includeBackBalls: includeBack
+            }
+        });
+    } catch (error) {
+        console.error('计算相克Top N失败:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || '计算相克Top N失败'
+        });
+    }
+});
+
+// 大乐透同出排除接口 - 基于遗漏值表(每个号码查找其最近1次出现时的同出号码)
+app.get('/api/dlt/cooccurrence-per-ball', async (req, res) => {
+    try {
+        const { targetIssue, periods } = req.query;
+
+        log(`🔗 计算同出排除数据: 目标期=${targetIssue}, 每个号码分析最近${periods}次出现`);
+
+        if (!targetIssue) {
+            return res.status(400).json({
+                success: false,
+                message: '缺少targetIssue参数'
+            });
+        }
+
+        const periodsPerBall = parseInt(periods) || 1;
+        const targetIssueNum = parseInt(targetIssue);
+
+        // 1. 查询目标期的遗漏值表
+        const targetMissing = await DLTRedMissing.findOne({
+            Issue: targetIssue.toString()
+        }).lean();
+
+        if (!targetMissing) {
+            return res.status(404).json({
+                success: false,
+                message: `未找到期号${targetIssue}的遗漏值数据`
+            });
+        }
+
+        log(`🔗 成功获取期号${targetIssue}的遗漏值数据`);
+
+        const coOccurrenceMap = {};
+        const analyzedDetails = {}; // 详细分析信息
+        const allCoOccurrencePairs = new Set(); // 记录所有同出对
+
+        // 2. 遍历每个号码(1-35)
+        for (let ballNum = 1; ballNum <= 35; ballNum++) {
+            const ballStr = ballNum.toString();
+            const missingValue = targetMissing[ballStr];
+
+            // 3. 计算该号码最近出现的期号
+            const lastAppearedIssue = targetIssueNum - missingValue;
+
+            // 4. 查询该期的遗漏值表,找出同出号码
+            const lastAppearedMissing = await DLTRedMissing.findOne({
+                Issue: lastAppearedIssue.toString()
+            }).lean();
+
+            if (lastAppearedMissing) {
+                const coOccurredNumbers = [];
+
+                // 5. 找出该期所有遗漏值=0的号码(除了自己)
+                for (let num = 1; num <= 35; num++) {
+                    if (num !== ballNum && lastAppearedMissing[num.toString()] === 0) {
+                        coOccurredNumbers.push(num);
+                        // 记录同出对(避免重复,只记录较小号码在前的对)
+                        if (ballNum < num) {
+                            allCoOccurrencePairs.add(`${ballNum}-${num}`);
+                        }
+                    }
+                }
+
+                coOccurrenceMap[ballStr] = coOccurredNumbers.sort((a, b) => a - b);
+                analyzedDetails[ballStr] = {
+                    lastAppearedIssue: lastAppearedIssue.toString(),
+                    missingValue: missingValue,
+                    coOccurredNumbers: coOccurredNumbers
+                };
+            } else {
+                coOccurrenceMap[ballStr] = [];
+                analyzedDetails[ballStr] = {
+                    lastAppearedIssue: lastAppearedIssue.toString(),
+                    missingValue: missingValue,
+                    error: '未找到该期遗漏值数据'
+                };
+            }
+        }
+
+        // 转换同出对为数组
+        const coOccurrencePairs = Array.from(allCoOccurrencePairs).map(pair => {
+            const [a, b] = pair.split('-').map(Number);
+            return [a, b];
+        });
+
+        log(`🔗 同出排除计算完成: 共分析35个号码, 生成${coOccurrencePairs.length}对同出号码`);
+
+        // 输出前5个号码的详情作为示例
+        const sampleDetails = Object.entries(analyzedDetails).slice(0, 5).map(([num, detail]) =>
+            `${num}号[遗漏${detail.missingValue}期,最近${detail.lastAppearedIssue}期,同出${detail.coOccurredNumbers.join(',')}]`
+        );
+        log(`🔗 示例详情: ${sampleDetails.join(' | ')}`);
+
+        res.json({
+            success: true,
+            data: {
+                targetIssue: targetIssue,
+                periodsPerBall: periodsPerBall,
+                coOccurrenceMap: coOccurrenceMap,
+                analyzedDetails: analyzedDetails,
+                coOccurrencePairs: coOccurrencePairs, // 新增: 返回同出号码对数组
+                totalPairs: coOccurrencePairs.length
+            }
+        });
+    } catch (error) {
+        console.error('❌ 计算同出排除数据失败:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || '计算同出排除数据失败'
+        });
+    }
+});
+
+// 大乐透每个号码单独统计相克Top N接口
+app.get('/api/dlt/conflict-per-ball', async (req, res) => {
+    try {
+        const { targetIssue, analysisPeriods, topN } = req.query;
+
+        log(`计算每个号码相克Top N: 目标期=${targetIssue}, 分析${analysisPeriods}期, 每个号码Top=${topN}`);
+
+        if (!targetIssue) {
+            return res.status(400).json({
+                success: false,
+                message: '缺少目标期号参数'
+            });
+        }
+
+        const periods = parseInt(analysisPeriods) || 3;
+        const topNCount = parseInt(topN) || 5;
+
+        // 先查找目标期号对应的ID
+        const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+        if (!targetRecord) {
+            return res.json({
+                success: false,
+                message: `未找到期号${targetIssue}的数据`
+            });
+        }
+
+        const targetID = targetRecord.ID;
+        const startID = targetID - periods;
+
+        log(`目标期号${targetIssue}对应ID=${targetID}, 分析ID范围: ${startID} ~ ${targetID - 1}`);
+
+        // 查询指定ID范围的数据（目标期往前推N期）
+        const data = await DLT.find({
+            ID: {
+                $gte: startID,
+                $lt: targetID
+            }
+        }).sort({ ID: 1 }).lean();
+
+        if (data.length === 0) {
+            return res.json({
+                success: false,
+                message: `未找到ID ${startID}到${targetID}之间的数据`
+            });
+        }
+
+        log(`查询到${data.length}期数据，开始计算每个号码的相克Top N...`);
+
+        // 为每个号码（01-35）单独统计相克次数
+        const conflictMap = {};
+
+        for (let ballNum = 1; ballNum <= 35; ballNum++) {
+            // 统计该号码与其他号码的相克次数
+            const conflictCounts = {};
+
+            data.forEach(issue => {
+                const frontNumbers = [issue.Red1, issue.Red2, issue.Red3, issue.Red4, issue.Red5];
+
+                if (frontNumbers.includes(ballNum)) {
+                    // ballNum出现了，其他未出现的号码相克次数+1
+                    for (let other = 1; other <= 35; other++) {
+                        if (other !== ballNum && !frontNumbers.includes(other)) {
+                            conflictCounts[other] = (conflictCounts[other] || 0) + 1;
+                        }
+                    }
+                } else {
+                    // ballNum未出现，出现的号码相克次数+1
+                    frontNumbers.forEach(other => {
+                        conflictCounts[other] = (conflictCounts[other] || 0) + 1;
+                    });
+                }
+            });
+
+            // 排序取Top N
+            const topConflicts = Object.entries(conflictCounts)
+                .sort((a, b) => b[1] - a[1])  // 按相克次数降序
+                .slice(0, topNCount)
+                .map(([num, count]) => parseInt(num));
+
+            conflictMap[ballNum] = topConflicts;
+        }
+
+        log(`每个号码的相克Top N计算完成`);
+
+        res.json({
+            success: true,
+            data: {
+                targetIssue: targetIssue,
+                analysisPeriods: periods,
+                analyzedDataCount: data.length,
+                startIssue: data[0].Issue,
+                endIssue: data[data.length - 1].Issue,
+                topN: topNCount,
+                conflictMap: conflictMap
+            }
+        });
+    } catch (error) {
+        console.error('计算每个号码相克Top N失败:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || '计算每个号码相克Top N失败'
+        });
+    }
+});
+
 // ===== 大乐透数据计算函数 =====
 
 // 计算大乐透同出矩阵
@@ -2669,6 +3009,107 @@ function calculateDLTConflictMatrix(data) {
     }
     
     return conflictMatrix;
+}
+
+// 计算指定期数的前区相克矩阵（用于Top N分析）
+function calculateDLTConflictMatrixForPeriods(data) {
+    const conflictPairs = {}; // 存储所有号码对的相克次数
+
+    // 遍历每期数据
+    data.forEach(record => {
+        const drawnFront = [record.Red1, record.Red2, record.Red3, record.Red4, record.Red5];
+
+        // 获取未开出的前区号码
+        const undrawnFront = [];
+        for (let i = 1; i <= 35; i++) {
+            if (!drawnFront.includes(i)) {
+                undrawnFront.push(i);
+            }
+        }
+
+        // 计算已开出号码与未开出号码的相克关系
+        drawnFront.forEach(drawn => {
+            undrawnFront.forEach(undrawn => {
+                // 创建号码对的key (较小号在前)
+                const key = drawn < undrawn ? `${drawn},${undrawn}` : `${undrawn},${drawn}`;
+                conflictPairs[key] = (conflictPairs[key] || 0) + 1;
+            });
+        });
+    });
+
+    return conflictPairs;
+}
+
+// 提取前区Top N相克号码对（包含并列）
+function extractTopNConflictPairs(conflictPairs, topN, maxBall) {
+    // 转换为数组并排序
+    const pairsArray = Object.keys(conflictPairs).map(key => {
+        const [num1, num2] = key.split(',').map(n => parseInt(n));
+        return {
+            pair: [num1, num2],
+            count: conflictPairs[key]
+        };
+    });
+
+    // 按相克次数降序排序
+    pairsArray.sort((a, b) => b.count - a.count);
+
+    // 找出Top N（包含并列）
+    const result = [];
+    let currentRank = 0;
+    let lastCount = -1;
+
+    for (let i = 0; i < pairsArray.length; i++) {
+        const item = pairsArray[i];
+
+        // 如果相克次数为0，跳过
+        if (item.count === 0) break;
+
+        // 如果相克次数变化，更新排名
+        if (item.count !== lastCount) {
+            currentRank = i + 1;
+            lastCount = item.count;
+        }
+
+        // 如果排名超过TopN，停止
+        if (currentRank > topN) break;
+
+        result.push(item);
+    }
+
+    return result;
+}
+
+// 计算后区号码相克矩阵
+function calculateBackBallsConflictMatrix(data) {
+    const conflictPairs = {};
+
+    data.forEach(record => {
+        const drawnBack = [record.Blue1, record.Blue2];
+
+        // 获取未开出的后区号码
+        const undrawnBack = [];
+        for (let i = 1; i <= 12; i++) {
+            if (!drawnBack.includes(i)) {
+                undrawnBack.push(i);
+            }
+        }
+
+        // 计算已开出号码与未开出号码的相克关系
+        drawnBack.forEach(drawn => {
+            undrawnBack.forEach(undrawn => {
+                const key = drawn < undrawn ? `${drawn},${undrawn}` : `${undrawn},${drawn}`;
+                conflictPairs[key] = (conflictPairs[key] || 0) + 1;
+            });
+        });
+    });
+
+    return conflictPairs;
+}
+
+// 提取后区Top N相克号码对
+function extractTopNBackConflictPairs(conflictPairs, topN) {
+    return extractTopNConflictPairs(conflictPairs, topN, 12);
 }
 
 // 生成大乐透同出数据统计报告
@@ -3250,8 +3691,8 @@ function generateDLTSumHistoryTable(data) {
         issue: record.Issue,
         frontSum: record.Red1 + record.Red2 + record.Red3 + record.Red4 + record.Red5,
         backSum: record.Blue1 + record.Blue2,
-        drawingDay: record.DrawingDay,
-        drawingWeek: record.DrawingWeek
+        drawingDay: record.DrawDate ? new Date(record.DrawDate).toLocaleDateString('zh-CN') : '',
+        drawingWeek: record.DrawDate ? getWeekDay(record.DrawDate) : ''
     })).reverse(); // 反转数组，让最老的期号在前
 }
 
@@ -4536,6 +4977,25 @@ app.get('/api/dlt/export-unlimited-combinations-csv', async (req, res) => {
         res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
         res.setHeader('X-Total-Count', totalCount.toString());
 
+        // 添加响应错误处理，防止EPIPE错误
+        let clientDisconnected = false;
+
+        res.on('error', (err) => {
+            if (err.code === 'EPIPE' || err.code === 'ECONNRESET') {
+                log(`客户端断开连接: ${err.code}`);
+                clientDisconnected = true;
+            } else {
+                log(`响应流错误: ${err.message}`);
+            }
+        });
+
+        res.on('close', () => {
+            if (!res.writableFinished) {
+                log('客户端提前关闭连接');
+                clientDisconnected = true;
+            }
+        });
+
         // 写入UTF-8 BOM确保中文正确显示
         res.write('\uFEFF');
 
@@ -4559,6 +5019,13 @@ app.get('/api/dlt/export-unlimited-combinations-csv', async (req, res) => {
 
         try {
             for await (const combo of cursor) {
+                // 检查客户端是否已断开
+                if (clientDisconnected || res.destroyed) {
+                    log(`导出中止: 客户端已断开，已处理 ${processedCount} 条记录`);
+                    await cursor.close();
+                    return;
+                }
+
                 // 构建CSV行
                 const row = [
                     index++,
@@ -8442,7 +8909,7 @@ app.get('/api/dlt/new-combination-prediction', async (req, res) => {
         log('🔍 开始查询历史开奖数据...');
         const historyData = await DLT.find({})
             .sort({ Issue: -1 })
-            .select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 drawDate')
+            .select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 DrawDate')
             .lean();
         
         log(`✅ 获取历史开奖数据 ${historyData.length} 期`);
@@ -8593,7 +9060,7 @@ app.get('/api/dlt/latest-issues', async (req, res) => {
         const latestIssues = await DLT.find({})
             .sort({ Issue: -1 })
             .limit(5)
-            .select('Issue drawDate');
+            .select('Issue DrawDate');
             
         res.json({
             success: true,
@@ -8617,14 +9084,14 @@ app.get('/api/dlt/recent-data', async (req, res) => {
         const recentData = await DLT.find({})
             .sort({ Issue: -1 })
             .limit(50)
-            .select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 drawDate');
+            .select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 DrawDate');
             
         // 转换为前端需要的格式
         const formattedData = recentData.map(item => ({
             issue: item.Issue,
             front_numbers: [item.Red1, item.Red2, item.Red3, item.Red4, item.Red5],
             back_numbers: [item.Blue1, item.Blue2],
-            draw_date: item.drawDate
+            draw_date: item.DrawDate
         }));
             
         res.json({
@@ -9185,13 +9652,14 @@ class StreamBatchPredictor {
      * 流式批量预测主入口
      */
     async streamPredict(config, progressCallback) {
-        const { targetIssues, filters, maxRedCombinations, maxBlueCombinations, enableValidation } = config;
+        const { targetIssues, filters, exclude_conditions, maxRedCombinations, maxBlueCombinations, enableValidation } = config;
 
         this.isRunning = true;
         this.progressCallback = progressCallback;
         this.results = [];
 
         log(`🚀 [${this.sessionId}] 开始流式批量预测: ${targetIssues.length}期`);
+        log(`🔧 [${this.sessionId}] 排除条件:`, exclude_conditions);
 
         try {
             // 分批处理期号
@@ -9211,7 +9679,7 @@ class StreamBatchPredictor {
                 await this.checkMemoryAndCleanup();
 
                 // 处理单个批次
-                const batchResults = await this.processBatch(batch, filters, maxRedCombinations, maxBlueCombinations, enableValidation);
+                const batchResults = await this.processBatch(batch, filters, exclude_conditions, maxRedCombinations, maxBlueCombinations, enableValidation);
 
                 // 累积结果
                 this.results.push(...batchResults);
@@ -9270,7 +9738,7 @@ class StreamBatchPredictor {
     /**
      * 处理单个批次
      */
-    async processBatch(issuesBatch, filters, maxRedCombinations, maxBlueCombinations, enableValidation) {
+    async processBatch(issuesBatch, filters, exclude_conditions, maxRedCombinations, maxBlueCombinations, enableValidation) {
         const batchResults = [];
 
         for (const issue of issuesBatch) {
@@ -9280,7 +9748,7 @@ class StreamBatchPredictor {
                 log(`🎯 [${this.sessionId}] 处理期号: ${issue}`);
 
                 // 处理单期
-                const issueResult = await this.processSingleIssue(issue, filters, maxRedCombinations, maxBlueCombinations, enableValidation);
+                const issueResult = await this.processSingleIssue(issue, filters, exclude_conditions, maxRedCombinations, maxBlueCombinations, enableValidation);
                 batchResults.push(issueResult);
 
                 // 单期处理后小暂停
@@ -9305,11 +9773,11 @@ class StreamBatchPredictor {
     /**
      * 处理单期预测
      */
-    async processSingleIssue(issue, filters, maxRedCombinations, maxBlueCombinations, enableValidation) {
+    async processSingleIssue(issue, filters, exclude_conditions, maxRedCombinations, maxBlueCombinations, enableValidation) {
         const startTime = Date.now();
 
-        // 获取红球组合（应用过滤条件）
-        const redCombinations = await this.getFilteredRedCombinations(issue, filters, maxRedCombinations);
+        // 获取红球组合（应用过滤条件和排除条件）
+        const redCombinations = await this.getFilteredRedCombinations(issue, filters, exclude_conditions, maxRedCombinations);
 
         // 获取蓝球组合
         const blueCombinations = await this.getFilteredBlueCombinations(issue, filters, maxBlueCombinations);
@@ -9339,38 +9807,87 @@ class StreamBatchPredictor {
     /**
      * 获取过滤后的红球组合
      */
-    async getFilteredRedCombinations(issue, filters, maxCount) {
+    async getFilteredRedCombinations(issue, filters, exclude_conditions, maxCount) {
         try {
-            log(`🔎 [${this.sessionId}] 获取红球组合 - 期号:${issue}, 最大数量:${maxCount}, 过滤条件:${JSON.stringify(filters)}`);
+            log(`🔎 [${this.sessionId}] 获取红球组合 - 期号:${issue}, 最大数量:${maxCount}`);
+            log(`🔍 [${this.sessionId}] 过滤条件详情: ${JSON.stringify(filters, null, 2)}`);
+            log(`🔍 [${this.sessionId}] 排除条件详情: ${JSON.stringify(exclude_conditions, null, 2)}`);
+            log(`⚔️ [${this.sessionId}] 相克配置检查: conflictExclude存在=${!!filters.conflictExclude}, enabled=${filters.conflictExclude?.enabled}`);
 
-            // 先尝试从数据库获取
-            const allCombinations = await DLTRedCombination.find({}).limit(maxCount).lean();
+            // 1. 从数据库获取所有红球组合
+            let allCombinations = await DLTRedCombination.find({}).limit(maxCount).lean();
 
-            if (allCombinations && allCombinations.length > 0) {
-                log(`📊 [${this.sessionId}] 从数据库获取到${allCombinations.length}个红球组合`);
-
-                // 应用过滤条件
-                let filtered = allCombinations;
-
-                if (filters.excludeSumRange) {
-                    const beforeCount = filtered.length;
-                    filtered = filtered.filter(combo => {
-                        const sum = combo.sum || combo.numbers.reduce((s, n) => s + n, 0);
-                        // 排除指定范围内的组合（保留范围外的）
-                        return sum < filters.excludeSumRange.min || sum > filters.excludeSumRange.max;
-                    });
-                    log(`🔍 [${this.sessionId}] 和值过滤: ${beforeCount} → ${filtered.length} (排除${filters.excludeSumRange.min}-${filters.excludeSumRange.max})`);
-                }
-
-                // 转换为简化格式减少内存占用
-                const result = filtered.map(combo => combo.numbers || [combo.Red1, combo.Red2, combo.Red3, combo.Red4, combo.Red5]);
-                log(`✅ [${this.sessionId}] 过滤后红球组合: ${result.length}个`);
-                return result;
-            } else {
-                // 数据库为空时生成组合
+            if (!allCombinations || allCombinations.length === 0) {
                 log(`⚠️ [${this.sessionId}] 数据库红球组合为空，动态生成组合`);
                 return this.generateRedCombinations(maxCount, filters);
             }
+
+            log(`📊 [${this.sessionId}] 数据库返回${allCombinations.length}个红球组合`);
+
+            // 2. 应用相克排除过滤
+            if (filters.conflictExclude && filters.conflictExclude.enabled) {
+                const beforeConflict = allCombinations.length;
+                log(`⚔️ [${this.sessionId}] 开始相克排除过滤...`);
+
+                try {
+                    const conflictPairs = await this.getConflictPairs(issue, filters.conflictExclude);
+
+                    if (conflictPairs && conflictPairs.length > 0) {
+                        log(`⚔️ [${this.sessionId}] 获取到${conflictPairs.length}对相克号码`);
+
+                        // 过滤掉包含相克对的组合
+                        allCombinations = allCombinations.filter(combo => {
+                            const numbers = [combo.red_ball_1, combo.red_ball_2, combo.red_ball_3, combo.red_ball_4, combo.red_ball_5];
+                            for (const pair of conflictPairs) {
+                                if (numbers.includes(pair[0]) && numbers.includes(pair[1])) {
+                                    return false;
+                                }
+                            }
+                            return true;
+                        });
+
+                        log(`⚔️ [${this.sessionId}] 相克过滤后: ${allCombinations.length}个组合 (排除${beforeConflict - allCombinations.length}个)`);
+                    } else {
+                        log(`⚠️ [${this.sessionId}] 未找到相克号码对`);
+                    }
+                } catch (conflictError) {
+                    log(`❌ [${this.sessionId}] 相克过滤失败: ${conflictError.message}`);
+                }
+            }
+
+            // 3. 应用同出排除过滤
+            if (exclude_conditions && exclude_conditions.coOccurrence && exclude_conditions.coOccurrence.enabled) {
+                const beforeCoOccurrence = allCombinations.length;
+                log(`🔗 [${this.sessionId}] 开始同出排除过滤... 最近${exclude_conditions.coOccurrence.periods}期`);
+
+                try {
+                    const coOccurrencePairs = await this.getCoOccurrencePairs(issue, exclude_conditions.coOccurrence.periods);
+
+                    if (coOccurrencePairs && coOccurrencePairs.length > 0) {
+                        log(`🔗 [${this.sessionId}] 获取到${coOccurrencePairs.length}对同出号码`);
+
+                        // 过滤掉包含同出对的组合
+                        allCombinations = allCombinations.filter(combo => {
+                            const numbers = [combo.red_ball_1, combo.red_ball_2, combo.red_ball_3, combo.red_ball_4, combo.red_ball_5];
+                            for (const pair of coOccurrencePairs) {
+                                if (numbers.includes(pair[0]) && numbers.includes(pair[1])) {
+                                    return false;
+                                }
+                            }
+                            return true;
+                        });
+
+                        log(`🔗 [${this.sessionId}] 同出过滤后: ${allCombinations.length}个组合 (排除${beforeCoOccurrence - allCombinations.length}个)`);
+                    } else {
+                        log(`⚠️ [${this.sessionId}] 未找到同出号码对`);
+                    }
+                } catch (coOccurrenceError) {
+                    log(`❌ [${this.sessionId}] 同出过滤失败: ${coOccurrenceError.message}`);
+                }
+            }
+
+            log(`✅ [${this.sessionId}] 最终红球组合: ${allCombinations.length}个`);
+            return allCombinations;
 
         } catch (error) {
             log(`❌ [${this.sessionId}] 获取红球组合失败，使用备用生成: ${error.message}`);
@@ -9415,6 +9932,257 @@ class StreamBatchPredictor {
 
         log(`✅ [${this.sessionId}] 动态生成${combinations.length}个红球组合`);
         return combinations;
+    }
+
+    /**
+     * 获取同出号码对
+     */
+    async getCoOccurrencePairs(targetIssue, periods) {
+        try {
+            log(`🔗 [${this.sessionId}] 获取同出号码对 - 期号:${targetIssue}, 每个号码最近${periods}次出现`);
+
+            // 调用同出API
+            const url = `http://localhost:3003/api/dlt/cooccurrence-per-ball?targetIssue=${targetIssue}&periods=${periods}`;
+            const response = await fetch(url);
+            const result = await response.json();
+
+            if (!result.success || !result.data) {
+                log(`⚠️ [${this.sessionId}] 同出API返回无效数据`);
+                return [];
+            }
+
+            // 🎯 新API直接返回同出号码对数组
+            const pairs = result.data.coOccurrencePairs || [];
+
+            log(`🔗 [${this.sessionId}] 成功获取${pairs.length}对同出号码`);
+
+            // 输出详情示例(前3对)
+            if (pairs.length > 0 && result.data.analyzedDetails) {
+                const sample = pairs.slice(0, 3).map(p => `[${p[0]}-${p[1]}]`).join(', ');
+                log(`🔗 [${this.sessionId}] 同出对示例: ${sample}...`);
+            }
+
+            return pairs;
+
+        } catch (error) {
+            log(`❌ [${this.sessionId}] 获取同出号码对失败: ${error.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * 获取相克号码对（从相克TopN API）
+     */
+    async getConflictPairs(targetIssue, conflictConfig) {
+        try {
+            const { globalTopEnabled, globalAnalysisPeriods, topN, perBallTopEnabled, perBallAnalysisPeriods, perBallTopN, includeBackBalls, hotProtection } = conflictConfig;
+
+            log(`⚔️ [${this.sessionId}] 调用相克API - 期号:${targetIssue}, 全局Top${globalTopEnabled ? `${topN}(${globalAnalysisPeriods}期)` : '未启用'}, 每个号码Top${perBallTopEnabled ? `${perBallTopN}(${perBallAnalysisPeriods}期)` : '未启用'}`);
+            if (hotProtection && hotProtection.enabled) {
+                log(`🔥 [${this.sessionId}] 热号保护已启用 - 保护前${hotProtection.topHotCount}名热号`);
+            }
+
+            // 获取全局Top分析需要的最大期数
+            const maxPeriods = Math.max(
+                globalTopEnabled ? globalAnalysisPeriods : 0,
+                perBallTopEnabled ? perBallAnalysisPeriods : 0
+            );
+
+            if (maxPeriods === 0) {
+                log(`⚠️ [${this.sessionId}] 全局Top和每个号码Top都未启用，无需分析`);
+                return [];
+            }
+
+            // 获取目标期号的前N期数据来分析相克关系
+            const targetIssueNum = parseInt(targetIssue);
+            const analysisData = await DLT.find({
+                Issue: { $lt: targetIssueNum }
+            })
+                .sort({ Issue: -1 })
+                .limit(maxPeriods)
+                .lean();
+
+            if (!analysisData || analysisData.length === 0) {
+                log(`⚠️ [${this.sessionId}] 没有足够的历史数据进行相克分析`);
+                return [];
+            }
+
+            // 统计热号（如果启用热号保护）
+            let hotNumbers = new Set();
+            if (hotProtection && hotProtection.enabled && hotProtection.topHotCount > 0) {
+                // 使用每个号码Top的分析期数来统计热号
+                const hotAnalysisData = perBallTopEnabled ?
+                    analysisData.slice(0, perBallAnalysisPeriods) :
+                    analysisData;
+
+                const ballFrequency = {};
+                for (let i = 1; i <= 35; i++) {
+                    ballFrequency[i] = 0;
+                }
+
+                // 统计每个号码的出现次数
+                hotAnalysisData.forEach(record => {
+                    const redNumbers = [record.Red1, record.Red2, record.Red3, record.Red4, record.Red5];
+                    redNumbers.forEach(num => {
+                        if (num >= 1 && num <= 35) {
+                            ballFrequency[num]++;
+                        }
+                    });
+                });
+
+                // 按出现次数降序排序
+                const sortedBalls = Object.entries(ballFrequency)
+                    .map(([ball, count]) => ({ ball: parseInt(ball), count }))
+                    .sort((a, b) => b.count - a.count);
+
+                // 获取前N名热号
+                const topHotBalls = sortedBalls.slice(0, hotProtection.topHotCount);
+                hotNumbers = new Set(topHotBalls.map(item => item.ball));
+
+                log(`🔥 [${this.sessionId}] 热号榜单(前${hotProtection.topHotCount}名,基于${hotAnalysisData.length}期): ${Array.from(hotNumbers).join(', ')}`);
+                const hotDetails = topHotBalls.map(item => `${String(item.ball).padStart(2, '0')}(${item.count}次)`).join(', ');
+                log(`🔥 [${this.sessionId}] 热号详情: ${hotDetails}`);
+            }
+
+            // 全局Top分析
+            let globalConflictPairs = new Set();
+            if (globalTopEnabled && topN > 0) {
+                const globalData = analysisData.slice(0, globalAnalysisPeriods);
+
+                // 统计相克关系
+                const conflictMatrix = {};
+                for (let i = 1; i <= 35; i++) {
+                    conflictMatrix[i] = {};
+                    for (let j = 1; j <= 35; j++) {
+                        if (i !== j) conflictMatrix[i][j] = 0;
+                    }
+                }
+
+                globalData.forEach(record => {
+                    const redNumbers = [record.Red1, record.Red2, record.Red3, record.Red4, record.Red5];
+                    for (let appeared = 1; appeared <= 35; appeared++) {
+                        if (redNumbers.includes(appeared)) {
+                            for (let notAppeared = 1; notAppeared <= 35; notAppeared++) {
+                                if (appeared !== notAppeared && !redNumbers.includes(notAppeared)) {
+                                    conflictMatrix[appeared][notAppeared]++;
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // 双向累加
+                const conflictScores = [];
+                for (let i = 1; i <= 35; i++) {
+                    for (let j = i + 1; j <= 35; j++) {
+                        const score = conflictMatrix[i][j] + conflictMatrix[j][i];
+                        if (score > 0) {
+                            conflictScores.push({ pair: [i, j], score: score });
+                        }
+                    }
+                }
+
+                conflictScores.sort((a, b) => b.score - a.score);
+
+                // 获取Top N（含并列）
+                let currentRank = 0;
+                let currentScore = -1;
+                for (const item of conflictScores) {
+                    if (item.score !== currentScore) {
+                        currentRank++;
+                        currentScore = item.score;
+                    }
+                    if (currentRank <= topN) {
+                        globalConflictPairs.add(item.pair.join(','));
+                    } else {
+                        break;
+                    }
+                }
+
+                log(`⚔️ [${this.sessionId}] 全局Top${topN}相克(${globalAnalysisPeriods}期) - ${globalConflictPairs.size}对`);
+            }
+
+            // 每个号码Top分析
+            let perBallConflictPairs = new Set();
+            if (perBallTopEnabled && perBallTopN > 0) {
+                const perBallData = analysisData.slice(0, perBallAnalysisPeriods);
+
+                // 统计相克关系
+                const conflictMatrix = {};
+                for (let i = 1; i <= 35; i++) {
+                    conflictMatrix[i] = {};
+                    for (let j = 1; j <= 35; j++) {
+                        if (i !== j) conflictMatrix[i][j] = 0;
+                    }
+                }
+
+                perBallData.forEach(record => {
+                    const redNumbers = [record.Red1, record.Red2, record.Red3, record.Red4, record.Red5];
+                    for (let appeared = 1; appeared <= 35; appeared++) {
+                        if (redNumbers.includes(appeared)) {
+                            for (let notAppeared = 1; notAppeared <= 35; notAppeared++) {
+                                if (appeared !== notAppeared && !redNumbers.includes(notAppeared)) {
+                                    conflictMatrix[appeared][notAppeared]++;
+                                }
+                            }
+                        }
+                    }
+                });
+
+                let protectedCount = 0;
+                for (let ball = 1; ball <= 35; ball++) {
+                    const ballConflicts = [];
+                    for (let other = 1; other <= 35; other++) {
+                        if (ball !== other) {
+                            const score = conflictMatrix[ball][other] + conflictMatrix[other][ball];
+                            if (score > 0) {
+                                ballConflicts.push({ other: other, score: score });
+                            }
+                        }
+                    }
+
+                    ballConflicts.sort((a, b) => b.score - a.score);
+
+                    let rank = 0;
+                    let lastScore = -1;
+                    for (const item of ballConflicts) {
+                        if (item.score !== lastScore) {
+                            rank++;
+                            lastScore = item.score;
+                        }
+                        if (rank <= perBallTopN) {
+                            const pair = [Math.min(ball, item.other), Math.max(ball, item.other)];
+                            const key = pair.join(',');
+
+                            // 热号保护
+                            if (hotNumbers.has(ball) && hotNumbers.has(item.other)) {
+                                protectedCount++;
+                            } else {
+                                perBallConflictPairs.add(key);
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
+                log(`⚔️ [${this.sessionId}] 每个号码Top${perBallTopN}相克(${perBallAnalysisPeriods}期) - ${perBallConflictPairs.size}对 (热号保护过滤${protectedCount}对)`);
+            }
+
+            // 合并结果
+            const allConflictPairsSet = new Set([...globalConflictPairs, ...perBallConflictPairs]);
+
+            // 转换为数组返回
+            const topConflicts = Array.from(allConflictPairsSet).map(key => key.split(',').map(n => parseInt(n)));
+
+            log(`⚔️ [${this.sessionId}] 相克分析完成 - 总计${topConflicts.length}对相克号码 (全局${globalConflictPairs.size}对 + 每号${perBallConflictPairs.size}对)`);
+
+            return topConflicts;
+
+        } catch (error) {
+            log(`❌ [${this.sessionId}] 获取相克号码对失败: ${error.message}`);
+            throw error;
+        }
     }
 
     /**
@@ -9634,12 +10402,15 @@ app.post('/api/dlt/batch-prediction', async (req, res) => {
             targetIssues: providedTargetIssues,
             rangeConfig,  // 新增：期号范围配置 {rangeType, recentCount, startIssue, endIssue}
             filters,
+            exclude_conditions,  // 新增：排除条件
             maxRedCombinations = 50000,
             maxBlueCombinations = 1000,
             enableValidation = true,
             trulyUnlimited = false,  // 向后兼容
             combinationMode = 'default'  // 新增：组合模式
         } = req.body;
+
+        log(`📋 [${sessionId}] 收到排除条件:`, JSON.stringify(exclude_conditions, null, 2));
 
         // 解析目标期号列表
         let targetIssues = providedTargetIssues;
@@ -9739,10 +10510,17 @@ app.post('/api/dlt/batch-prediction', async (req, res) => {
                 trulyUnlimited: trulyUnlimited,  // 向后兼容
                 combinationMode: combinationMode  // 传递组合模式
             },
+            exclude_conditions: exclude_conditions || {},  // 新增：排除条件
             maxRedCombinations: actualMaxRed,
             maxBlueCombinations: actualMaxBlue,
             enableValidation
         };
+
+        log(`🔧 [${sessionId}] 预测配置已设置:`, {
+            targetIssuesCount: targetIssues.length,
+            hasExcludeConditions: !!exclude_conditions,
+            excludeConditionsKeys: exclude_conditions ? Object.keys(exclude_conditions) : []
+        });
 
         // 执行流式批量预测
         let lastProgressLog = 0;
@@ -10416,55 +11194,44 @@ app.get('/api/dlt/prediction-tasks/:taskId/results/:period', async (req, res) =>
             return res.json({ success: false, message: '未找到该期结果' });
         }
 
-        // 获取组合详细数据
-        const redCombinations = await DLTRedCombinations.find({
-            combination_id: { $in: result.red_combinations }
-        }).lean();
-
-        const blueCombinations = await DLTBlueCombinations.find({
-            combination_id: { $in: result.blue_combinations }
-        }).lean();
-
-        // 生成完整组合并计算命中
-        const combinations = [];
-        for (const red of redCombinations) {
-            for (const blue of blueCombinations) {
-                const redBalls = [red.red_ball_1, red.red_ball_2, red.red_ball_3, red.red_ball_4, red.red_ball_5];
-                const blueBalls = [blue.blue_ball_1, blue.blue_ball_2];
-
-                // 计算命中
-                const hit_red = result.winning_numbers?.red
-                    ? redBalls.filter(n => result.winning_numbers.red.includes(n)).length
-                    : 0;
-                const hit_blue = result.winning_numbers?.blue
-                    ? blueBalls.filter(n => result.winning_numbers.blue.includes(n)).length
-                    : 0;
-
-                // 计算奖项
-                let prize_level = '';
-                if (hit_red === 5 && hit_blue === 2) prize_level = '一等奖';
-                else if (hit_red === 5 && hit_blue === 1) prize_level = '二等奖';
-                else if (hit_red === 5 || (hit_red === 4 && hit_blue === 2)) prize_level = '三等奖';
-                else if ((hit_red === 4 && hit_blue === 1) || (hit_red === 3 && hit_blue === 2)) prize_level = '四等奖';
-                else if (hit_red === 4 || (hit_red === 3 && hit_blue === 1) || (hit_red === 2 && hit_blue === 2)) prize_level = '五等奖';
-
-                combinations.push({
-                    red: redBalls,
-                    blue: blueBalls,
-                    hit_red,
-                    hit_blue,
-                    prize_level
-                });
-            }
+        // 确保hit_analysis有完整结构
+        let statistics = result.hit_analysis;
+        if (!statistics || !statistics.prize_stats) {
+            log(`⚠️ 期号${period}的命中分析数据不完整，使用默认值`);
+            statistics = {
+                max_hit_count: 0,
+                max_hit_combinations: [],
+                hit_distribution: { red_5: 0, red_4: 0, red_3: 0, red_2: 0, red_1: 0, red_0: 0 },
+                prize_stats: {
+                    first_prize: { count: 0, amount: 0 },
+                    second_prize: { count: 0, amount: 0 },
+                    third_prize: { count: 0, amount: 0 },
+                    fourth_prize: { count: 0, amount: 0 },
+                    fifth_prize: { count: 0, amount: 0 },
+                    sixth_prize: { count: 0, amount: 0 },
+                    seventh_prize: { count: 0, amount: 0 },
+                    eighth_prize: { count: 0, amount: 0 },
+                    ninth_prize: { count: 0, amount: 0 }
+                },
+                hit_rate: 0,
+                total_prize: 0,
+                red_hit_analysis: { best_hit: 0 },
+                blue_hit_analysis: { best_hit: 0 }
+            };
         }
 
+        // 单期详情只需要统计数据和相克数据，不需要完整组合列表（避免内存溢出）
         res.json({
             success: true,
             data: {
                 period: parseInt(period),
                 winning_numbers: result.winning_numbers,
-                combinations,
-                statistics: result.hit_analysis
+                combination_count: result.combination_count,
+                red_count: result.red_combinations?.length || 0,
+                blue_count: result.blue_combinations?.length || 0,
+                statistics: statistics,
+                conflict_data: result.conflict_data,  // 添加相克数据
+                cooccurrence_data: result.cooccurrence_data  // 添加同出数据
             }
         });
     } catch (error) {
@@ -10611,7 +11378,22 @@ async function streamPeriodDetailCSV(res, taskId, period) {
             blue: [drawResult.Blue1, drawResult.Blue2]
         } : null;
 
-        const totalCombinations = redCombinations.length * blueCombinations.length;
+        // 获取组合模式
+        const combinationMode = task.output_config?.combination_mode || 'default';
+        log(`📋 组合模式: ${combinationMode}`);
+
+        // 计算总组合数
+        let totalCombinations;
+        if (combinationMode === 'unlimited') {
+            // 普通无限制：1:1配对
+            totalCombinations = Math.max(redCombinations.length, blueCombinations.length);
+            log(`   使用1:1配对模式`);
+        } else {
+            // 默认模式和真正无限制：完全笛卡尔积
+            totalCombinations = redCombinations.length * blueCombinations.length;
+            log(`   使用完全笛卡尔积模式`);
+        }
+
         log(`📊 开始导出期号${period}的组合明细，总数: ${totalCombinations.toLocaleString()}条`);
 
         // CSV表头
@@ -10628,6 +11410,25 @@ async function streamPeriodDetailCSV(res, taskId, period) {
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
 
+        // 添加响应错误处理，防止EPIPE错误
+        let clientDisconnected = false;
+
+        res.on('error', (err) => {
+            if (err.code === 'EPIPE' || err.code === 'ECONNRESET') {
+                log(`客户端断开连接: ${err.code}`);
+                clientDisconnected = true;
+            } else {
+                log(`响应流错误: ${err.message}`);
+            }
+        });
+
+        res.on('close', () => {
+            if (!res.writableFinished) {
+                log('客户端提前关闭连接');
+                clientDisconnected = true;
+            }
+        });
+
         // 写入BOM
         res.write('\ufeff');
 
@@ -10635,6 +11436,7 @@ async function streamPeriodDetailCSV(res, taskId, period) {
         res.write(headers.join(',') + '\n');
         res.write(`任务名称,${task.task_name}\n`);
         res.write(`期号,${period}\n`);
+        res.write(`组合模式,${combinationMode}\n`);
         res.write(`导出时间,${new Date().toLocaleString('zh-CN')}\n`);
         res.write(`组合总数,${totalCombinations}\n`);
         if (winningNumbers) {
@@ -10645,41 +11447,51 @@ async function streamPeriodDetailCSV(res, taskId, period) {
         res.write('\n');
         res.write(headers.join(',') + '\n');
 
-        // 流式生成所有组合（笛卡尔积），每1000行写入一次
+        // 流式生成所有组合，每1000行写入一次
         let rowNumber = 1;
         let buffer = '';
         const BATCH_SIZE = 1000;
 
-        for (const red of redCombinations) {
-            // 提取红球号码数组
-            const redBalls = [red.red_ball_1, red.red_ball_2, red.red_ball_3, red.red_ball_4, red.red_ball_5];
+        if (combinationMode === 'unlimited') {
+            // 1:1配对模式
+            const maxLength = Math.max(redCombinations.length, blueCombinations.length);
 
-            // 计算热温冷比
-            let hotWarmColdRatio = '-';
-            if (missingData) {
-                let hotCount = 0, warmCount = 0, coldCount = 0;
-                redBalls.forEach(num => {
-                    const missingValue = missingData[num.toString()] || 0;
-                    if (missingValue <= 4) {
-                        hotCount++;
-                    } else if (missingValue >= 5 && missingValue <= 9) {
-                        warmCount++;
-                    } else {
-                        coldCount++;
-                    }
-                });
-                hotWarmColdRatio = `${hotCount}:${warmCount}:${coldCount}`;
-            }
+            for (let i = 0; i < maxLength; i++) {
+                // 检查客户端是否已断开
+                if (clientDisconnected || res.destroyed) {
+                    log(`导出中止: 客户端已断开，已处理 ${rowNumber - 1} 条记录`);
+                    return;
+                }
 
-            for (const blue of blueCombinations) {
-                // 提取蓝球号码数组
+                // 循环使用较短的数组
+                const red = redCombinations[i % redCombinations.length];
+                const blue = blueCombinations[i % blueCombinations.length];
+
+                const redBalls = [red.red_ball_1, red.red_ball_2, red.red_ball_3, red.red_ball_4, red.red_ball_5];
+
+                // 计算热温冷比
+                let hotWarmColdRatio = '-';
+                if (missingData) {
+                    let hotCount = 0, warmCount = 0, coldCount = 0;
+                    redBalls.forEach(num => {
+                        const missingValue = missingData[num.toString()] || 0;
+                        if (missingValue <= 4) {
+                            hotCount++;
+                        } else if (missingValue >= 5 && missingValue <= 9) {
+                            warmCount++;
+                        } else {
+                            coldCount++;
+                        }
+                    });
+                    hotWarmColdRatio = `${hotCount}:${warmCount}:${coldCount}`;
+                }
+
                 const blueBalls = [blue.blue_ball_1, blue.blue_ball_2];
 
                 // 计算命中情况
                 let hitRed = '-', hitBlue = '-', prizeLevel = '-', prizeAmount = 0;
 
                 if (winningNumbers) {
-                    // 计算红球命中数
                     const redHitCount = redBalls.filter(n => winningNumbers.red.includes(n)).length;
                     const blueHitCount = blueBalls.filter(n => winningNumbers.blue.includes(n)).length;
 
@@ -10742,6 +11554,115 @@ async function streamPeriodDetailCSV(res, taskId, period) {
                 if (rowNumber % BATCH_SIZE === 0) {
                     res.write(buffer);
                     buffer = '';
+                }
+            }
+        } else {
+            // 完全笛卡尔积模式（default 和 truly-unlimited）
+            for (const red of redCombinations) {
+                // 检查客户端是否已断开
+                if (clientDisconnected || res.destroyed) {
+                    log(`导出中止: 客户端已断开，已处理 ${rowNumber - 1} 条记录`);
+                    return;
+                }
+
+                // 提取红球号码数组
+                const redBalls = [red.red_ball_1, red.red_ball_2, red.red_ball_3, red.red_ball_4, red.red_ball_5];
+
+                // 计算热温冷比
+                let hotWarmColdRatio = '-';
+                if (missingData) {
+                    let hotCount = 0, warmCount = 0, coldCount = 0;
+                    redBalls.forEach(num => {
+                        const missingValue = missingData[num.toString()] || 0;
+                        if (missingValue <= 4) {
+                            hotCount++;
+                        } else if (missingValue >= 5 && missingValue <= 9) {
+                            warmCount++;
+                        } else {
+                            coldCount++;
+                        }
+                    });
+                    hotWarmColdRatio = `${hotCount}:${warmCount}:${coldCount}`;
+                }
+
+                for (const blue of blueCombinations) {
+                    // 检查客户端是否已断开
+                    if (clientDisconnected || res.destroyed) {
+                        log(`导出中止: 客户端已断开，已处理 ${rowNumber - 1} 条记录`);
+                        return;
+                    }
+
+                    // 提取蓝球号码数组
+                    const blueBalls = [blue.blue_ball_1, blue.blue_ball_2];
+
+                    // 计算命中情况
+                    let hitRed = '-', hitBlue = '-', prizeLevel = '-', prizeAmount = 0;
+
+                    if (winningNumbers) {
+                        // 计算红球命中数
+                        const redHitCount = redBalls.filter(n => winningNumbers.red.includes(n)).length;
+                        const blueHitCount = blueBalls.filter(n => winningNumbers.blue.includes(n)).length;
+
+                        hitRed = `${redHitCount}个`;
+                        hitBlue = `${blueHitCount}个`;
+
+                        // 计算奖项和奖金
+                        if (redHitCount === 5 && blueHitCount === 2) {
+                            prizeLevel = '一等奖';
+                            prizeAmount = 10000000;
+                        } else if (redHitCount === 5 && blueHitCount === 1) {
+                            prizeLevel = '二等奖';
+                            prizeAmount = 100000;
+                        } else if (redHitCount === 5 && blueHitCount === 0) {
+                            prizeLevel = '三等奖';
+                            prizeAmount = 10000;
+                        } else if (redHitCount === 4 && blueHitCount === 2) {
+                            prizeLevel = '四等奖';
+                            prizeAmount = 3000;
+                        } else if (redHitCount === 4 && blueHitCount === 1) {
+                            prizeLevel = '五等奖';
+                            prizeAmount = 300;
+                        } else if (redHitCount === 3 && blueHitCount === 2) {
+                            prizeLevel = '六等奖';
+                            prizeAmount = 200;
+                        } else if (redHitCount === 4 && blueHitCount === 0) {
+                            prizeLevel = '七等奖';
+                            prizeAmount = 100;
+                        } else if ((redHitCount === 3 && blueHitCount === 1) || (redHitCount === 2 && blueHitCount === 2)) {
+                            prizeLevel = '八等奖';
+                            prizeAmount = 15;
+                        } else if ((redHitCount === 3 && blueHitCount === 0) ||
+                                   (redHitCount === 1 && blueHitCount === 2) ||
+                                   (redHitCount === 2 && blueHitCount === 1) ||
+                                   (redHitCount === 0 && blueHitCount === 2)) {
+                            prizeLevel = '九等奖';
+                            prizeAmount = 5;
+                        }
+                    }
+
+                    // 构建数据行
+                    const row = [
+                        rowNumber++,
+                        ...redBalls.map(n => n.toString().padStart(2, '0')),
+                        red.sum_value || '-',
+                        red.span_value || '-',
+                        red.zone_ratio || '-',
+                        red.odd_even_ratio || '-',
+                        hotWarmColdRatio,
+                        ...blueBalls.map(n => n.toString().padStart(2, '0')),
+                        hitRed,
+                        hitBlue,
+                        prizeLevel,
+                        prizeAmount
+                    ];
+
+                    buffer += row.join(',') + '\n';
+
+                    // 每1000行写入一次
+                    if (rowNumber % BATCH_SIZE === 0) {
+                        res.write(buffer);
+                        buffer = '';
+                    }
                 }
             }
         }
@@ -11207,6 +12128,112 @@ async function executePredictionTask(taskId) {
                     log(`ℹ️ 未设置热温冷比排除条件`);
                 }
 
+                // 2.5. 处理相克排除条件
+                let conflictData = null; // 用于保存相克数据
+                if (task.exclude_conditions?.conflict && task.exclude_conditions.conflict.enabled) {
+                    const beforeConflict = filteredRedCombinations.length;
+                    const conflictConfig = task.exclude_conditions.conflict;
+                    log(`⚔️ 开始相克排除 - 分析${conflictConfig.analysisPeriods}期, 全局Top${conflictConfig.globalTopEnabled ? conflictConfig.topN : '未启用'}, 每个号码Top${conflictConfig.perBallTopEnabled ? conflictConfig.perBallTopN : '未启用'}`);
+
+                    try {
+                        // 调用统一的相克分析函数
+                        const predictor = new StreamBatchPredictor(`batch_${task._id}`);
+                        const conflictPairs = await predictor.getConflictPairs(targetIssue, task.exclude_conditions.conflict);
+
+                        if (conflictPairs && conflictPairs.length > 0) {
+                            log(`⚔️ 获取到${conflictPairs.length}对相克号码`);
+
+                            // 过滤红球组合
+                            filteredRedCombinations = filteredRedCombinations.filter(combo => {
+                                const numbers = [combo.red_ball_1, combo.red_ball_2, combo.red_ball_3, combo.red_ball_4, combo.red_ball_5];
+                                for (const pair of conflictPairs) {
+                                    if (numbers.includes(pair[0]) && numbers.includes(pair[1])) {
+                                        return false;
+                                    }
+                                }
+                                return true;
+                            });
+
+                            const afterConflict = filteredRedCombinations.length;
+                            log(`⚔️ 相克筛选后红球组合数: ${afterConflict} (排除${beforeConflict - afterConflict}个)`);
+
+                            // 保存相克数据
+                            const conflictConfig = task.exclude_conditions.conflict;
+                            conflictData = {
+                                enabled: true,
+                                analysis_periods: conflictConfig.analysisPeriods,
+                                globalTopEnabled: conflictConfig.globalTopEnabled || false,
+                                topN: conflictConfig.topN || 0,
+                                perBallTopEnabled: conflictConfig.perBallTopEnabled || false,
+                                perBallTopN: conflictConfig.perBallTopN || 0,
+                                conflict_pairs: conflictPairs.map(pair => ({
+                                    pair: pair,
+                                    score: 0  // 分数信息已在getConflictPairs中计算
+                                })),
+                                combinations_before: beforeConflict,
+                                combinations_after: afterConflict,
+                                excluded_count: beforeConflict - afterConflict
+                            };
+                        } else {
+                            log(`⚠️ 未找到相克号码对`);
+                        }
+                    } catch (conflictError) {
+                        log(`❌ 相克排除失败: ${conflictError.message}，继续处理`);
+                    }
+                } else {
+                    log(`ℹ️ 未设置相克排除条件`);
+                }
+
+                // 2.6. 处理同出排除条件
+                let coOccurrenceData = null; // 用于保存同出数据
+                if (task.exclude_conditions?.coOccurrence && task.exclude_conditions.coOccurrence.enabled) {
+                    const beforeCoOccurrence = filteredRedCombinations.length;
+                    const coOccurrenceConfig = task.exclude_conditions.coOccurrence;
+                    log(`🔗 开始同出排除 - 分析最近${coOccurrenceConfig.periods}期`);
+
+                    try {
+                        // 调用统一的同出分析函数
+                        const predictor = new StreamBatchPredictor(`batch_${task._id}`);
+                        const coOccurrencePairs = await predictor.getCoOccurrencePairs(targetIssue, coOccurrenceConfig.periods);
+
+                        if (coOccurrencePairs && coOccurrencePairs.length > 0) {
+                            log(`🔗 获取到${coOccurrencePairs.length}对同出号码`);
+
+                            // 过滤红球组合
+                            filteredRedCombinations = filteredRedCombinations.filter(combo => {
+                                const numbers = [combo.red_ball_1, combo.red_ball_2, combo.red_ball_3, combo.red_ball_4, combo.red_ball_5];
+                                for (const pair of coOccurrencePairs) {
+                                    if (numbers.includes(pair[0]) && numbers.includes(pair[1])) {
+                                        return false;
+                                    }
+                                }
+                                return true;
+                            });
+
+                            const afterCoOccurrence = filteredRedCombinations.length;
+                            log(`🔗 同出筛选后红球组合数: ${afterCoOccurrence} (排除${beforeCoOccurrence - afterCoOccurrence}个)`);
+
+                            // 保存同出数据
+                            coOccurrenceData = {
+                                enabled: true,
+                                periods: coOccurrenceConfig.periods,
+                                cooccurrence_pairs: coOccurrencePairs.map(pair => ({
+                                    pair: pair
+                                })),
+                                combinations_before: beforeCoOccurrence,
+                                combinations_after: afterCoOccurrence,
+                                excluded_count: beforeCoOccurrence - afterCoOccurrence
+                            };
+                        } else {
+                            log(`⚠️ 未找到同出号码对`);
+                        }
+                    } catch (coOccurrenceError) {
+                        log(`❌ 同出排除失败: ${coOccurrenceError.message}，继续处理`);
+                    }
+                } else {
+                    log(`ℹ️ 未设置同出排除条件`);
+                }
+
                 // 3. 根据组合模式限制红球组合数
                 const combinationMode = task.output_config.combination_mode || 'default';
                 if (combinationMode === 'default') {
@@ -11242,12 +12269,43 @@ async function executePredictionTask(taskId) {
                 log(`📊 组合数: ${combinationCount} (模式: ${combinationMode})`);
 
                 // 7. 计算命中分析
-                const hitAnalysis = calculateHitAnalysisForPeriod(
-                    filteredRedCombinations,
-                    filteredBlueCombinations,
-                    winningNumbers,
-                    combinationMode
-                );
+                let hitAnalysis;
+                try {
+                    hitAnalysis = calculateHitAnalysisForPeriod(
+                        filteredRedCombinations,
+                        filteredBlueCombinations,
+                        winningNumbers,
+                        combinationMode
+                    );
+
+                    // 确保hitAnalysis包含所有必要字段
+                    if (!hitAnalysis || !hitAnalysis.prize_stats) {
+                        throw new Error('命中分析结果不完整');
+                    }
+                } catch (hitError) {
+                    log(`❌ 命中分析失败: ${hitError.message}，使用默认值`);
+                    // 使用默认的空分析结果
+                    hitAnalysis = {
+                        max_hit_count: 0,
+                        max_hit_combinations: [],
+                        hit_distribution: { red_5: 0, red_4: 0, red_3: 0, red_2: 0, red_1: 0, red_0: 0 },
+                        prize_stats: {
+                            first_prize: { count: 0, amount: 0 },
+                            second_prize: { count: 0, amount: 0 },
+                            third_prize: { count: 0, amount: 0 },
+                            fourth_prize: { count: 0, amount: 0 },
+                            fifth_prize: { count: 0, amount: 0 },
+                            sixth_prize: { count: 0, amount: 0 },
+                            seventh_prize: { count: 0, amount: 0 },
+                            eighth_prize: { count: 0, amount: 0 },
+                            ninth_prize: { count: 0, amount: 0 }
+                        },
+                        hit_rate: 0,
+                        total_prize: 0,
+                        red_hit_analysis: { best_hit: 0 },
+                        blue_hit_analysis: { best_hit: 0 }
+                    };
+                }
 
                 // 8. 保存结果到数据库
                 const result = new PredictionTaskResult({
@@ -11258,7 +12316,9 @@ async function executePredictionTask(taskId) {
                     blue_combinations: filteredBlueCombinations.map(c => c.combination_id),
                     combination_count: combinationCount,
                     winning_numbers: winningNumbers,
-                    hit_analysis: hitAnalysis
+                    hit_analysis: hitAnalysis,
+                    conflict_data: conflictData,  // 保存相克数据
+                    cooccurrence_data: coOccurrenceData  // 保存同出数据
                 });
 
                 await result.save();
@@ -14746,6 +15806,152 @@ function generateTXTContent(data, targetIssue = '') {
 
     return txtContent;
 }
+
+// ==================== 数据管理API接口 ====================
+
+/**
+ * 获取数据状态
+ */
+app.get('/api/dlt/data-status', async (req, res) => {
+    try {
+        const mainLatest = await DLT.findOne({}).sort({ Issue: -1 });
+        const mainCount = await DLT.countDocuments();
+
+        const redMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories').countDocuments();
+        const redMissingLatest = await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories')
+            .findOne({}, { sort: { ID: -1 } });
+
+        const blueMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').countDocuments();
+
+        const mainLatestIssue = parseInt(mainLatest?.Issue || 0);
+        const redLatestIssue = parseInt(redMissingLatest?.Issue || 0);
+
+        const tables = [
+            {
+                name: 'HIT_DLT',
+                count: mainCount,
+                latestIssue: mainLatestIssue,
+                status: 'ok'
+            },
+            {
+                name: 'DLTRedMissing',
+                count: redMissingCount,
+                latestIssue: redLatestIssue,
+                status: redLatestIssue === mainLatestIssue ? 'ok' : 'outdated',
+                lag: mainLatestIssue - redLatestIssue
+            },
+            {
+                name: 'DLTBlueMissing',
+                count: blueMissingCount,
+                latestIssue: redLatestIssue,
+                status: redLatestIssue === mainLatestIssue ? 'ok' : 'outdated',
+                lag: mainLatestIssue - redLatestIssue
+            }
+        ];
+
+        const issues = tables.filter(t => t.status !== 'ok').map(t => ({
+            table: t.name,
+            message: `数据落后 ${t.lag} 期`
+        }));
+
+        res.json({
+            success: true,
+            data: {
+                tables,
+                latestIssue: mainLatestIssue,
+                totalRecords: mainCount,
+                issues,
+                needsUpdate: issues.length > 0
+            }
+        });
+
+    } catch (error) {
+        log('获取数据状态失败:', error);
+        res.json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+/**
+ * 快速修复数据（仅重新生成衍生数据）
+ */
+app.post('/api/dlt/repair-data', async (req, res) => {
+    try {
+        log('收到数据修复请求');
+
+        // 返回任务ID，后台执行
+        const taskId = Date.now().toString();
+
+        res.json({
+            success: true,
+            taskId,
+            message: '修复任务已启动，请查看控制台日志'
+        });
+
+        // 异步执行修复
+        setTimeout(async () => {
+            try {
+                const { spawn } = require('child_process');
+                const repairProcess = spawn('node', ['update-all-dlt-tables.js', '--repair'], {
+                    cwd: __dirname + '/../..'
+                });
+
+                repairProcess.stdout.on('data', (data) => {
+                    log(`[修复任务] ${data.toString().trim()}`);
+                });
+
+                repairProcess.stderr.on('data', (data) => {
+                    log(`[修复任务错误] ${data.toString().trim()}`);
+                });
+
+                repairProcess.on('close', (code) => {
+                    log(`[修复任务] 完成，退出码: ${code}`);
+                });
+
+            } catch (error) {
+                log('[修复任务] 执行失败:', error);
+            }
+        }, 100);
+
+    } catch (error) {
+        log('启动修复任务失败:', error);
+        res.json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+/**
+ * 清理过期缓存
+ */
+app.post('/api/dlt/cleanup-expired-cache', async (req, res) => {
+    try {
+        const latestIssue = await DLT.findOne({}).sort({ Issue: -1 }).select('Issue');
+        const latestIssueNum = latestIssue ? latestIssue.Issue : 0;
+
+        const result = await mongoose.connection.db.collection('hit_dlt_redcombinationshotwarmcolds').deleteMany({
+            target_issue: { $lt: latestIssueNum.toString() }
+        });
+
+        log(`清理过期缓存: ${result.deletedCount} 条`);
+
+        res.json({
+            success: true,
+            deleted: result.deletedCount,
+            message: `已清理 ${result.deletedCount} 条过期缓存`
+        });
+
+    } catch (error) {
+        log('清理缓存失败:', error);
+        res.json({
+            success: false,
+            message: error.message
+        });
+    }
+});
 
 // 导出app实例用于Electron
 module.exports = app;

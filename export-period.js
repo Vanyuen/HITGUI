@@ -221,7 +221,22 @@ async function exportPeriodData(taskId, period, options = {}) {
             console.log(`⚠️  未开奖，命中列将显示为"-"`);
         }
 
-        const totalCombinations = redCombinations.length * blueCombinations.length;
+        // 获取组合模式
+        const combinationMode = task.output_config?.combination_mode || 'default';
+        console.log(`📋 组合模式: ${combinationMode}`);
+
+        // 计算总组合数
+        let totalCombinations;
+        if (combinationMode === 'unlimited') {
+            // 普通无限制：1:1配对
+            totalCombinations = Math.max(redCombinations.length, blueCombinations.length);
+            console.log(`   使用1:1配对模式`);
+        } else {
+            // 默认模式和真正无限制：完全笛卡尔积
+            totalCombinations = redCombinations.length * blueCombinations.length;
+            console.log(`   使用完全笛卡尔积模式`);
+        }
+
         console.log(`\n📊 总组合数: ${totalCombinations.toLocaleString()} 条`);
         console.log('');
 
@@ -249,6 +264,7 @@ async function exportPeriodData(taskId, period, options = {}) {
         writeStream.write(headers.join(',') + '\n');
         writeStream.write(`任务名称,${task.task_name}\n`);
         writeStream.write(`期号,${period}\n`);
+        writeStream.write(`组合模式,${combinationMode}\n`);
         writeStream.write(`导出时间,${new Date().toLocaleString('zh-CN')}\n`);
         writeStream.write(`组合总数,${totalCombinations}\n`);
         if (winningNumbers) {
@@ -265,13 +281,17 @@ async function exportPeriodData(taskId, period, options = {}) {
         let lastProgress = 0;
         const startTime = Date.now();
 
-        for (let i = 0; i < redCombinations.length; i++) {
-            const red = redCombinations[i];
-            const redBalls = [red.red_ball_1, red.red_ball_2, red.red_ball_3, red.red_ball_4, red.red_ball_5];
-            const hotWarmColdRatio = calculateHotWarmColdRatio(redBalls, missingData);
+        if (combinationMode === 'unlimited') {
+            // 1:1配对模式
+            const maxLength = Math.max(redCombinations.length, blueCombinations.length);
 
-            for (let j = 0; j < blueCombinations.length; j++) {
-                const blue = blueCombinations[j];
+            for (let i = 0; i < maxLength; i++) {
+                // 循环使用较短的数组
+                const red = redCombinations[i % redCombinations.length];
+                const blue = blueCombinations[i % blueCombinations.length];
+
+                const redBalls = [red.red_ball_1, red.red_ball_2, red.red_ball_3, red.red_ball_4, red.red_ball_5];
+                const hotWarmColdRatio = calculateHotWarmColdRatio(redBalls, missingData);
                 const blueBalls = [blue.blue_ball_1, blue.blue_ball_2];
 
                 let hitRed = '-', hitBlue = '-', prizeLevel = '-', prizeAmount = 0;
@@ -316,6 +336,63 @@ async function exportPeriodData(taskId, period, options = {}) {
                         const remaining = (totalCombinations - rowNumber) / speed;
                         process.stdout.write(`\r⏳ 进度: ${progress}% | 已生成: ${rowNumber.toLocaleString()}/${totalCombinations.toLocaleString()} | 速度: ${Math.floor(speed).toLocaleString()} 行/秒 | 剩余: ${Math.ceil(remaining)}秒  `);
                         lastProgress = progress;
+                    }
+                }
+            }
+        } else {
+            // 完全笛卡尔积模式（default 和 truly-unlimited）
+            for (let i = 0; i < redCombinations.length; i++) {
+                const red = redCombinations[i];
+                const redBalls = [red.red_ball_1, red.red_ball_2, red.red_ball_3, red.red_ball_4, red.red_ball_5];
+                const hotWarmColdRatio = calculateHotWarmColdRatio(redBalls, missingData);
+
+                for (let j = 0; j < blueCombinations.length; j++) {
+                    const blue = blueCombinations[j];
+                    const blueBalls = [blue.blue_ball_1, blue.blue_ball_2];
+
+                    let hitRed = '-', hitBlue = '-', prizeLevel = '-', prizeAmount = 0;
+
+                    if (winningNumbers) {
+                        const redHitCount = redBalls.filter(n => winningNumbers.red.includes(n)).length;
+                        const blueHitCount = blueBalls.filter(n => winningNumbers.blue.includes(n)).length;
+                        hitRed = `${redHitCount}个`;
+                        hitBlue = `${blueHitCount}个`;
+                        const prize = calculatePrize(redHitCount, blueHitCount);
+                        prizeLevel = prize.prizeLevel;
+                        prizeAmount = prize.prizeAmount;
+                    }
+
+                    const row = [
+                        rowNumber++,
+                        ...redBalls.map(n => n.toString().padStart(2, '0')),
+                        red.sum_value || '-',
+                        red.span_value || '-',
+                        red.zone_ratio || '-',
+                        red.odd_even_ratio || '-',
+                        hotWarmColdRatio,
+                        ...blueBalls.map(n => n.toString().padStart(2, '0')),
+                        hitRed,
+                        hitBlue,
+                        prizeLevel,
+                        prizeAmount
+                    ];
+
+                    buffer += row.join(',') + '\n';
+
+                    // 每批次写入一次
+                    if (rowNumber % batchSize === 0) {
+                        writeStream.write(buffer);
+                        buffer = '';
+
+                        // 显示进度
+                        const progress = Math.floor((rowNumber / totalCombinations) * 100);
+                        if (progress > lastProgress) {
+                            const elapsed = (Date.now() - startTime) / 1000;
+                            const speed = rowNumber / elapsed;
+                            const remaining = (totalCombinations - rowNumber) / speed;
+                            process.stdout.write(`\r⏳ 进度: ${progress}% | 已生成: ${rowNumber.toLocaleString()}/${totalCombinations.toLocaleString()} | 速度: ${Math.floor(speed).toLocaleString()} 行/秒 | 剩余: ${Math.ceil(remaining)}秒  `);
+                            lastProgress = progress;
+                        }
                     }
                 }
             }

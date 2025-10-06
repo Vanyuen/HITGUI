@@ -666,6 +666,36 @@ body::-webkit-scrollbar-thumb:hover {
     background: #f8f9fa;
 }
 
+.update-btn {
+    padding: 6px 12px;
+    border: 1px solid #34a853;
+    border-radius: 4px;
+    background: white;
+    color: #34a853;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+}
+
+.update-btn:hover {
+    background: #e8f5e9;
+}
+
+.status-btn {
+    padding: 6px 12px;
+    border: 1px solid #fbbc04;
+    border-radius: 4px;
+    background: white;
+    color: #fbbc04;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+}
+
+.status-btn:hover {
+    background: #fff8e1;
+}
+
 .technical-btn {
     background: #e8f0fe;
     color: #1565c0;
@@ -2215,4 +2245,278 @@ body::-webkit-scrollbar-thumb:hover {
     font-size: 12px;
     margin-left: 24px;
     line-height: 1.4;
+}
+/* ==================== 单期详情二级弹窗样式 ==================== */
+.period-detail-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.period-modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+}
+
+.period-modal-content {
+    position: relative;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    max-width: 700px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    animation: periodModalSlideIn 0.3s ease-out;
+}
+
+@keyframes periodModalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-30px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.period-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 2px solid #e9ecef;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 12px 12px 0 0;
+}
+
+.period-modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.period-modal-body {
+    padding: 24px;
+}
+
+.period-section {
+    margin-bottom: 24px;
+}
+
+.period-section h4 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.conflict-info-box {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.conflict-params {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #dee2e6;
+    font-size: 14px;
+    color: #666;
+}
+
+.conflict-params strong {
+    color: #495057;
+    font-weight: 600;
+}
+
+.pairs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.conflict-pair {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #333;
+    transition: all 0.2s;
+}
+
+.conflict-pair:hover {
+    border-color: #667eea;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+    transform: translateY(-2px);
+}
+
+.conflict-pair em {
+    font-style: normal;
+    color: #dc3545;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.conflict-stats {
+    display: flex;
+    justify-content: space-around;
+    gap: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #dee2e6;
+    font-size: 14px;
+    color: #666;
+}
+
+.conflict-stats strong {
+    color: #495057;
+    font-weight: 600;
+    font-size: 16px;
+}
+
+.highlight-number {
+    color: #dc3545 !important;
+    font-weight: 700 !important;
+}
+
+/* 同出排除样式 (复用相克样式) */
+.cooccurrence-info-box {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.cooccurrence-params {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #dee2e6;
+    font-size: 14px;
+    color: #666;
+}
+
+.cooccurrence-params strong {
+    color: #495057;
+    font-weight: 600;
+}
+
+.cooccurrence-pair {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #333;
+    transition: all 0.2s;
+}
+
+.cooccurrence-pair:hover {
+    border-color: #17a2b8;
+    box-shadow: 0 2px 8px rgba(23, 162, 184, 0.2);
+    transform: translateY(-2px);
+}
+
+.cooccurrence-stats {
+    display: flex;
+    justify-content: space-around;
+    gap: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #dee2e6;
+    font-size: 14px;
+    color: #666;
+}
+
+.cooccurrence-stats strong {
+    color: #495057;
+    font-weight: 600;
+    font-size: 16px;
+}
+
+.hit-info-box {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.hit-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.hit-stat-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px;
+    background: white;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.stat-label {
+    color: #666;
+}
+
+.stat-value {
+    font-weight: 600;
+    color: #333;
+}
+
+.highlight-prize {
+    color: #28a745 !important;
+    font-weight: 700 !important;
+}
+
+.no-data {
+    text-align: center;
+    color: #999;
+    padding: 20px;
+    font-size: 14px;
+}
+
+.period-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 24px;
+    border-top: 1px solid #e9ecef;
+    background-color: #f8f9fa;
+    border-radius: 0 0 12px 12px;
+}
+
+.period-modal-footer button {
+    padding: 8px 20px;
+    font-size: 14px;
 }

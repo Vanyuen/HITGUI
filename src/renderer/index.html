@@ -459,6 +459,8 @@
                             <h2>往期开奖</h2>
                             <div class="header-actions">
                                 <button class="refresh-btn">刷新数据</button>
+                                <button id="btn-update-all" class="update-btn">🔄 统一更新</button>
+                                <button id="btn-data-status" class="status-btn">📊 数据状态</button>
                             </div>
                         </div>
                         <div class="content-body">
@@ -1352,6 +1354,82 @@
                                     </div>
                                 </div>
 
+                                <!-- 相克排除条件 -->
+                                <div class="filter-section" id="conflict-exclude-filters">
+                                    <h3>⚔️ 相克排除条件</h3>
+                                    <div class="filter-grid">
+                                        <div class="filter-item checkbox-item full-width">
+                                            <label class="checkbox-wrapper">
+                                                <input type="checkbox" id="enable-conflict-exclude">
+                                                <span class="checkbox-text">启用N期相克号码排除</span>
+                                                <small class="help-text">分析目标期号前N期数据，排除相克次数Top N的号码对同时出现的组合</small>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-grid" id="conflict-settings-container" style="display: none;">
+                                        <div class="filter-item">
+                                            <label>分析期数:</label>
+                                            <input type="number" id="conflict-analysis-periods" min="3" max="20" value="3" class="filter-input" placeholder="建议3-20期">
+                                            <small class="help-text">分析目标期号前多少期的相克数据</small>
+                                        </div>
+                                        <div class="filter-item checkbox-item">
+                                            <label class="checkbox-wrapper">
+                                                <input type="checkbox" id="enable-global-conflict-top" checked>
+                                                <span class="checkbox-text">全局排除Top</span>
+                                            </label>
+                                            <input type="number" id="conflict-top-n" min="1" max="20" value="5" class="filter-input" placeholder="前N名" style="width: 80px; margin-left: 10px;">
+                                            <small class="help-text">排除全局相克次数排名前N的号码对（含并列）</small>
+                                        </div>
+                                        <div class="filter-item checkbox-item">
+                                            <label class="checkbox-wrapper">
+                                                <input type="checkbox" id="enable-per-ball-conflict-top">
+                                                <span class="checkbox-text">每个号码排除Top</span>
+                                            </label>
+                                            <input type="number" id="conflict-per-ball-top-n" min="1" max="20" value="5" class="filter-input" placeholder="前N名" style="width: 80px; margin-left: 10px;" disabled>
+                                            <small class="help-text">每个号码排除其相克次数排名前N的号码对</small>
+                                        </div>
+
+                                        <!-- 热号保护子选项 -->
+                                        <div class="filter-item checkbox-item" style="margin-left: 30px; border-left: 3px solid #ff6b6b; padding-left: 15px;">
+                                            <label class="checkbox-wrapper">
+                                                <input type="checkbox" id="enable-hot-protection" disabled>
+                                                <span class="checkbox-text">🔥 热号保护</span>
+                                            </label>
+                                            <input type="number" id="hot-protection-top-count" min="1" max="10" value="3" class="filter-input" placeholder="热号数量" style="width: 80px; margin-left: 10px;" disabled>
+                                            <small class="help-text">保护分析期内出现次数最多的前N名热号，不被相克规则排除</small>
+                                        </div>
+
+                                        <div class="filter-item checkbox-item">
+                                            <label class="checkbox-wrapper">
+                                                <input type="checkbox" id="enable-back-conflict-exclude">
+                                                <span class="checkbox-text">同时应用后区相克排除</span>
+                                                <small class="help-text">勾选后同时分析后区号码的相克关系</small>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-grid" id="conflict-info-container" style="display: none;">
+                                        <div class="filter-item full-width">
+                                            <div class="info-box" style="background: #f8f9fa; padding: 12px; border-radius: 6px; border-left: 4px solid #007bff;">
+                                                <div style="margin-bottom: 8px;">
+                                                    <strong>💡 相克计数逻辑：</strong>
+                                                </div>
+                                                <div style="font-size: 13px; color: #666; line-height: 1.6;">
+                                                    • 统计分析期内，某号码开出时另一号码未开出的累计次数（双向累加）<br>
+                                                    • 示例：3期内，1号出现2次，2号出现1次，但从未同时出现 → 相克次数=3<br>
+                                                    • Top 5包含所有并列排名（第5名有3对并列时，实际排除7对）<br>
+                                                    • 组合包含任意一对相克号码即排除
+                                                </div>
+                                                <div id="conflict-preview" style="margin-top: 10px; padding: 8px; background: #fff; border-radius: 4px; font-size: 12px; display: none;">
+                                                    <strong>当前配置预览：</strong>
+                                                    <span id="conflict-preview-text" style="color: #007bff;"></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- 蓝球筛选 -->
                                 <div class="filter-section" id="blue-ball-filters">
                                     <h3>🔵 蓝球筛选条件</h3>
@@ -1726,6 +1804,136 @@
                                         </div>
                                     </div>
                                 </div>
+
+                                <!-- 相克排除 -->
+                                <div class="filter-row">
+                                    <div class="filter-checkbox">
+                                        <label>
+                                            <input type="checkbox" id="batch-exclude-conflict">
+                                            <span>⚔️ 相克排除</span>
+                                        </label>
+                                    </div>
+                                    <div class="filter-config">
+                                        <div class="batch-range-config">
+                                            <div class="batch-conflict-settings" style="display: flex; flex-direction: column; gap: 15px;">
+                                                <!-- 全局排除 -->
+                                                <div style="display: flex; gap: 20px; align-items: center;">
+                                                    <label style="display: flex; align-items: center; gap: 8px;">
+                                                        <input type="checkbox" id="batch-enable-global-conflict-top" disabled>
+                                                        <span>全局排除Top</span>
+                                                    </label>
+                                                    <label style="display: flex; align-items: center; gap: 8px;">
+                                                        <span>分析期数:</span>
+                                                        <input type="number" id="batch-global-conflict-periods" min="1" value="2700"
+                                                               style="width: 80px; padding: 5px;" placeholder="期数" disabled>
+                                                    </label>
+                                                    <label style="display: flex; align-items: center; gap: 8px;">
+                                                        <span>排除Top:</span>
+                                                        <input type="number" id="batch-conflict-top-n" min="1" max="20" value="18"
+                                                               style="width: 80px; padding: 5px;" placeholder="N" disabled>
+                                                    </label>
+                                                </div>
+                                                <div style="margin-left: 30px; color: #666; font-size: 13px;">
+                                                    排除全局相克次数排名前N的号码对（含并列）
+                                                </div>
+
+                                                <!-- 每个号码排除 -->
+                                                <div style="display: flex; gap: 20px; align-items: center;">
+                                                    <label style="display: flex; align-items: center; gap: 8px;">
+                                                        <input type="checkbox" id="batch-enable-per-ball-conflict-top" disabled>
+                                                        <span>每个号码排除Top</span>
+                                                    </label>
+                                                    <label style="display: flex; align-items: center; gap: 8px;">
+                                                        <span>分析期数:</span>
+                                                        <input type="number" id="batch-per-ball-conflict-periods" min="1" value="2700"
+                                                               style="width: 80px; padding: 5px;" placeholder="期数" disabled>
+                                                    </label>
+                                                    <label style="display: flex; align-items: center; gap: 8px;">
+                                                        <span>排除Top:</span>
+                                                        <input type="number" id="batch-conflict-per-ball-top-n" min="1" max="20" value="1"
+                                                               style="width: 80px; padding: 5px;" placeholder="N" disabled>
+                                                    </label>
+                                                </div>
+                                                <div style="margin-left: 30px; color: #666; font-size: 13px;">
+                                                    每个号码排除其相克次数排名前N的号码对
+                                                </div>
+
+                                                <!-- 热号保护子选项 -->
+                                                <div style="margin-left: 50px; border-left: 3px solid #ff6b6b; padding-left: 15px;">
+                                                    <label style="display: flex; align-items: center; gap: 8px;">
+                                                        <span>🔥 热号保护:</span>
+                                                        <input type="number" id="batch-hot-protection-top-count" min="0" max="10" value="3"
+                                                               style="width: 80px; padding: 5px;" placeholder="热号数量" disabled>
+                                                    </label>
+                                                    <div style="color: #666; font-size: 13px; margin-top: 5px;">
+                                                        保护分析期内出现次数最多的前N名热号，不被相克规则排除
+                                                    </div>
+                                                </div>
+
+                                                <!-- 后区相克 -->
+                                                <div style="display: flex; gap: 20px; align-items: center;">
+                                                    <label style="display: flex; align-items: center; gap: 8px;">
+                                                        <input type="checkbox" id="batch-enable-back-conflict-exclude" disabled>
+                                                        <span>同时应用后区相克排除</span>
+                                                    </label>
+                                                    <small style="color: #666;">勾选后同时分析后区号码的相克关系</small>
+                                                </div>
+                                                <div style="background: #f8f9fa; padding: 12px; border-radius: 6px; border-left: 4px solid #007bff;">
+                                                    <div style="margin-bottom: 8px;">
+                                                        <strong>💡 相克计数逻辑：</strong>
+                                                    </div>
+                                                    <div style="font-size: 13px; color: #666; line-height: 1.6;">
+                                                        • 统计分析期内，某号码开出时另一号码未开出的累计次数（双向累加）<br>
+                                                        • 示例：3期内，1号出现2次，2号出现1次，但从未同时出现 → 相克次数=3<br>
+                                                        • Top 5包含所有并列排名（第5名有3对并列时，实际排除7对）<br>
+                                                        • 组合包含任意一对相克号码即排除
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 同出排除 -->
+                                <div class="filter-row">
+                                    <div class="filter-checkbox">
+                                        <label>
+                                            <input type="checkbox" id="batch-exclude-cooccurrence">
+                                            <span>🔗 同出排除</span>
+                                        </label>
+                                    </div>
+                                    <div class="filter-config">
+                                        <div class="batch-range-config">
+                                            <div class="batch-cooccurrence-settings" style="display: flex; flex-direction: column; gap: 15px;">
+                                                <div style="display: flex; gap: 20px; align-items: center;">
+                                                    <label style="display: flex; align-items: center; gap: 8px; min-width: 120px;">
+                                                        <span>排除最近:</span>
+                                                        <input type="number" id="batch-cooccurrence-periods" min="1" max="100" value="1"
+                                                               style="width: 80px; padding: 5px;" placeholder="期数" disabled>
+                                                        <span>期</span>
+                                                    </label>
+                                                    <small style="color: #666;">排除最近N期内同时出现过的号码组合</small>
+                                                </div>
+                                                <div style="display: flex; gap: 20px; align-items: center;">
+                                                    <div id="batch-cooccurrence-stats" style="padding: 8px 12px; background: #e7f3ff; border-radius: 4px; font-size: 13px; color: #0056b3;">
+                                                        <span id="batch-cooccurrence-stats-text">当前统计：等待启用...</span>
+                                                    </div>
+                                                </div>
+                                                <div style="background: #f8f9fa; padding: 12px; border-radius: 6px; border-left: 4px solid #28a745;">
+                                                    <div style="margin-bottom: 8px;">
+                                                        <strong>💡 同出逻辑说明：</strong>
+                                                    </div>
+                                                    <div style="font-size: 13px; color: #666; line-height: 1.6;">
+                                                        • 分析最近N期开奖数据，找出每期5个前区号码之间的同出关系<br>
+                                                        • 示例：最近1期开奖为01 02 09 22 26，则排除包含01-02、01-09、01-22、01-26等同出对的组合<br>
+                                                        • 与"相克排除"相反，排除<strong>同时出现过</strong>的号码对<br>
+                                                        • 适用于避开历史热门组合，寻找新的号码配对
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             <!-- 组合数量限制 -->
@@ -1924,8 +2132,73 @@
                                 </div>
                             </div>
                         </div>
+
+                        <!-- 单期详情二级弹窗 -->
+                        <div class="period-detail-modal" id="period-detail-modal" style="display: none;">
+                            <div class="period-modal-overlay"></div>
+                            <div class="period-modal-content">
+                                <div class="period-modal-header">
+                                    <h3 id="period-modal-title">📊 期号详细分析</h3>
+                                    <button class="close-btn" id="close-period-modal">×</button>
+                                </div>
+
+                                <div class="period-modal-body" id="period-modal-body">
+                                    <!-- 相克排除详情 -->
+                                    <div class="period-section" id="conflict-section" style="display: none;">
+                                        <h4>⚔️ 相克排除详情</h4>
+                                        <div class="conflict-info-box">
+                                            <div class="conflict-params">
+                                                <span>• 分析期数：<strong id="conflict-periods">-</strong></span>
+                                                <span>• 全局排除Top：<strong id="conflict-topn">-</strong></span>
+                                                <span>• 每个号码排除Top：<strong id="conflict-per-ball-topn">-</strong></span>
+                                            </div>
+                                            <div class="conflict-pairs-list" id="conflict-pairs">
+                                                加载中...
+                                            </div>
+                                            <div class="conflict-stats">
+                                                <div>排除前组合数：<strong id="conflict-before">-</strong></div>
+                                                <div>排除后组合数：<strong id="conflict-after">-</strong></div>
+                                                <div>实际排除：<strong id="conflict-excluded" class="highlight-number">-</strong> 个组合</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 同出排除详情 -->
+                                    <div class="period-section" id="cooccurrence-section" style="display: none;">
+                                        <h4>🔗 同出排除详情</h4>
+                                        <div class="cooccurrence-info-box">
+                                            <div class="cooccurrence-params">
+                                                <span>• 每个号码分析：<strong id="cooccurrence-periods">最近1次出现</strong></span>
+                                                <span>• 分析方式：<strong>基于遗漏值表</strong></span>
+                                                <span>• 生成号码对：<strong id="cooccurrence-pairs-count">-</strong></span>
+                                            </div>
+                                            <div class="cooccurrence-details-list" id="cooccurrence-details">
+                                                加载中...
+                                            </div>
+                                            <div class="cooccurrence-stats">
+                                                <div>排除前组合数：<strong id="cooccurrence-before">-</strong></div>
+                                                <div>排除后组合数：<strong id="cooccurrence-after">-</strong></div>
+                                                <div>实际排除：<strong id="cooccurrence-excluded" class="highlight-number">-</strong> 个组合</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 命中情况 -->
+                                    <div class="period-section">
+                                        <h4>🎯 命中情况</h4>
+                                        <div class="hit-info-box" id="hit-info">
+                                            加载中...
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="period-modal-footer">
+                                    <button class="btn-default" id="close-period-modal-footer">关闭</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    
+
                     <!-- 专家和值预测面板 -->
                     <div id="dlt-expert" class="panel-content">
                         <div class="content-header">
@@ -2465,6 +2738,144 @@
             const enabled = this.checked;
             batchOddEvenCheckboxes.forEach(cb => cb.disabled = !enabled);
         });
+
+        // 相克排除联动
+        const batchConflictCheckbox = document.getElementById('batch-exclude-conflict');
+        const batchEnableGlobalTop = document.getElementById('batch-enable-global-conflict-top');
+        const batchGlobalConflictPeriods = document.getElementById('batch-global-conflict-periods');
+        const batchConflictTopN = document.getElementById('batch-conflict-top-n');
+        const batchEnablePerBallTop = document.getElementById('batch-enable-per-ball-conflict-top');
+        const batchPerBallConflictPeriods = document.getElementById('batch-per-ball-conflict-periods');
+        const batchConflictPerBallTopN = document.getElementById('batch-conflict-per-ball-top-n');
+        const batchHotProtectionTopCount = document.getElementById('batch-hot-protection-top-count');
+        const batchEnableBackConflict = document.getElementById('batch-enable-back-conflict-exclude');
+
+        batchConflictCheckbox?.addEventListener('change', function() {
+            const enabled = this.checked;
+            if (batchEnableGlobalTop) batchEnableGlobalTop.disabled = !enabled;
+            if (batchEnablePerBallTop) batchEnablePerBallTop.disabled = !enabled;
+            if (batchEnableBackConflict) batchEnableBackConflict.disabled = !enabled;
+
+            // 更新子控件状态
+            if (batchGlobalConflictPeriods) batchGlobalConflictPeriods.disabled = !enabled || !batchEnableGlobalTop.checked;
+            if (batchConflictTopN) batchConflictTopN.disabled = !enabled || !batchEnableGlobalTop.checked;
+            if (batchPerBallConflictPeriods) batchPerBallConflictPeriods.disabled = !enabled || !batchEnablePerBallTop.checked;
+            if (batchConflictPerBallTopN) batchConflictPerBallTopN.disabled = !enabled || !batchEnablePerBallTop.checked;
+            if (batchHotProtectionTopCount) batchHotProtectionTopCount.disabled = !enabled || !batchEnablePerBallTop.checked;
+        });
+
+        // 批量-全局Top勾选框联动
+        batchEnableGlobalTop?.addEventListener('change', function() {
+            if (batchGlobalConflictPeriods) {
+                batchGlobalConflictPeriods.disabled = !this.checked || batchConflictCheckbox?.checked === false;
+            }
+            if (batchConflictTopN) {
+                batchConflictTopN.disabled = !this.checked || batchConflictCheckbox?.checked === false;
+            }
+        });
+
+        // 批量-每个号码Top勾选框联动
+        batchEnablePerBallTop?.addEventListener('change', function() {
+            if (batchPerBallConflictPeriods) {
+                batchPerBallConflictPeriods.disabled = !this.checked || batchConflictCheckbox?.checked === false;
+            }
+            if (batchConflictPerBallTopN) {
+                batchConflictPerBallTopN.disabled = !this.checked || batchConflictCheckbox?.checked === false;
+            }
+            // 热号保护跟随"每个号码排除Top"
+            if (batchHotProtectionTopCount) {
+                batchHotProtectionTopCount.disabled = !this.checked || batchConflictCheckbox?.checked === false;
+            }
+        });
+
+        // 同出排除联动
+        const batchCooccurrenceCheckbox = document.getElementById('batch-exclude-cooccurrence');
+        const batchCooccurrencePeriods = document.getElementById('batch-cooccurrence-periods');
+        const batchCooccurrenceStatsText = document.getElementById('batch-cooccurrence-stats-text');
+
+        batchCooccurrenceCheckbox?.addEventListener('change', function() {
+            const enabled = this.checked;
+            if (batchCooccurrencePeriods) {
+                batchCooccurrencePeriods.disabled = !enabled;
+                if (enabled) {
+                    batchCooccurrencePeriods.focus();
+                    // 更新统计信息
+                    updateCooccurrenceStats();
+                } else {
+                    if (batchCooccurrenceStatsText) {
+                        batchCooccurrenceStatsText.textContent = '当前统计：等待启用...';
+                    }
+                }
+            }
+        });
+
+        // 同出期数输入验证
+        batchCooccurrencePeriods?.addEventListener('input', function(e) {
+            let value = parseInt(e.target.value);
+
+            // 限制范围
+            if (value < 1) {
+                value = 1;
+                e.target.value = value;
+            }
+            if (value > 100) {
+                value = 100;
+                e.target.value = value;
+            }
+
+            // 边框颜色提示
+            if (isNaN(value) || value < 1 || value > 100) {
+                e.target.style.borderColor = '#dc3545';
+            } else {
+                e.target.style.borderColor = '#28a745';
+            }
+
+            // 实时更新统计信息
+            if (batchCooccurrenceCheckbox?.checked) {
+                updateCooccurrenceStats();
+            }
+        });
+
+        // 更新同出统计信息函数
+        async function updateCooccurrenceStats() {
+            if (!batchCooccurrencePeriods || !batchCooccurrenceStatsText) return;
+
+            const periods = parseInt(batchCooccurrencePeriods.value);
+            if (isNaN(periods) || periods < 1) {
+                batchCooccurrenceStatsText.textContent = '当前统计：期数无效';
+                return;
+            }
+
+            batchCooccurrenceStatsText.textContent = '当前统计：计算中...';
+
+            try {
+                // 先获取最新期号
+                const response = await fetch('http://localhost:3003/api/dlt/history?limit=1');
+                const data = await response.json();
+
+                if (!data.success || !data.data || data.data.length === 0) {
+                    batchCooccurrenceStatsText.textContent = '当前统计：无法获取最新期号';
+                    return;
+                }
+
+                const latestIssue = String(data.data[0].Issue);
+
+                // 获取同出数据
+                const coOccurrenceMap = await getCoOccurrenceData(periods, latestIssue);
+
+                // 统计同出对数
+                let totalPairs = 0;
+                coOccurrenceMap.forEach(pairs => {
+                    totalPairs += pairs.size;
+                });
+                totalPairs = totalPairs / 2; // 双向关系，除以2
+
+                batchCooccurrenceStatsText.textContent = `当前统计：最近${periods}期，共${totalPairs}组同出关系（基于期号${latestIssue}）`;
+            } catch (error) {
+                console.error('更新同出统计失败:', error);
+                batchCooccurrenceStatsText.textContent = '当前统计：获取失败';
+            }
+        }
     });
 
     // 批量热温冷比快速选择函数
