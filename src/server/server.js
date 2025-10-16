@@ -4265,10 +4265,10 @@ async function applyHotWarmColdExclusion(historicalData, htcExclusionOptions) {
     try {
         // 获取热温冷比历史数据（优化：只选择需要的字段）
         const htcData = await DLTRedMissing.find()
-            .select('ID Issue HotWarmColdRatio')
+            .select('ID Issue FrontHotWarmColdRatio')
             .sort({ ID: 1 })  // ID连续且按Issue升序
             .lean();
-        const htcMap = new Map(htcData.map(d => [d.Issue, d.HotWarmColdRatio]));
+        const htcMap = new Map(htcData.map(d => [d.Issue, d.FrontHotWarmColdRatio]));
         
         let filteredData = [...historicalData];
         const excludedIssues = new Set();
