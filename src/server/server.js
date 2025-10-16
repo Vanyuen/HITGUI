@@ -956,6 +956,58 @@ function log(message) {
 }
 
 /**
+ * 性能优化：确保数据库索引存在
+ * 在后台创建索引，不阻塞查询
+ */
+async function ensureDatabaseIndexes() {
+    try {
+        console.log('\n📊 开始创建数据库索引（性能优化）...');
+
+        // DLT主表索引
+        try {
+            await DLT.collection.createIndex({ ID: 1 }, { background: true });
+            await DLT.collection.createIndex({ ID: -1 }, { background: true });
+            await DLT.collection.createIndex({ Issue: 1 }, { background: true });
+            console.log('  ✓ DLT主表索引创建完成');
+        } catch (err) {
+            console.log('  ℹ DLT主表索引已存在');
+        }
+
+        // DLTRedMissing表索引
+        try {
+            await DLTRedMissing.collection.createIndex({ ID: 1 }, { background: true });
+            await DLTRedMissing.collection.createIndex({ Issue: 1 }, { background: true });
+            console.log('  ✓ DLTRedMissing表索引创建完成');
+        } catch (err) {
+            console.log('  ℹ DLTRedMissing表索引已存在');
+        }
+
+        // DLTRedCombination表索引
+        try {
+            await DLTRedCombination.collection.createIndex({ id: 1 }, { background: true });
+            console.log('  ✓ DLTRedCombination表索引创建完成');
+        } catch (err) {
+            console.log('  ℹ DLTRedCombination表索引已存在');
+        }
+
+        // DLTComboFeatures表索引（如果存在）
+        if (mongoose.models.HIT_DLT_ComboFeatures) {
+            try {
+                await DLTComboFeatures.collection.createIndex({ ID: 1 }, { background: true });
+                await DLTComboFeatures.collection.createIndex({ Issue: 1 }, { background: true });
+                console.log('  ✓ DLTComboFeatures表索引创建完成');
+            } catch (err) {
+                console.log('  ℹ DLTComboFeatures表索引已存在');
+            }
+        }
+
+        console.log('✅ 数据库索引初始化完成\n');
+    } catch (error) {
+        console.error('⚠️  索引创建过程中出错（不影响正常使用）:', error.message);
+    }
+}
+
+/**
  * 记录排除详情到数据库（支持分片存储）
  * @param {Object} params - 参数对象
  * @param {String} params.taskId - 任务ID
@@ -3744,8 +3796,11 @@ app.get('/api/dlt/sum-prediction', async (req, res) => {
             log(`Querying DLT data by expanded issue range: ${expandedStartIssue} - ${expandedEndIssue} (target: ${startIssue} - ${endIssue}), found ${recentData.length} records`);
             
         } else if (req.query.analyzeAll === 'true') {
-            // 从最开始分析所有数据
-            recentData = await DLT.find({}).sort({ Issue: 1 }); // 按期号升序排列
+            // 从最开始分析所有数据（优化：只选择需要的字段）
+            recentData = await DLT.find()
+                .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 Date')
+                .sort({ ID: 1 })  // ID连续且按Issue升序
+                .lean();
             
             queryInfo = {
                 type: 'all',
@@ -3755,34 +3810,45 @@ app.get('/api/dlt/sum-prediction', async (req, res) => {
             log(`Querying all DLT data from beginning, found ${recentData.length} records`);
             
         } else if (req.query.startFrom) {
-            // 从最近第N期开始分析
+            // 从最近第N期开始分析（优化：先获取总数，避免查询全部数据）
             const startFrom = parseInt(req.query.startFrom);
-            
-            // 获取所有数据，然后取从倒数第startFrom期开始的数据
-            const allData = await DLT.find({}).sort({ Issue: -1 });
-            
-            if (allData.length <= startFrom) {
+
+            // 先获取总记录数
+            const totalCount = await DLT.countDocuments();
+
+            if (totalCount <= startFrom) {
                 // 如果请求的期数超过总期数，则使用所有数据
-                recentData = allData.reverse(); // 转为升序
+                recentData = await DLT.find()
+                    .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 Date')
+                    .sort({ ID: 1 })  // 升序
+                    .lean();
             } else {
-                // 取最近的startFrom期数据
-                // allData是降序的，取前startFrom条就是最近startFrom期
-                recentData = allData.slice(0, startFrom).reverse(); // 转为升序
+                // 只查询最近的startFrom期数据
+                recentData = await DLT.find()
+                    .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 Date')
+                    .sort({ ID: -1 })  // 降序取前startFrom条
+                    .limit(startFrom)
+                    .lean();
+                recentData.reverse();  // 转为升序
             }
-            
+
             queryInfo = {
                 type: 'startFrom',
                 startFrom,
                 totalPeriods: recentData.length,
-                availableTotal: allData.length
+                availableTotal: totalCount
             };
-            
+
             log(`Querying DLT data starting from recent ${startFrom}th period, found ${recentData.length} records`);
             
         } else {
-            // 使用期数限制查询（向后兼容）
+            // 使用期数限制查询（向后兼容，优化性能）
             const limit = parseInt(req.query.limit) || 100;
-            recentData = await DLT.find({}).sort({ Issue: -1 }).limit(limit);
+            recentData = await DLT.find()
+                .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 Date')
+                .sort({ ID: -1 })
+                .limit(limit)
+                .lean();
             
             queryInfo = {
                 type: 'limit',
@@ -4197,8 +4263,11 @@ async function applyHotWarmColdExclusion(historicalData, htcExclusionOptions) {
     console.log(`排除预测期前: ${excludePreHtc}`);
     
     try {
-        // 获取热温冷比历史数据
-        const htcData = await DLTRedMissing.find({}).sort({ Issue: 1 });
+        // 获取热温冷比历史数据（优化：只选择需要的字段）
+        const htcData = await DLTRedMissing.find()
+            .select('ID Issue HotWarmColdRatio')
+            .sort({ ID: 1 })  // ID连续且按Issue升序
+            .lean();
         const htcMap = new Map(htcData.map(d => [d.Issue, d.HotWarmColdRatio]));
         
         let filteredData = [...historicalData];
@@ -5023,8 +5092,11 @@ function generateCacheKey(targetIssue, filters, excludeConditions) {
             }
         }
 
-        // 获取历史数据用于排除分析
-        const allData = await DLT.find({}).sort({ Issue: -1 });
+        // 获取历史数据用于排除分析（优化：只选择需要的字段）
+        const allData = await DLT.find()
+            .select('ID Issue Red1 Red2 Red3 Red4 Red5')
+            .sort({ ID: -1 })  // ID连续且按Issue降序
+            .lean();
         if (!allData || allData.length === 0) {
             return res.json({
                 success: false,
@@ -5536,8 +5608,11 @@ app.get('/api/dlt/combination-download', async (req, res) => {
 
         log('应用下载过滤条件: ' + JSON.stringify(filters));
 
-        // 查询所有数据
-        const allData = await DLTLottery.find().sort({ Issue: 1 });
+        // 查询所有数据（优化：只选择需要的字段，使用lean()减少内存）
+        const allData = await DLTLottery.find()
+            .select('ID Issue Red1 Red2 Red3 Red4 Red5')
+            .sort({ ID: 1 })  // ID连续且按Issue升序
+            .lean();
         if (!allData || allData.length === 0) {
             return res.json({
                 success: false,
@@ -5760,9 +5835,12 @@ async function generatePredictionWithProgress(sessionId, targetIssue, filters) {
         }
 
         updateProgress(sessionId, 'loading-data', 60, '加载历史数据进行分析...');
-        
-        // 获取历史数据用于过滤分析
-        const allData = await DLT.find({}).sort({ Issue: -1 });
+
+        // 获取历史数据用于过滤分析（优化：只选择需要的字段）
+        const allData = await DLT.find()
+            .select('ID Issue Red1 Red2 Red3 Red4 Red5')
+            .sort({ ID: -1 })  // ID连续且按Issue降序
+            .lean();
         if (!allData || allData.length === 0) {
             updateProgress(sessionId, 'error', 0, '没有找到历史数据');
             return;
@@ -7099,8 +7177,11 @@ async function generateFullCombinationsAsync(targetIssue, cacheId) {
     try {
         log(`开始异步生成期号 ${targetIssue} 的全量组合数据...`);
         
-        // 1. 复制所有红球组合基础数据
-        const allRedCombinations = await DLTRedCombination.find({}).sort({ id: 1 });
+        // 1. 复制所有红球组合基础数据（优化：只选择需要的字段）
+        const allRedCombinations = await DLTRedCombination.find()
+            .select('id numbers sum zoneRatio evenOddRatio largeSmallRatio consecutiveCount spanValue')
+            .sort({ id: 1 })
+            .lean();
         log(`获取到 ${allRedCombinations.length} 个基础红球组合`);
         
         if (allRedCombinations.length === 0) {
@@ -7441,8 +7522,8 @@ function parseFiltersToExcludeConditions(filters) {
  */
 async function generateFinalCombinationsWithBlue(redCombinations) {
     try {
-        // 获取所有蓝球组合
-        const blueCombinations = await DLTBlueCombination.find({}).sort({ sum: 1 });
+        // 获取所有蓝球组合（优化：添加lean()）
+        const blueCombinations = await DLTBlueCombination.find().sort({ sum: 1 }).lean();
         
         if (blueCombinations.length === 0) {
             throw new Error('蓝球组合表为空');
@@ -7783,8 +7864,8 @@ async function generateBaseCombinations() {
 async function generatePeriodAnalysisData(targetIssue) {
     log(`开始生成期号 ${targetIssue} 的分析数据...`);
     
-    // 获取所有基础组合
-    const baseCombinations = await DLTBaseCombination.find({}).sort({ id: 1 });
+    // 获取所有基础组合（优化：添加lean()）
+    const baseCombinations = await DLTBaseCombination.find().sort({ id: 1 }).lean();
     
     if (baseCombinations.length === 0) {
         throw new Error('基础组合表为空，请先生成基础组合数据');
@@ -17990,6 +18071,9 @@ if (require.main === module) {
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, async () => {
         log(`Server is running on port ${PORT}`);
+
+        // 性能优化：创建数据库索引
+        await ensureDatabaseIndexes();
 
         // 初始化组合数据库（函数未定义，临时注释）
         // await initializeCombinationDatabase();

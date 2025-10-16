@@ -37,7 +37,7 @@ class DatabaseManager {
           useUnifiedTopology: true,
           serverSelectionTimeoutMS: 5000, // 5秒超时
           connectTimeoutMS: 30000,         // 连接超时30秒
-          socketTimeoutMS: 300000,         // Socket超时5分钟（批量操作需要）
+          socketTimeoutMS: 45000,          // Socket超时45秒（性能优化：更快发现问题）
           maxPoolSize: 10,                 // 连接池大小
           minPoolSize: 2
         });
