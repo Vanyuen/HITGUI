@@ -39,6 +39,69 @@ const dltSchema = new mongoose.Schema({
 
 const DLT = mongoose.model('HIT_DLT', dltSchema);
 
+// DLTComboFeatures Schema
+const dltComboFeaturesSchema = new mongoose.Schema({
+    ID: { type: Number, required: true, unique: true, index: true },
+    Issue: { type: String, required: true, index: true },
+    combo_2: [{ type: String }],
+    combo_3: [{ type: String }],
+    combo_4: [{ type: String }],
+    created_at: { type: Date, default: Date.now },
+    updated_at: { type: Date, default: Date.now }
+});
+
+dltComboFeaturesSchema.index({ combo_2: 1 });
+dltComboFeaturesSchema.index({ combo_3: 1 });
+dltComboFeaturesSchema.index({ combo_4: 1 });
+
+const DLTComboFeatures = mongoose.model('HIT_DLT_ComboFeatures', dltComboFeaturesSchema);
+
+// 组合特征生成工具函数
+function generateCombo2(balls) {
+    const combos = [];
+    for (let i = 0; i < balls.length - 1; i++) {
+        for (let j = i + 1; j < balls.length; j++) {
+            const num1 = String(balls[i]).padStart(2, '0');
+            const num2 = String(balls[j]).padStart(2, '0');
+            combos.push(`${num1}-${num2}`);
+        }
+    }
+    return combos;
+}
+
+function generateCombo3(balls) {
+    const combos = [];
+    for (let i = 0; i < balls.length - 2; i++) {
+        for (let j = i + 1; j < balls.length - 1; j++) {
+            for (let k = j + 1; k < balls.length; k++) {
+                const num1 = String(balls[i]).padStart(2, '0');
+                const num2 = String(balls[j]).padStart(2, '0');
+                const num3 = String(balls[k]).padStart(2, '0');
+                combos.push(`${num1}-${num2}-${num3}`);
+            }
+        }
+    }
+    return combos;
+}
+
+function generateCombo4(balls) {
+    const combos = [];
+    for (let i = 0; i < balls.length - 3; i++) {
+        for (let j = i + 1; j < balls.length - 2; j++) {
+            for (let k = j + 1; k < balls.length - 1; k++) {
+                for (let l = k + 1; l < balls.length; l++) {
+                    const num1 = String(balls[i]).padStart(2, '0');
+                    const num2 = String(balls[j]).padStart(2, '0');
+                    const num3 = String(balls[k]).padStart(2, '0');
+                    const num4 = String(balls[l]).padStart(2, '0');
+                    combos.push(`${num1}-${num2}-${num3}-${num4}`);
+                }
+            }
+        }
+    }
+    return combos;
+}
+
 // 解析CSV行
 function parseCSVLine(line) {
     const values = [];
@@ -217,10 +280,67 @@ async function generateMissingTables() {
     console.log(`\n✅ 遗漏值表生成完成\n`);
 }
 
-// 步骤3: 清理过期缓存
+// 步骤3: 生成组合特征表
+async function generateComboFeatures() {
+    console.log('═══════════════════════════════════════════════════════════════');
+    console.log('🔄 步骤3/5: 生成组合特征表');
+    console.log('═══════════════════════════════════════════════════════════════\n');
+
+    const allRecords = await DLT.find({}).sort({ ID: 1 }).lean();
+    console.log(`📊 基于 ${allRecords.length} 期数据生成组合特征\n`);
+
+    const batchSize = 100;
+    let successCount = 0;
+    let updateCount = 0;
+
+    for (let i = 0; i < allRecords.length; i += batchSize) {
+        const batch = allRecords.slice(i, Math.min(i + batchSize, allRecords.length));
+        const bulkOps = [];
+
+        for (const record of batch) {
+            const balls = [record.Red1, record.Red2, record.Red3, record.Red4, record.Red5].sort((a, b) => a - b);
+
+            const combo_2 = generateCombo2(balls);
+            const combo_3 = generateCombo3(balls);
+            const combo_4 = generateCombo4(balls);
+
+            bulkOps.push({
+                updateOne: {
+                    filter: { ID: record.ID },
+                    update: {
+                        $set: {
+                            Issue: record.Issue.toString(),
+                            combo_2,
+                            combo_3,
+                            combo_4,
+                            updated_at: new Date()
+                        },
+                        $setOnInsert: {
+                            created_at: new Date()
+                        }
+                    },
+                    upsert: true
+                }
+            });
+        }
+
+        if (bulkOps.length > 0) {
+            const result = await DLTComboFeatures.bulkWrite(bulkOps, { ordered: false });
+            successCount += result.upsertedCount;
+            updateCount += result.modifiedCount;
+
+            const progress = Math.min(i + batchSize, allRecords.length);
+            console.log(`   处理进度: ${progress} / ${allRecords.length} - 新增: ${successCount}, 更新: ${updateCount}`);
+        }
+    }
+
+    console.log(`\n✅ 组合特征表生成完成，新增: ${successCount}, 更新: ${updateCount}\n`);
+}
+
+// 步骤4: 清理过期缓存
 async function cleanupExpiredCache() {
     console.log('═══════════════════════════════════════════════════════════════');
-    console.log('🧹 步骤3/4: 清理过期缓存');
+    console.log('🧹 步骤4/5: 清理过期缓存');
     console.log('═══════════════════════════════════════════════════════════════\n');
 
     const latestIssue = await DLT.findOne({}).sort({ Issue: -1 }).select('Issue');
@@ -236,10 +356,10 @@ async function cleanupExpiredCache() {
     console.log(`✅ 已清理 ${result.deletedCount} 条过期缓存\n`);
 }
 
-// 步骤4: 验证数据
+// 步骤5: 验证数据
 async function verifyData() {
     console.log('═══════════════════════════════════════════════════════════════');
-    console.log('✔️  步骤4/4: 验证数据完整性');
+    console.log('✔️  步骤5/5: 验证数据完整性');
     console.log('═══════════════════════════════════════════════════════════════\n');
 
     const dltCount = await DLT.countDocuments();
@@ -247,12 +367,14 @@ async function verifyData() {
 
     const redMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories').countDocuments();
     const blueMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').countDocuments();
+    const comboFeaturesCount = await DLTComboFeatures.countDocuments();
 
     console.log(`📊 HIT_DLT: ${dltCount} 期，最新期号 ${dltLatest?.Issue}`);
     console.log(`📊 红球遗漏: ${redMissingCount} 期`);
-    console.log(`📊 蓝球遗漏: ${blueMissingCount} 期\n`);
+    console.log(`📊 蓝球遗漏: ${blueMissingCount} 期`);
+    console.log(`📊 组合特征: ${comboFeaturesCount} 期\n`);
 
-    if (dltCount === redMissingCount && dltCount === blueMissingCount) {
+    if (dltCount === redMissingCount && dltCount === blueMissingCount && dltCount === comboFeaturesCount) {
         console.log('✅ 数据完整性验证通过！\n');
         return true;
     } else {
@@ -281,6 +403,7 @@ async function updateAllTables(mode, csvPath) {
         }
 
         await generateMissingTables();
+        await generateComboFeatures();
         await cleanupExpiredCache();
         const isValid = await verifyData();
 

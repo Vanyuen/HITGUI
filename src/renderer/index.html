@@ -1894,40 +1894,112 @@
                                     </div>
                                 </div>
 
-                                <!-- 同出排除 -->
+                                <!-- 同出排除(按红球) -->
                                 <div class="filter-row">
                                     <div class="filter-checkbox">
                                         <label>
-                                            <input type="checkbox" id="batch-exclude-cooccurrence">
-                                            <span>🔗 同出排除</span>
+                                            <input type="checkbox" id="batch-exclude-cooccurrence-perball">
+                                            <span>🔗 同出排除(按红球)</span>
                                         </label>
                                     </div>
                                     <div class="filter-config">
                                         <div class="batch-range-config">
                                             <div class="batch-cooccurrence-settings" style="display: flex; flex-direction: column; gap: 15px;">
                                                 <div style="display: flex; gap: 20px; align-items: center;">
-                                                    <label style="display: flex; align-items: center; gap: 8px; min-width: 120px;">
-                                                        <span>排除最近:</span>
-                                                        <input type="number" id="batch-cooccurrence-periods" min="1" max="100" value="1"
+                                                    <label style="display: flex; align-items: center; gap: 8px; min-width: 180px;">
+                                                        <span>排除每个红球最近:</span>
+                                                        <input type="number" id="batch-cooccurrence-perball-periods" min="1" max="100" value="1"
                                                                style="width: 80px; padding: 5px;" placeholder="期数" disabled>
                                                         <span>期</span>
                                                     </label>
-                                                    <small style="color: #666;">排除最近N期内同时出现过的号码组合</small>
+                                                    <small style="color: #666;">每个红球单独分析最近N次出现，排除其历史同出伙伴</small>
+                                                </div>
+                                                <div style="display: flex; gap: 15px; align-items: center; padding-left: 20px;">
+                                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                                        <input type="checkbox" id="batch-cooccurrence-perball-combo2" disabled>
+                                                        <span>两两组合（2码）</span>
+                                                    </label>
+                                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                                        <input type="checkbox" id="batch-cooccurrence-perball-combo3" disabled>
+                                                        <span>三码组合（3码）</span>
+                                                    </label>
+                                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                                        <input type="checkbox" id="batch-cooccurrence-perball-combo4" disabled>
+                                                        <span>四码组合（4码）</span>
+                                                    </label>
+                                                    <small style="color: #999;">未勾选时排除所有同出号码组合</small>
                                                 </div>
                                                 <div style="display: flex; gap: 20px; align-items: center;">
-                                                    <div id="batch-cooccurrence-stats" style="padding: 8px 12px; background: #e7f3ff; border-radius: 4px; font-size: 13px; color: #0056b3;">
-                                                        <span id="batch-cooccurrence-stats-text">当前统计：等待启用...</span>
+                                                    <div id="batch-cooccurrence-perball-stats" style="padding: 8px 12px; background: #e7f3ff; border-radius: 4px; font-size: 13px; color: #0056b3;">
+                                                        <span id="batch-cooccurrence-perball-stats-text">当前统计：等待启用...</span>
                                                     </div>
                                                 </div>
                                                 <div style="background: #f8f9fa; padding: 12px; border-radius: 6px; border-left: 4px solid #28a745;">
                                                     <div style="margin-bottom: 8px;">
-                                                        <strong>💡 同出逻辑说明：</strong>
+                                                        <strong>💡 按红球同出逻辑说明：</strong>
                                                     </div>
                                                     <div style="font-size: 13px; color: #666; line-height: 1.6;">
-                                                        • 分析最近N期开奖数据，找出每期5个前区号码之间的同出关系<br>
-                                                        • 示例：最近1期开奖为01 02 09 22 26，则排除包含01-02、01-09、01-22、01-26等同出对的组合<br>
-                                                        • 与"相克排除"相反，排除<strong>同时出现过</strong>的号码对<br>
-                                                        • 适用于避开历史热门组合，寻找新的号码配对
+                                                        • 每个红球单独分析其最近N次出现的期号，记录其同出伙伴<br>
+                                                        • 示例：01号最近1次出现在25063期[01,05,08,12,20]，则排除01与05/08/12/20的组合<br>
+                                                        • 每个号码各自分析，会产生约70组同出关系（35个号码×平均2组÷2）<br>
+                                                        • 适用于避开每个号码的历史习惯配对
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 同出排除(按期号) -->
+                                <div class="filter-row">
+                                    <div class="filter-checkbox">
+                                        <label>
+                                            <input type="checkbox" id="batch-exclude-cooccurrence-byissues">
+                                            <span>🔗 同出排除(按期号)</span>
+                                        </label>
+                                    </div>
+                                    <div class="filter-config">
+                                        <div class="batch-range-config">
+                                            <div class="batch-cooccurrence-byissues-settings" style="display: flex; flex-direction: column; gap: 15px;">
+                                                <div style="display: flex; gap: 20px; align-items: center;">
+                                                    <label style="display: flex; align-items: center; gap: 8px; min-width: 120px;">
+                                                        <span>排除最近:</span>
+                                                        <input type="number" id="batch-cooccurrence-byissues-periods" min="1" max="100" value="1"
+                                                               style="width: 80px; padding: 5px;" placeholder="期数" disabled>
+                                                        <span>期</span>
+                                                    </label>
+                                                    <small style="color: #666;">分析目标期号的最近N期开奖，排除这些期号中的同出组合</small>
+                                                </div>
+                                                <!-- 子选项：组合码数选择 -->
+                                                <div style="display: flex; gap: 15px; align-items: center; padding-left: 20px;">
+                                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                                        <input type="checkbox" id="batch-cooccurrence-byissues-combo2" checked disabled>
+                                                        <span>两两组合（2码）</span>
+                                                    </label>
+                                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                                        <input type="checkbox" id="batch-cooccurrence-byissues-combo3" disabled>
+                                                        <span>三码组合（3码）</span>
+                                                    </label>
+                                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                                        <input type="checkbox" id="batch-cooccurrence-byissues-combo4" disabled>
+                                                        <span>四码组合（4码）</span>
+                                                    </label>
+                                                    <small style="color: #999;">未勾选任何子选项时不排除</small>
+                                                </div>
+                                                <div style="display: flex; gap: 20px; align-items: center;">
+                                                    <div id="batch-cooccurrence-byissues-stats" style="padding: 8px 12px; background: #ffe7e7; border-radius: 4px; font-size: 13px; color: #b30000;">
+                                                        <span id="batch-cooccurrence-byissues-stats-text">当前统计：等待启用...</span>
+                                                    </div>
+                                                </div>
+                                                <div style="background: #fff3e0; padding: 12px; border-radius: 6px; border-left: 4px solid #ff9800;">
+                                                    <div style="margin-bottom: 8px;">
+                                                        <strong>💡 按期号同出逻辑说明：</strong>
+                                                    </div>
+                                                    <div style="font-size: 13px; color: #666; line-height: 1.6;">
+                                                        • 固定分析目标期号的最近N期开奖数据（固定期号）<br>
+                                                        • 示例：预测25078期，periods=1 → 只分析25077期开奖[12,14,16,19,28]<br>
+                                                        • 生成10组同出对：12-14, 12-16, 12-19, 12-28, 14-16, 14-19, 14-28, 16-19, 16-28, 19-28<br>
+                                                        • 适用于避开最近期号的热门组合，寻找新的号码配对
                                                     </div>
                                                 </div>
                                             </div>
@@ -2043,6 +2115,25 @@
                                         <option value="pending">等待中</option>
                                         <option value="failed">失败</option>
                                     </select>
+                                </div>
+                            </div>
+
+                            <!-- 批量操作工具栏 -->
+                            <div class="batch-toolbar" id="batch-toolbar">
+                                <div class="batch-toolbar-left">
+                                    <label class="select-all-container">
+                                        <input type="checkbox" id="select-all-checkbox" class="select-all-checkbox">
+                                        <span class="select-all-label">全选当前页</span>
+                                    </label>
+                                    <span class="selected-count" id="selected-count">已选择 0 个任务</span>
+                                </div>
+                                <div class="batch-toolbar-right">
+                                    <button class="btn-danger batch-delete-btn" id="batch-delete-btn" disabled>
+                                        🗑️ 批量删除
+                                    </button>
+                                    <button class="btn-secondary cancel-selection-btn" id="cancel-selection-btn">
+                                        ✖️ 取消选择
+                                    </button>
                                 </div>
                             </div>
 
@@ -2163,22 +2254,42 @@
                                         </div>
                                     </div>
 
-                                    <!-- 同出排除详情 -->
-                                    <div class="period-section" id="cooccurrence-section" style="display: none;">
-                                        <h4>🔗 同出排除详情</h4>
+                                    <!-- 同出排除详情(按红球) -->
+                                    <div class="period-section" id="cooccurrence-perball-section" style="display: none;">
+                                        <h4>🔗 同出排除详情(按红球)</h4>
                                         <div class="cooccurrence-info-box">
                                             <div class="cooccurrence-params">
-                                                <span>• 每个号码分析：<strong id="cooccurrence-periods">最近1次出现</strong></span>
-                                                <span>• 分析方式：<strong>基于遗漏值表</strong></span>
-                                                <span>• 生成号码对：<strong id="cooccurrence-pairs-count">-</strong></span>
+                                                <span>• 每个号码分析：<strong id="cooccurrence-perball-periods">最近1次出现</strong></span>
+                                                <span>• 分析方式：<strong>特征匹配（组合特征排除）</strong></span>
+                                                <span>• 排除特征数：<strong id="cooccurrence-perball-pairs-count">-</strong></span>
                                             </div>
-                                            <div class="cooccurrence-details-list" id="cooccurrence-details">
+                                            <div class="cooccurrence-details-list" id="cooccurrence-perball-details">
                                                 加载中...
                                             </div>
                                             <div class="cooccurrence-stats">
-                                                <div>排除前组合数：<strong id="cooccurrence-before">-</strong></div>
-                                                <div>排除后组合数：<strong id="cooccurrence-after">-</strong></div>
-                                                <div>实际排除：<strong id="cooccurrence-excluded" class="highlight-number">-</strong> 个组合</div>
+                                                <div>排除前组合数：<strong id="cooccurrence-perball-before">-</strong></div>
+                                                <div>排除后组合数：<strong id="cooccurrence-perball-after">-</strong></div>
+                                                <div>实际排除：<strong id="cooccurrence-perball-excluded" class="highlight-number">-</strong> 个组合</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 同出排除详情(按期号) -->
+                                    <div class="period-section" id="cooccurrence-byissues-section" style="display: none;">
+                                        <h4>🔗 同出排除详情(按期号)</h4>
+                                        <div class="cooccurrence-info-box">
+                                            <div class="cooccurrence-params">
+                                                <span>• 分析期号：<strong id="cooccurrence-byissues-analyzed">-</strong></span>
+                                                <span>• 分析方式：<strong>特征匹配（组合特征排除）</strong></span>
+                                                <span>• 排除特征数：<strong id="cooccurrence-byissues-pairs-count">-</strong></span>
+                                            </div>
+                                            <div class="cooccurrence-details-list" id="cooccurrence-byissues-details">
+                                                加载中...
+                                            </div>
+                                            <div class="cooccurrence-stats">
+                                                <div>排除前组合数：<strong id="cooccurrence-byissues-before">-</strong></div>
+                                                <div>排除后组合数：<strong id="cooccurrence-byissues-after">-</strong></div>
+                                                <div>实际排除：<strong id="cooccurrence-byissues-excluded" class="highlight-number">-</strong> 个组合</div>
                                             </div>
                                         </div>
                                     </div>
@@ -2788,29 +2899,42 @@
             }
         });
 
-        // 同出排除联动
-        const batchCooccurrenceCheckbox = document.getElementById('batch-exclude-cooccurrence');
-        const batchCooccurrencePeriods = document.getElementById('batch-cooccurrence-periods');
-        const batchCooccurrenceStatsText = document.getElementById('batch-cooccurrence-stats-text');
+        // 同出排除(按红球)联动
+        const batchCooccurrencePerBallCheckbox = document.getElementById('batch-exclude-cooccurrence-perball');
+        const batchCooccurrencePerBallPeriods = document.getElementById('batch-cooccurrence-perball-periods');
+        const batchCooccurrencePerBallStatsText = document.getElementById('batch-cooccurrence-perball-stats-text');
+        const batchCooccurrencePerBallCombo2 = document.getElementById('batch-cooccurrence-perball-combo2');
+        const batchCooccurrencePerBallCombo3 = document.getElementById('batch-cooccurrence-perball-combo3');
+        const batchCooccurrencePerBallCombo4 = document.getElementById('batch-cooccurrence-perball-combo4');
 
-        batchCooccurrenceCheckbox?.addEventListener('change', function() {
+        batchCooccurrencePerBallCheckbox?.addEventListener('change', function() {
             const enabled = this.checked;
-            if (batchCooccurrencePeriods) {
-                batchCooccurrencePeriods.disabled = !enabled;
+            if (batchCooccurrencePerBallPeriods) {
+                batchCooccurrencePerBallPeriods.disabled = !enabled;
                 if (enabled) {
-                    batchCooccurrencePeriods.focus();
+                    batchCooccurrencePerBallPeriods.focus();
                     // 更新统计信息
-                    updateCooccurrenceStats();
+                    updateCooccurrencePerBallStats();
                 } else {
-                    if (batchCooccurrenceStatsText) {
-                        batchCooccurrenceStatsText.textContent = '当前统计：等待启用...';
+                    if (batchCooccurrencePerBallStatsText) {
+                        batchCooccurrencePerBallStatsText.textContent = '当前统计：等待启用...';
                     }
                 }
             }
+            // 同步子选项复选框状态
+            if (batchCooccurrencePerBallCombo2) {
+                batchCooccurrencePerBallCombo2.disabled = !enabled;
+            }
+            if (batchCooccurrencePerBallCombo3) {
+                batchCooccurrencePerBallCombo3.disabled = !enabled;
+            }
+            if (batchCooccurrencePerBallCombo4) {
+                batchCooccurrencePerBallCombo4.disabled = !enabled;
+            }
         });
 
-        // 同出期数输入验证
-        batchCooccurrencePeriods?.addEventListener('input', function(e) {
+        // 同出(按红球)期数输入验证
+        batchCooccurrencePerBallPeriods?.addEventListener('input', function(e) {
             let value = parseInt(e.target.value);
 
             // 限制范围
@@ -2831,22 +2955,78 @@
             }
 
             // 实时更新统计信息
-            if (batchCooccurrenceCheckbox?.checked) {
-                updateCooccurrenceStats();
+            if (batchCooccurrencePerBallCheckbox?.checked) {
+                updateCooccurrencePerBallStats();
             }
         });
 
-        // 更新同出统计信息函数
-        async function updateCooccurrenceStats() {
-            if (!batchCooccurrencePeriods || !batchCooccurrenceStatsText) return;
+        // 同出排除(按期号)联动
+        const batchCooccurrenceByIssuesCheckbox = document.getElementById('batch-exclude-cooccurrence-byissues');
+        const batchCooccurrenceByIssuesPeriods = document.getElementById('batch-cooccurrence-byissues-periods');
+        const batchCooccurrenceByIssuesCombo2 = document.getElementById('batch-cooccurrence-byissues-combo2');
+        const batchCooccurrenceByIssuesCombo3 = document.getElementById('batch-cooccurrence-byissues-combo3');
+        const batchCooccurrenceByIssuesCombo4 = document.getElementById('batch-cooccurrence-byissues-combo4');
+        const batchCooccurrenceByIssuesStatsText = document.getElementById('batch-cooccurrence-byissues-stats-text');
 
-            const periods = parseInt(batchCooccurrencePeriods.value);
+        batchCooccurrenceByIssuesCheckbox?.addEventListener('change', function() {
+            const enabled = this.checked;
+            if (batchCooccurrenceByIssuesPeriods) {
+                batchCooccurrenceByIssuesPeriods.disabled = !enabled;
+                // 启用/禁用子选项
+                if (batchCooccurrenceByIssuesCombo2) batchCooccurrenceByIssuesCombo2.disabled = !enabled;
+                if (batchCooccurrenceByIssuesCombo3) batchCooccurrenceByIssuesCombo3.disabled = !enabled;
+                if (batchCooccurrenceByIssuesCombo4) batchCooccurrenceByIssuesCombo4.disabled = !enabled;
+
+                if (enabled) {
+                    batchCooccurrenceByIssuesPeriods.focus();
+                    // 更新统计信息
+                    updateCooccurrenceByIssuesStats();
+                } else {
+                    if (batchCooccurrenceByIssuesStatsText) {
+                        batchCooccurrenceByIssuesStatsText.textContent = '当前统计：等待启用...';
+                    }
+                }
+            }
+        });
+
+        // 同出(按期号)期数输入验证
+        batchCooccurrenceByIssuesPeriods?.addEventListener('input', function(e) {
+            let value = parseInt(e.target.value);
+
+            // 限制范围
+            if (value < 1) {
+                value = 1;
+                e.target.value = value;
+            }
+            if (value > 100) {
+                value = 100;
+                e.target.value = value;
+            }
+
+            // 边框颜色提示
+            if (isNaN(value) || value < 1 || value > 100) {
+                e.target.style.borderColor = '#dc3545';
+            } else {
+                e.target.style.borderColor = '#28a745';
+            }
+
+            // 实时更新统计信息
+            if (batchCooccurrenceByIssuesCheckbox?.checked) {
+                updateCooccurrenceByIssuesStats();
+            }
+        });
+
+        // 更新同出统计信息函数(按红球)
+        async function updateCooccurrencePerBallStats() {
+            if (!batchCooccurrencePerBallPeriods || !batchCooccurrencePerBallStatsText) return;
+
+            const periods = parseInt(batchCooccurrencePerBallPeriods.value);
             if (isNaN(periods) || periods < 1) {
-                batchCooccurrenceStatsText.textContent = '当前统计：期数无效';
+                batchCooccurrencePerBallStatsText.textContent = '当前统计：期数无效';
                 return;
             }
 
-            batchCooccurrenceStatsText.textContent = '当前统计：计算中...';
+            batchCooccurrencePerBallStatsText.textContent = '当前统计：计算中...';
 
             try {
                 // 先获取最新期号
@@ -2854,26 +3034,70 @@
                 const data = await response.json();
 
                 if (!data.success || !data.data || data.data.length === 0) {
-                    batchCooccurrenceStatsText.textContent = '当前统计：无法获取最新期号';
+                    batchCooccurrencePerBallStatsText.textContent = '当前统计：无法获取最新期号';
                     return;
                 }
 
                 const latestIssue = String(data.data[0].Issue);
 
-                // 获取同出数据
-                const coOccurrenceMap = await getCoOccurrenceData(periods, latestIssue);
+                // 获取同出数据(按红球)
+                const cooccResponse = await fetch(`http://localhost:3003/api/dlt/cooccurrence-per-ball?targetIssue=${latestIssue}&periods=${periods}`);
+                const cooccData = await cooccResponse.json();
 
-                // 统计同出对数
-                let totalPairs = 0;
-                coOccurrenceMap.forEach(pairs => {
-                    totalPairs += pairs.size;
-                });
-                totalPairs = totalPairs / 2; // 双向关系，除以2
+                if (!cooccData.success) {
+                    batchCooccurrencePerBallStatsText.textContent = '当前统计：获取失败';
+                    return;
+                }
 
-                batchCooccurrenceStatsText.textContent = `当前统计：最近${periods}期，共${totalPairs}组同出关系（基于期号${latestIssue}）`;
+                const totalPairs = cooccData.data.totalPairs || 0;
+
+                batchCooccurrencePerBallStatsText.textContent = `当前统计：每个红球最近${periods}期，共${totalPairs}组同出关系（基于期号${latestIssue}）`;
             } catch (error) {
-                console.error('更新同出统计失败:', error);
-                batchCooccurrenceStatsText.textContent = '当前统计：获取失败';
+                console.error('更新同出统计(按红球)失败:', error);
+                batchCooccurrencePerBallStatsText.textContent = '当前统计：获取失败';
+            }
+        }
+
+        // 更新同出统计信息函数(按期号)
+        async function updateCooccurrenceByIssuesStats() {
+            if (!batchCooccurrenceByIssuesPeriods || !batchCooccurrenceByIssuesStatsText) return;
+
+            const periods = parseInt(batchCooccurrenceByIssuesPeriods.value);
+            if (isNaN(periods) || periods < 1) {
+                batchCooccurrenceByIssuesStatsText.textContent = '当前统计：期数无效';
+                return;
+            }
+
+            batchCooccurrenceByIssuesStatsText.textContent = '当前统计：计算中...';
+
+            try {
+                // 先获取最新期号
+                const response = await fetch('http://localhost:3003/api/dlt/history?limit=1');
+                const data = await response.json();
+
+                if (!data.success || !data.data || data.data.length === 0) {
+                    batchCooccurrenceByIssuesStatsText.textContent = '当前统计：无法获取最新期号';
+                    return;
+                }
+
+                const latestIssue = String(data.data[0].Issue);
+
+                // 获取同出数据(按期号)
+                const cooccResponse = await fetch(`http://localhost:3003/api/dlt/cooccurrence-by-issues?targetIssue=${latestIssue}&periods=${periods}`);
+                const cooccData = await cooccResponse.json();
+
+                if (!cooccData.success) {
+                    batchCooccurrenceByIssuesStatsText.textContent = '当前统计：获取失败';
+                    return;
+                }
+
+                const totalPairs = cooccData.data.totalPairs || 0;
+                const analyzedIssues = cooccData.data.analyzedIssues || [];
+
+                batchCooccurrenceByIssuesStatsText.textContent = `当前统计：最近${periods}期，共${totalPairs}组同出关系（分析${analyzedIssues.join(',')}期）`;
+            } catch (error) {
+                console.error('更新同出统计(按期号)失败:', error);
+                batchCooccurrenceByIssuesStatsText.textContent = '当前统计：获取失败';
             }
         }
     });

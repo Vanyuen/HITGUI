@@ -7349,12 +7349,16 @@ function initSumRangeCheckboxes() {
 function initDLTCombinationFilters() {
     // 初始化多范围和值选择器
     initSumRangeCheckboxes();
-    
+
     // 预测期前排除期数输入框数字限制
     const sumBeforeCustomInput = document.getElementById('sum-before-custom');
     if (sumBeforeCustomInput) {
         sumBeforeCustomInput.addEventListener('input', (e) => {
             e.target.value = e.target.value.replace(/\D/g, '');
+        });
+        // 阻止点击事件冒泡到label，防止干扰输入
+        sumBeforeCustomInput.addEventListener('click', (e) => {
+            e.stopPropagation();
         });
     }
 
@@ -7364,12 +7368,20 @@ function initDLTCombinationFilters() {
         htcBeforeCustomInput.addEventListener('input', (e) => {
             e.target.value = e.target.value.replace(/\D/g, '');
         });
+        // 阻止点击事件冒泡到label，防止干扰输入
+        htcBeforeCustomInput.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
     }
-    
+
     const zoneBeforeCustomInput = document.getElementById('zone-before-custom');
     if (zoneBeforeCustomInput) {
         zoneBeforeCustomInput.addEventListener('input', (e) => {
             e.target.value = e.target.value.replace(/\D/g, '');
+        });
+        // 阻止点击事件冒泡到label，防止干扰输入
+        zoneBeforeCustomInput.addEventListener('click', (e) => {
+            e.stopPropagation();
         });
     }
 
@@ -9995,6 +10007,17 @@ function initDLTBatchPrediction() {
  * 初始化批量预测事件监听器
  */
 function initBatchPredictionEventListeners() {
+    // 阻止label内输入框的点击事件冒泡，防止干扰输入
+    const inputsInLabel = ['custom-start', 'custom-end', 'recent-count'];
+    inputsInLabel.forEach(inputId => {
+        const inputEl = document.getElementById(inputId);
+        if (inputEl) {
+            inputEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        }
+    });
+
     // 复选框控制输入框启用/禁用
     const exclusionCheckboxes = [
         { checkbox: 'batch-exclude-sum', inputs: ['batch-sum-min', 'batch-sum-max'] },
@@ -10003,7 +10026,7 @@ function initBatchPredictionEventListeners() {
         { checkbox: 'batch-exclude-zone', inputs: '.batch-zone-cb' },
         { checkbox: 'batch-exclude-odd-even', inputs: '.batch-odd-even-cb' }
     ];
-    
+
     exclusionCheckboxes.forEach(({ checkbox, inputs }) => {
         const checkboxEl = document.getElementById(checkbox);
         if (checkboxEl) {
@@ -10440,18 +10463,44 @@ function getBatchFilters() {
         console.log('⚠️ 相克排除未启用');
     }
 
-    // 同出排除
-    const coOccurrenceEnabled = document.getElementById('batch-exclude-cooccurrence')?.checked || false;
-    if (coOccurrenceEnabled) {
-        const periods = parseInt(document.getElementById('batch-cooccurrence-periods')?.value) || 1;
+    // 同出排除(按红球)
+    const coOccurrencePerBallEnabled = document.getElementById('batch-exclude-cooccurrence-perball')?.checked || false;
+    if (coOccurrencePerBallEnabled) {
+        const periods = parseInt(document.getElementById('batch-cooccurrence-perball-periods')?.value) || 1;
+        const combo2 = document.getElementById('batch-cooccurrence-perball-combo2')?.checked || false;
+        const combo3 = document.getElementById('batch-cooccurrence-perball-combo3')?.checked || false;
+        const combo4 = document.getElementById('batch-cooccurrence-perball-combo4')?.checked || false;
 
-        filters.coOccurrence = {  // 🔧 修复: 改为coOccurrence与后端一致
+        filters.coOccurrencePerBall = {
             enabled: true,
-            periods: periods
+            periods: periods,
+            combo2: combo2,
+            combo3: combo3,
+            combo4: combo4
         };
-        console.log('🔗 同出排除配置已收集:', filters.coOccurrence);
+        console.log('🔗 同出排除(按红球)配置已收集:', filters.coOccurrencePerBall);
     } else {
-        console.log('⚠️ 同出排除未启用');
+        console.log('⚠️ 同出排除(按红球)未启用');
+    }
+
+    // 同出排除(按期号)
+    const coOccurrenceByIssuesEnabled = document.getElementById('batch-exclude-cooccurrence-byissues')?.checked || false;
+    if (coOccurrenceByIssuesEnabled) {
+        const periods = parseInt(document.getElementById('batch-cooccurrence-byissues-periods')?.value) || 1;
+        const combo2 = document.getElementById('batch-cooccurrence-byissues-combo2')?.checked || false;
+        const combo3 = document.getElementById('batch-cooccurrence-byissues-combo3')?.checked || false;
+        const combo4 = document.getElementById('batch-cooccurrence-byissues-combo4')?.checked || false;
+
+        filters.coOccurrenceByIssues = {
+            enabled: true,
+            periods: periods,
+            combo2: combo2,
+            combo3: combo3,
+            combo4: combo4
+        };
+        console.log('🔗 同出排除(按期号)配置已收集:', filters.coOccurrenceByIssues);
+    } else {
+        console.log('⚠️ 同出排除(按期号)未启用');
     }
 
     console.log('📦 getBatchFilters 最终返回:', filters);
@@ -10463,6 +10512,20 @@ function getBatchFilters() {
  */
 function getBatchExcludeConditions() {
     const conditions = {};
+
+    // 调试日志：检查同出排除复选框状态
+    const coOccurrencePerBallCheckbox = document.getElementById('batch-exclude-cooccurrence-perball');
+    const coOccurrenceByIssuesCheckbox = document.getElementById('batch-exclude-cooccurrence-byissues');
+    console.log('🔍 调试 - 同出排除(按红球)复选框状态:', {
+        found: !!coOccurrencePerBallCheckbox,
+        checked: coOccurrencePerBallCheckbox?.checked,
+        disabled: coOccurrencePerBallCheckbox?.disabled
+    });
+    console.log('🔍 调试 - 同出排除(按期号)复选框状态:', {
+        found: !!coOccurrenceByIssuesCheckbox,
+        checked: coOccurrenceByIssuesCheckbox?.checked,
+        disabled: coOccurrenceByIssuesCheckbox?.disabled
+    });
 
     // 和值排除
     const sumEnabled = document.getElementById('batch-exclude-sum')?.checked || false;
@@ -10666,16 +10729,58 @@ function getBatchExcludeConditions() {
         };
     }
 
-    // 同出排除
-    const coOccurrenceEnabled = document.getElementById('batch-exclude-cooccurrence')?.checked || false;
-    if (coOccurrenceEnabled) {
-        const periods = parseInt(document.getElementById('batch-cooccurrence-periods')?.value) || 1;
+    // 同出排除(按红球)
+    const coOccurrencePerBallEnabled = document.getElementById('batch-exclude-cooccurrence-perball')?.checked || false;
+    if (coOccurrencePerBallEnabled) {
+        const periods = parseInt(document.getElementById('batch-cooccurrence-perball-periods')?.value) || 1;
+        const combo2 = document.getElementById('batch-cooccurrence-perball-combo2')?.checked || false;
+        const combo3 = document.getElementById('batch-cooccurrence-perball-combo3')?.checked || false;
+        const combo4 = document.getElementById('batch-cooccurrence-perball-combo4')?.checked || false;
 
-        conditions.coOccurrence = {
+        conditions.coOccurrencePerBall = {
             enabled: true,
-            periods: periods
+            periods: periods,
+            combo2: combo2,
+            combo3: combo3,
+            combo4: combo4
         };
-        console.log('🔗 同出排除条件已收集:', conditions.coOccurrence);
+        console.log('🔗 同出排除(按红球)条件已收集:', conditions.coOccurrencePerBall);
+    }
+
+    // 同出排除(按期号)
+    const coOccurrenceByIssuesEnabled = document.getElementById('batch-exclude-cooccurrence-byissues')?.checked || false;
+    if (coOccurrenceByIssuesEnabled) {
+        const periods = parseInt(document.getElementById('batch-cooccurrence-byissues-periods')?.value) || 1;
+        const combo2 = document.getElementById('batch-cooccurrence-byissues-combo2')?.checked || false;
+        const combo3 = document.getElementById('batch-cooccurrence-byissues-combo3')?.checked || false;
+        const combo4 = document.getElementById('batch-cooccurrence-byissues-combo4')?.checked || false;
+
+        conditions.coOccurrenceByIssues = {
+            enabled: true,
+            periods: periods,
+            combo2: combo2,
+            combo3: combo3,
+            combo4: combo4
+        };
+        console.log('🔗 同出排除(按期号)条件已收集:', conditions.coOccurrenceByIssues);
+    }
+
+    // 调试：显示最终收集的条件
+    console.log('📦 getBatchExcludeConditions 最终返回:', JSON.stringify(conditions, null, 2));
+    console.log('📦 条件键名:', Object.keys(conditions));
+
+    // 如果设置了同出排除条件，在控制台显示确认信息
+    if (conditions.coOccurrencePerBall || conditions.coOccurrenceByIssues) {
+        const msg = [];
+        if (conditions.coOccurrencePerBall) {
+            msg.push(`同出排除(按红球): ${conditions.coOccurrencePerBall.periods}期`);
+        }
+        if (conditions.coOccurrenceByIssues) {
+            msg.push(`同出排除(按期号): ${conditions.coOccurrenceByIssues.periods}期`);
+        }
+        console.log('✅ 已收集同出排除条件:\n' + msg.join('\n'));
+    } else {
+        console.log('⚠️ 未收集到任何同出排除条件！\n复选框未勾选或条件未设置。');
     }
 
     return conditions;
@@ -13805,7 +13910,10 @@ const taskManagement = {
     currentStatus: 'all',
     tasks: [],
     totalTasks: 0,
-    selectedTaskId: null
+    selectedTaskId: null,
+    // 批量操作相关
+    selectedTaskIds: new Set(), // 批量选择的任务ID集合
+    isSelectionMode: false       // 是否处于选择模式（保留，暂未使用）
 };
 
 /**
@@ -13824,7 +13932,32 @@ function initTaskManagement() {
     // 绑定刷新按钮
     const refreshBtn = document.getElementById('refresh-tasks');
     if (refreshBtn) {
-        refreshBtn.addEventListener('click', () => loadTaskList());
+        refreshBtn.addEventListener('click', async () => {
+            // 添加loading状态
+            const originalText = refreshBtn.innerHTML;
+            refreshBtn.disabled = true;
+            refreshBtn.innerHTML = '<span>🔄</span><span>刷新中...</span>';
+            refreshBtn.style.opacity = '0.6';
+
+            try {
+                await loadTaskList();
+                // 显示成功提示
+                refreshBtn.innerHTML = '<span>✅</span><span>刷新成功</span>';
+                setTimeout(() => {
+                    refreshBtn.innerHTML = originalText;
+                    refreshBtn.disabled = false;
+                    refreshBtn.style.opacity = '1';
+                }, 800);
+            } catch (error) {
+                // 显示失败提示
+                refreshBtn.innerHTML = '<span>❌</span><span>刷新失败</span>';
+                setTimeout(() => {
+                    refreshBtn.innerHTML = originalText;
+                    refreshBtn.disabled = false;
+                    refreshBtn.style.opacity = '1';
+                }, 1500);
+            }
+        });
         console.log('✅ 刷新按钮已绑定');
     }
 
@@ -13858,6 +13991,26 @@ function initTaskManagement() {
                 loadTaskList();
             }
         });
+    }
+
+    // 绑定批量操作按钮
+    const selectAllCheckbox = document.getElementById('select-all-checkbox');
+    const batchDeleteBtn = document.getElementById('batch-delete-btn');
+    const cancelSelectionBtn = document.getElementById('cancel-selection-btn');
+
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', toggleSelectAll);
+        console.log('✅ 全选checkbox已绑定');
+    }
+
+    if (batchDeleteBtn) {
+        batchDeleteBtn.addEventListener('click', batchDeleteTasks);
+        console.log('✅ 批量删除按钮已绑定');
+    }
+
+    if (cancelSelectionBtn) {
+        cancelSelectionBtn.addEventListener('click', clearSelection);
+        console.log('✅ 取消选择按钮已绑定');
     }
 
     // 绑定弹窗关闭按钮
@@ -13934,6 +14087,15 @@ async function createPredictionTask() {
         const excludeConditions = getBatchExcludeConditions();
         console.log('🔍 前端收集的排除条件:', JSON.stringify(excludeConditions, null, 2));
 
+        // 额外检查同出排除条件
+        if (excludeConditions.coOccurrencePerBall || excludeConditions.coOccurrenceByIssues) {
+            console.log('✅ 确认：同出排除条件已收集');
+            console.log('  - coOccurrencePerBall:', excludeConditions.coOccurrencePerBall);
+            console.log('  - coOccurrenceByIssues:', excludeConditions.coOccurrenceByIssues);
+        } else {
+            console.log('❌ 警告：未收集到同出排除条件');
+        }
+
         // 获取输出配置
         const outputConfig = {
             combination_mode: document.querySelector('input[name="combination-mode"]:checked')?.value || 'default',
@@ -13993,8 +14155,10 @@ async function loadTaskList() {
     try {
         console.log(`📂 加载任务列表... 页码:${taskManagement.currentPage}, 状态:${taskManagement.currentStatus}`);
 
+        // 添加时间戳避免浏览器缓存
+        const timestamp = new Date().getTime();
         const response = await fetch(
-            `${API_BASE_URL}/api/dlt/prediction-tasks/list?page=${taskManagement.currentPage}&limit=${taskManagement.pageSize}&status=${taskManagement.currentStatus}`
+            `${API_BASE_URL}/api/dlt/prediction-tasks/list?page=${taskManagement.currentPage}&limit=${taskManagement.pageSize}&status=${taskManagement.currentStatus}&_t=${timestamp}`
         );
 
         const result = await response.json();
@@ -14002,6 +14166,15 @@ async function loadTaskList() {
         if (result.success) {
             taskManagement.tasks = result.data.tasks;
             taskManagement.totalTasks = result.data.total;
+
+            // 🔧 边界保护：如果当前页超出总页数，自动跳转到最后一页
+            const totalPages = Math.ceil(taskManagement.totalTasks / taskManagement.pageSize);
+            if (totalPages > 0 && taskManagement.currentPage > totalPages) {
+                console.log(`⚠️ 当前页 ${taskManagement.currentPage} 超出总页数 ${totalPages}，自动跳转到最后一页`);
+                taskManagement.currentPage = totalPages;
+                await loadTaskList(); // 递归重新加载
+                return;
+            }
 
             renderTaskList(result.data.tasks);
             updatePagination();
@@ -14040,6 +14213,9 @@ function renderTaskList(tasks) {
         const card = createTaskCard(task);
         container.appendChild(card);
     });
+
+    // 更新批量操作工具栏状态
+    updateBatchToolbar();
 }
 
 /**
@@ -14047,7 +14223,7 @@ function renderTaskList(tasks) {
  */
 function createTaskCard(task) {
     const card = document.createElement('div');
-    card.className = 'task-card';
+    card.className = 'task-card has-checkbox';
     card.dataset.taskId = task.task_id;
 
     // 格式化日期
@@ -14067,9 +14243,18 @@ function createTaskCard(task) {
     const hitRate = stats.avg_hit_rate || 0;
     const firstPrize = stats.first_prize_count || 0;
     const secondPrize = stats.second_prize_count || 0;
+    const thirdPrize = stats.third_prize_count || 0;
     const totalPrize = stats.total_prize_amount || 0;
 
+    // 判断是否选中
+    const isSelected = taskManagement.selectedTaskIds.has(task.task_id);
+    if (isSelected) {
+        card.classList.add('selected');
+    }
+
     card.innerHTML = `
+        <input type="checkbox" class="task-checkbox" ${isSelected ? 'checked' : ''}
+               onclick="toggleTaskSelection('${task.task_id}')">
         <div class="task-card-header">
             <h4>${task.task_name}</h4>
             <span class="task-status ${task.status}">${statusText[task.status]}</span>
@@ -14091,6 +14276,7 @@ function createTaskCard(task) {
                 <div class="task-info-row">
                     <span>🏆 一等奖: ${firstPrize}次</span>
                     <span>🥈 二等奖: ${secondPrize}次</span>
+                    <span>🥉 三等奖: ${thirdPrize}次</span>
                 </div>
                 <div class="task-info-row">
                     <span>💰 总奖金: ¥${totalPrize.toLocaleString()}</span>
@@ -14226,6 +14412,7 @@ function renderTaskDetail(data) {
                 <td>
                     <button class="btn-sm" onclick="viewPeriodDetail('${task.task_id}', ${result.period})">详情</button>
                     <button class="btn-sm" onclick="exportSinglePeriod('${task.task_id}', ${result.period})">导出</button>
+                    <button class="btn-sm" style="background: #ff9800;" onclick="exportExclusionDetails('${task.task_id}', ${result.period})" title="导出排除详情（XLSX多工作表）">排除详情</button>
                 </td>
             `;
             tbody.appendChild(row);
@@ -14373,14 +14560,28 @@ function renderExcludeConditions(conditions) {
         console.log('❌ 未检测到相克排除条件，conflict存在:', !!conditions.conflict, 'enabled:', conditions.conflict?.enabled);
     }
 
-    // 同出排除
+    // 同出排除(旧版)
     if (conditions.coOccurrence && conditions.coOccurrence.enabled) {
-        console.log('✅ 检测到同出排除条件:', conditions.coOccurrence);
+        console.log('✅ 检测到同出排除条件(旧版):', conditions.coOccurrence);
         const coOccurrenceHtml = `<div>✅ 同出排除: 排除最近${conditions.coOccurrence.periods}期同出号码</div>`;
         console.log('🔗 同出HTML片段:', coOccurrenceHtml);
         html += coOccurrenceHtml;
-    } else {
-        console.log('❌ 未检测到同出排除条件，coOccurrence存在:', !!conditions.coOccurrence, 'enabled:', conditions.coOccurrence?.enabled);
+    }
+
+    // 同出排除(按红球)
+    if (conditions.coOccurrencePerBall && conditions.coOccurrencePerBall.enabled) {
+        console.log('✅ 检测到同出排除(按红球)条件:', conditions.coOccurrencePerBall);
+        const coOccurrencePerBallHtml = `<div>✅ 同出排除(按红球): 每个红球最近${conditions.coOccurrencePerBall.periods}期</div>`;
+        console.log('🔗 同出(按红球)HTML片段:', coOccurrencePerBallHtml);
+        html += coOccurrencePerBallHtml;
+    }
+
+    // 同出排除(按期号)
+    if (conditions.coOccurrenceByIssues && conditions.coOccurrenceByIssues.enabled) {
+        console.log('✅ 检测到同出排除(按期号)条件:', conditions.coOccurrenceByIssues);
+        const coOccurrenceByIssuesHtml = `<div>✅ 同出排除(按期号): 排除最近${conditions.coOccurrenceByIssues.periods}期</div>`;
+        console.log('🔗 同出(按期号)HTML片段:', coOccurrenceByIssuesHtml);
+        html += coOccurrenceByIssuesHtml;
     }
 
     console.log('📊 最终html长度:', html.length);
@@ -14423,6 +14624,167 @@ async function deleteTask(taskId) {
     } catch (error) {
         console.error('❌ 删除任务失败:', error);
         alert('删除任务失败: ' + error.message);
+    }
+}
+
+// ========== 批量操作功能 ==========
+
+/**
+ * 切换任务选中状态
+ */
+function toggleTaskSelection(taskId) {
+    if (taskManagement.selectedTaskIds.has(taskId)) {
+        taskManagement.selectedTaskIds.delete(taskId);
+    } else {
+        taskManagement.selectedTaskIds.add(taskId);
+    }
+
+    updateBatchToolbar();
+    updateTaskCardSelection(taskId);
+}
+
+/**
+ * 更新任务卡片选中状态
+ */
+function updateTaskCardSelection(taskId) {
+    const card = document.querySelector(`.task-card[data-task-id="${taskId}"]`);
+    if (!card) return;
+
+    const checkbox = card.querySelector('.task-checkbox');
+    const isSelected = taskManagement.selectedTaskIds.has(taskId);
+
+    if (isSelected) {
+        card.classList.add('selected');
+        if (checkbox) checkbox.checked = true;
+    } else {
+        card.classList.remove('selected');
+        if (checkbox) checkbox.checked = false;
+    }
+}
+
+/**
+ * 全选/取消全选当前页
+ */
+function toggleSelectAll() {
+    const currentPageTaskIds = taskManagement.tasks.map(task => task.task_id);
+    const allSelected = currentPageTaskIds.every(id =>
+        taskManagement.selectedTaskIds.has(id)
+    );
+
+    if (allSelected) {
+        // 取消全选当前页
+        currentPageTaskIds.forEach(id => {
+            taskManagement.selectedTaskIds.delete(id);
+        });
+    } else {
+        // 全选当前页
+        currentPageTaskIds.forEach(id => {
+            taskManagement.selectedTaskIds.add(id);
+        });
+    }
+
+    updateBatchToolbar();
+    renderTaskList(taskManagement.tasks); // 重新渲染，更新所有checkbox状态
+}
+
+/**
+ * 清空选择
+ */
+function clearSelection() {
+    taskManagement.selectedTaskIds.clear();
+    updateBatchToolbar();
+    renderTaskList(taskManagement.tasks);
+}
+
+/**
+ * 更新批量操作工具栏
+ */
+function updateBatchToolbar() {
+    const selectedCount = taskManagement.selectedTaskIds.size;
+    const currentPageTaskIds = taskManagement.tasks.map(task => task.task_id);
+    const currentPageTaskCount = currentPageTaskIds.length;
+
+    // 更新已选择数量
+    const selectedCountEl = document.getElementById('selected-count');
+    if (selectedCountEl) {
+        selectedCountEl.textContent = `已选择 ${selectedCount} 个任务`;
+    }
+
+    // 更新批量删除按钮状态
+    const batchDeleteBtn = document.getElementById('batch-delete-btn');
+    if (batchDeleteBtn) {
+        batchDeleteBtn.disabled = selectedCount === 0;
+    }
+
+    // 更新全选checkbox状态
+    const selectAllCheckbox = document.getElementById('select-all-checkbox');
+    if (selectAllCheckbox && currentPageTaskCount > 0) {
+        const currentPageSelectedCount = currentPageTaskIds.filter(id =>
+            taskManagement.selectedTaskIds.has(id)
+        ).length;
+
+        selectAllCheckbox.checked = currentPageSelectedCount === currentPageTaskCount;
+        selectAllCheckbox.indeterminate = currentPageSelectedCount > 0 &&
+                                          currentPageSelectedCount < currentPageTaskCount;
+    }
+}
+
+/**
+ * 批量删除任务
+ */
+async function batchDeleteTasks() {
+    const selectedCount = taskManagement.selectedTaskIds.size;
+
+    if (selectedCount === 0) {
+        alert('请先选择要删除的任务');
+        return;
+    }
+
+    if (!confirm(`确定要删除选中的 ${selectedCount} 个任务吗？删除后无法恢复！`)) {
+        return;
+    }
+
+    try {
+        const taskIds = Array.from(taskManagement.selectedTaskIds);
+
+        const response = await fetch(`${API_BASE_URL}/api/dlt/prediction-tasks/batch-delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskIds })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert(`成功删除 ${result.data.deletedTasks} 个任务`);
+
+            // 🔧 核心修复：智能调整当前页码
+            const currentPageTaskCount = taskManagement.tasks.length; // 当前页任务总数
+            const deletedFromCurrentPage = taskIds.filter(id =>
+                taskManagement.tasks.some(task => task.task_id === id)
+            ).length;
+
+            // 如果当前页的任务全部被删除
+            if (deletedFromCurrentPage === currentPageTaskCount) {
+                // 如果不是第1页，回退到上一页
+                if (taskManagement.currentPage > 1) {
+                    taskManagement.currentPage--;
+                }
+                // 如果是第1页，保持在第1页（会显示空白或下一批数据）
+            }
+
+            // 清空选择状态
+            clearSelection();
+
+            // 刷新任务列表
+            await loadTaskList();
+
+        } else {
+            alert('批量删除失败: ' + result.message);
+        }
+    } catch (error) {
+        console.error('❌ 批量删除失败:', error);
+        alert('批量删除失败: ' + error.message);
     }
 }
 
@@ -14489,6 +14851,61 @@ async function exportSinglePeriod(taskId, period) {
     } catch (error) {
         console.error('导出失败:', error);
         showExportError(error.message);
+    }
+}
+
+/**
+ * 导出单期排除详情（XLSX格式，多工作表）
+ */
+async function exportExclusionDetails(taskId, period) {
+    try {
+        console.log(`📊 开始导出排除详情 - 任务ID: ${taskId}, 期号: ${period}`);
+
+        // 显示loading提示
+        const loadingMsg = document.createElement('div');
+        loadingMsg.id = 'export-exclusion-loading';
+        loadingMsg.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 30px 50px;
+            border-radius: 10px;
+            z-index: 10000;
+            font-size: 16px;
+            text-align: center;
+        `;
+        loadingMsg.innerHTML = `
+            <div style="margin-bottom: 15px;">📊 正在生成排除详情Excel...</div>
+            <div style="font-size: 12px; opacity: 0.8;">包含多个工作表，请稍候...</div>
+        `;
+        document.body.appendChild(loadingMsg);
+
+        // 直接打开下载链接
+        const url = `${API_BASE_URL}/api/dlt/export-exclusion-details/${taskId}/${period}`;
+
+        // 创建隐藏的iframe进行下载
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = url;
+        document.body.appendChild(iframe);
+
+        // 3秒后移除loading和iframe
+        setTimeout(() => {
+            if (loadingMsg.parentNode) {
+                loadingMsg.parentNode.removeChild(loadingMsg);
+            }
+            if (iframe.parentNode) {
+                iframe.parentNode.removeChild(iframe);
+            }
+            console.log('✅ 排除详情导出完成');
+        }, 3000);
+
+    } catch (error) {
+        console.error('❌ 导出排除详情失败:', error);
+        alert('导出排除详情失败: ' + error.message);
     }
 }
 
@@ -14685,7 +15102,7 @@ async function viewPeriodDetail(taskId, period) {
  */
 function renderPeriodDetail(data) {
     try {
-        const { conflict_data, cooccurrence_data, statistics } = data;
+        const { conflict_data, cooccurrence_perball_data, cooccurrence_byissues_data, statistics } = data;
 
         // 渲染相克数据
         const conflictSection = document.getElementById('conflict-section');
@@ -14735,52 +15152,132 @@ function renderPeriodDetail(data) {
             conflictSection.style.display = 'none';
         }
 
-        // 渲染同出数据
-        const cooccurrenceSection = document.getElementById('cooccurrence-section');
-        if (cooccurrenceSection) {
-            if (cooccurrence_data && cooccurrence_data.enabled) {
-                cooccurrenceSection.style.display = 'block';
+        // 渲染同出数据(按红球)
+        const cooccurrencePerBallSection = document.getElementById('cooccurrence-perball-section');
+        if (cooccurrencePerBallSection) {
+            if (cooccurrence_perball_data && cooccurrence_perball_data.enabled) {
+                cooccurrencePerBallSection.style.display = 'block';
 
                 // 基本参数
-                const periodsEl = document.getElementById('cooccurrence-periods');
-                const pairsCountEl = document.getElementById('cooccurrence-pairs-count');
-                if (periodsEl) periodsEl.textContent = `最近${cooccurrence_data.periods}次出现`;
-                if (pairsCountEl) pairsCountEl.textContent = `${cooccurrence_data.cooccurrence_pairs?.length || 0}对`;
+                const periodsEl = document.getElementById('cooccurrence-perball-periods');
+                const pairsCountEl = document.getElementById('cooccurrence-perball-pairs-count');
+                if (periodsEl) periodsEl.textContent = `最近${cooccurrence_perball_data.periods || 1}次出现`;
 
-                // 同出详情列表 (显示前10个号码)
-                const detailsList = document.getElementById('cooccurrence-details');
+                // 特征数量统计（适配新的数据结构）
+                if (pairsCountEl) {
+                    const exclude2 = cooccurrence_perball_data.exclude_features_2 || 0;
+                    const exclude3 = cooccurrence_perball_data.exclude_features_3 || 0;
+                    const exclude4 = cooccurrence_perball_data.exclude_features_4 || 0;
+                    const totalFeatures = exclude2 + exclude3 + exclude4;
+
+                    const breakdown = [];
+                    if (cooccurrence_perball_data.combo2) breakdown.push(`2码:${exclude2}`);
+                    if (cooccurrence_perball_data.combo3) breakdown.push(`3码:${exclude3}`);
+                    if (cooccurrence_perball_data.combo4) breakdown.push(`4码:${exclude4}`);
+
+                    pairsCountEl.textContent = `${totalFeatures}个特征 (${breakdown.join(', ')})`;
+                }
+
+                // 特征详情列表（显示示例特征）
+                const detailsList = document.getElementById('cooccurrence-perball-details');
                 if (detailsList) {
-                    if (cooccurrence_data.cooccurrence_pairs && cooccurrence_data.cooccurrence_pairs.length > 0) {
-                        // 从API获取analyzedDetails,如果没有则根据pairs生成简化显示
-                        const pairsCount = cooccurrence_data.cooccurrence_pairs.length;
-                        const samplePairs = cooccurrence_data.cooccurrence_pairs.slice(0, 10);
+                    const sampleFeatures = cooccurrence_perball_data.sample_features || [];
+                    const totalFeatures = (cooccurrence_perball_data.exclude_features_2 || 0) +
+                                         (cooccurrence_perball_data.exclude_features_3 || 0) +
+                                         (cooccurrence_perball_data.exclude_features_4 || 0);
 
-                        const detailsHtml = samplePairs.map((pair, index) => {
-                            const num1 = String(pair[0]).padStart(2, '0');
-                            const num2 = String(pair[1]).padStart(2, '0');
-                            return `<span class="cooccurrence-pair">${index + 1}. ${num1} ↔️ ${num2}</span>`;
-                        }).join('');
+                    if (sampleFeatures.length > 0) {
+                        const detailsHtml = sampleFeatures.map((feature, index) =>
+                            `<span class="cooccurrence-pair">${index + 1}. ${feature}</span>`
+                        ).join('');
 
                         detailsList.innerHTML = `
                             <div class="pairs-grid">${detailsHtml}</div>
                             <div class="summary-text" style="margin-top: 10px; color: #666; font-size: 14px;">
-                                ${pairsCount > 10 ? `...等共 <strong>${pairsCount}</strong> 对同出号码` : `共 <strong>${pairsCount}</strong> 对同出号码`}
+                                ${totalFeatures > 10 ? `...等共 <strong>${totalFeatures}</strong> 个待排除特征` : `共 <strong>${totalFeatures}</strong> 个待排除特征`}
                             </div>
                         `;
                     } else {
-                        detailsList.innerHTML = '<div class="no-data">暂无同出数据</div>';
+                        detailsList.innerHTML = '<div class="no-data">暂无排除特征</div>';
                     }
                 }
 
                 // 统计数据
-                const beforeEl = document.getElementById('cooccurrence-before');
-                const afterEl = document.getElementById('cooccurrence-after');
-                const excludedEl = document.getElementById('cooccurrence-excluded');
-                if (beforeEl) beforeEl.textContent = (cooccurrence_data.combinations_before || 0).toLocaleString();
-                if (afterEl) afterEl.textContent = (cooccurrence_data.combinations_after || 0).toLocaleString();
-                if (excludedEl) excludedEl.textContent = (cooccurrence_data.excluded_count || 0).toLocaleString();
+                const beforeEl = document.getElementById('cooccurrence-perball-before');
+                const afterEl = document.getElementById('cooccurrence-perball-after');
+                const excludedEl = document.getElementById('cooccurrence-perball-excluded');
+                if (beforeEl) beforeEl.textContent = (cooccurrence_perball_data.combinations_before || 0).toLocaleString();
+                if (afterEl) afterEl.textContent = (cooccurrence_perball_data.combinations_after || 0).toLocaleString();
+                if (excludedEl) excludedEl.textContent = (cooccurrence_perball_data.excluded_count || 0).toLocaleString();
             } else {
-                cooccurrenceSection.style.display = 'none';
+                cooccurrencePerBallSection.style.display = 'none';
+            }
+        }
+
+        // 渲染同出数据(按期号)
+        const cooccurrenceByIssuesSection = document.getElementById('cooccurrence-byissues-section');
+        if (cooccurrenceByIssuesSection) {
+            if (cooccurrence_byissues_data && cooccurrence_byissues_data.enabled) {
+                cooccurrenceByIssuesSection.style.display = 'block';
+
+                // 基本参数
+                const analyzedEl = document.getElementById('cooccurrence-byissues-analyzed');
+                const pairsCountEl = document.getElementById('cooccurrence-byissues-pairs-count');
+
+                // 分析期号
+                if (analyzedEl) {
+                    const analyzedIssues = cooccurrence_byissues_data.analyzed_issues || [];
+                    analyzedEl.textContent = analyzedIssues.length > 0 ? analyzedIssues.join(', ') : '-';
+                }
+
+                // 特征数量统计（适配新的数据结构）
+                if (pairsCountEl) {
+                    const exclude2 = cooccurrence_byissues_data.exclude_features_2 || 0;
+                    const exclude3 = cooccurrence_byissues_data.exclude_features_3 || 0;
+                    const exclude4 = cooccurrence_byissues_data.exclude_features_4 || 0;
+                    const totalFeatures = exclude2 + exclude3 + exclude4;
+
+                    const breakdown = [];
+                    if (cooccurrence_byissues_data.combo2) breakdown.push(`2码:${exclude2}`);
+                    if (cooccurrence_byissues_data.combo3) breakdown.push(`3码:${exclude3}`);
+                    if (cooccurrence_byissues_data.combo4) breakdown.push(`4码:${exclude4}`);
+
+                    pairsCountEl.textContent = `${totalFeatures}个特征 (${breakdown.join(', ')})`;
+                }
+
+                // 特征详情列表（显示示例特征）
+                const detailsList = document.getElementById('cooccurrence-byissues-details');
+                if (detailsList) {
+                    const sampleFeatures = cooccurrence_byissues_data.sample_features || [];
+                    const totalFeatures = (cooccurrence_byissues_data.exclude_features_2 || 0) +
+                                         (cooccurrence_byissues_data.exclude_features_3 || 0) +
+                                         (cooccurrence_byissues_data.exclude_features_4 || 0);
+
+                    if (sampleFeatures.length > 0) {
+                        const detailsHtml = sampleFeatures.map((feature, index) =>
+                            `<span class="cooccurrence-pair">${index + 1}. ${feature}</span>`
+                        ).join('');
+
+                        detailsList.innerHTML = `
+                            <div class="pairs-grid">${detailsHtml}</div>
+                            <div class="summary-text" style="margin-top: 10px; color: #666; font-size: 14px;">
+                                ${totalFeatures > 10 ? `...等共 <strong>${totalFeatures}</strong> 个待排除特征` : `共 <strong>${totalFeatures}</strong> 个待排除特征`}
+                            </div>
+                        `;
+                    } else {
+                        detailsList.innerHTML = '<div class="no-data">暂无排除特征</div>';
+                    }
+                }
+
+                // 统计数据
+                const beforeEl = document.getElementById('cooccurrence-byissues-before');
+                const afterEl = document.getElementById('cooccurrence-byissues-after');
+                const excludedEl = document.getElementById('cooccurrence-byissues-excluded');
+                if (beforeEl) beforeEl.textContent = (cooccurrence_byissues_data.combinations_before || 0).toLocaleString();
+                if (afterEl) afterEl.textContent = (cooccurrence_byissues_data.combinations_after || 0).toLocaleString();
+                if (excludedEl) excludedEl.textContent = (cooccurrence_byissues_data.excluded_count || 0).toLocaleString();
+            } else {
+                cooccurrenceByIssuesSection.style.display = 'none';
             }
         }
 
@@ -14867,6 +15364,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 window.exportTaskQuick = exportTaskQuick;
 window.exportSinglePeriod = exportSinglePeriod;
+window.exportExclusionDetails = exportExclusionDetails;
 window.viewPeriodDetail = viewPeriodDetail;
 window.downloadExportedFile = downloadExportedFile;
 window.closeExportProgressModal = closeExportProgressModal;

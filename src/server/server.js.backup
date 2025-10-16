@@ -6,7 +6,6 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
-const ExcelJS = require('exceljs');
 
 const app = express();
 app.use(cors());
@@ -42,14 +41,6 @@ app.use(express.static(path.join(__dirname, '../renderer')));
 
 // 导出任务状态存储（用于CLI导出进度跟踪）
 const exportTasks = {};
-
-// ========== 排除详情记录配置 ==========
-const EXCLUSION_DETAILS_CONFIG = {
-    enabled: process.env.RECORD_EXCLUSION_DETAILS !== 'false',  // 默认开启，可通过环境变量关闭
-    maxIdsPerRecord: 100000,         // 单条记录最大ID数（防止超MongoDB 16MB限制）
-    batchSize: 50000,                 // 分片写入大小
-    async: true                       // 是否异步写入（不阻塞主流程）
-};
 
 // 定义双色球开奖结果模式
 const unionLottoSchema = new mongoose.Schema({
@@ -725,18 +716,6 @@ const predictionTaskResultSchema = new mongoose.Schema({
         excluded_count: { type: Number }       // 实际排除数量
     },
 
-    // ===== 新增：排除条件执行链（详细记录每个排除条件的执行情况） =====
-    exclusion_chain: [{
-        step: { type: Number }, // 执行顺序（1, 2, 3...）
-        condition: { type: String }, // 条件类型：basic/hwc/conflict/coOccurrencePerBall/coOccurrenceByIssues
-        config: { type: Object }, // 条件配置（原始配置对象）
-        excluded_combination_ids: [{ type: Number }], // 该条件排除的红球组合ID列表
-        excluded_count: { type: Number }, // 排除数量
-        combinations_before: { type: Number }, // 排除前剩余组合数
-        combinations_after: { type: Number }, // 排除后剩余组合数
-        execution_time_ms: { type: Number } // 执行耗时（毫秒）
-    }],
-
     created_at: { type: Date, default: Date.now } // 创建时间
 });
 
@@ -748,37 +727,6 @@ predictionTaskResultSchema.index({ task_id: 1, period: 1 }, { unique: true });
 predictionTaskResultSchema.index({ created_at: -1 });
 
 const PredictionTaskResult = mongoose.model('HIT_DLT_PredictionTaskResult', predictionTaskResultSchema);
-
-// ========== 排除详情表（用于记录每个排除条件的详细信息） ==========
-const dltExclusionDetailsSchema = new mongoose.Schema({
-    // 关联字段
-    task_id: { type: String, required: true, index: true },        // 关联到 DLTPredictionTask.task_id
-    result_id: { type: String, required: true, index: true },      // 关联到 PredictionTaskResult.result_id
-    period: { type: String, required: true, index: true },         // 期号（冗余，便于查询）
-    step: { type: Number, required: true },                        // 步骤序号
-    condition: { type: String, required: true },                   // 条件类型: basic/hwc/conflict/coOccurrencePerBall/coOccurrenceByIssues
-
-    // 排除数据（核心）
-    excluded_combination_ids: [{ type: Number }],                  // 该步骤排除的组合ID列表
-    excluded_count: { type: Number, required: true },              // 排除数量（冗余，便于统计）
-
-    // 分片支持（当排除ID过多时，分片存储）
-    is_partial: { type: Boolean, default: false },                 // 是否为分片数据
-    chunk_index: { type: Number },                                 // 分片索引（0, 1, 2...）
-    total_chunks: { type: Number },                                // 总分片数
-
-    // 元数据
-    created_at: { type: Date, default: Date.now, index: true }
-});
-
-// 复合索引优化
-dltExclusionDetailsSchema.index({ task_id: 1, step: 1 });
-dltExclusionDetailsSchema.index({ result_id: 1, step: 1 });
-dltExclusionDetailsSchema.index({ period: 1, step: 1 });
-dltExclusionDetailsSchema.index({ task_id: 1, period: 1, step: 1 });
-dltExclusionDetailsSchema.index({ excluded_combination_ids: 1 });   // 支持反向查询
-
-const DLTExclusionDetails = mongoose.model('HIT_DLT_ExclusionDetails', dltExclusionDetailsSchema);
 
 // ========== 规律生成功能 Schema 定义 ==========
 
@@ -953,95 +901,6 @@ function log(message) {
   const timestamp = new Date().toISOString();
   logStream.write(`${timestamp} - ${message}\n`);
   console.log(`${timestamp} - ${message}`);
-}
-
-/**
- * 记录排除详情到数据库（支持分片存储）
- * @param {Object} params - 参数对象
- * @param {String} params.taskId - 任务ID
- * @param {String} params.resultId - 结果ID
- * @param {String} params.period - 期号
- * @param {Number} params.step - 步骤序号
- * @param {String} params.condition - 条件类型
- * @param {Array<Number>} params.excludedIds - 排除的组合ID数组
- * @returns {Promise<void>}
- */
-async function recordExclusionDetails({ taskId, resultId, period, step, condition, excludedIds }) {
-    // 检查配置开关
-    if (!EXCLUSION_DETAILS_CONFIG.enabled) {
-        return;
-    }
-
-    // 检查是否有数据需要记录
-    if (!excludedIds || excludedIds.length === 0) {
-        return;
-    }
-
-    try {
-        const excludedCount = excludedIds.length;
-
-        // 判断是否需要分片
-        if (excludedCount <= EXCLUSION_DETAILS_CONFIG.maxIdsPerRecord) {
-            // 数据量不大，直接写入
-            const detailDoc = {
-                task_id: taskId,
-                result_id: resultId,
-                period: period,
-                step: step,
-                condition: condition,
-                excluded_combination_ids: excludedIds,
-                excluded_count: excludedCount,
-                is_partial: false
-            };
-
-            if (EXCLUSION_DETAILS_CONFIG.async) {
-                // 异步写入（不阻塞主流程）
-                DLTExclusionDetails.create(detailDoc).catch(err => {
-                    log(`⚠️ [异步]记录排除详情失败: ${err.message}`);
-                });
-            } else {
-                // 同步写入
-                await DLTExclusionDetails.create(detailDoc);
-            }
-        } else {
-            // 数据量过大，需要分片存储
-            const totalChunks = Math.ceil(excludedCount / EXCLUSION_DETAILS_CONFIG.batchSize);
-            log(`📦 排除ID过多(${excludedCount}个)，分${totalChunks}片存储`);
-
-            const chunkDocs = [];
-            for (let i = 0; i < totalChunks; i++) {
-                const start = i * EXCLUSION_DETAILS_CONFIG.batchSize;
-                const end = Math.min(start + EXCLUSION_DETAILS_CONFIG.batchSize, excludedCount);
-                const chunk = excludedIds.slice(start, end);
-
-                chunkDocs.push({
-                    task_id: taskId,
-                    result_id: resultId,
-                    period: period,
-                    step: step,
-                    condition: condition,
-                    excluded_combination_ids: chunk,
-                    excluded_count: chunk.length,
-                    is_partial: true,
-                    chunk_index: i,
-                    total_chunks: totalChunks
-                });
-            }
-
-            if (EXCLUSION_DETAILS_CONFIG.async) {
-                // 异步批量写入
-                DLTExclusionDetails.insertMany(chunkDocs, { ordered: false }).catch(err => {
-                    log(`⚠️ [异步]批量记录排除详情失败: ${err.message}`);
-                });
-            } else {
-                // 同步批量写入
-                await DLTExclusionDetails.insertMany(chunkDocs, { ordered: false });
-            }
-        }
-    } catch (error) {
-        log(`❌ 记录排除详情失败: ${error.message}`);
-        // 不抛出错误，避免影响主流程
-    }
 }
 
 // 计算遗漏值
@@ -12160,755 +12019,14 @@ app.delete('/api/dlt/prediction-tasks/:taskId', async (req, res) => {
         // 删除任务结果
         await PredictionTaskResult.deleteMany({ task_id: taskId });
 
-        // 删除排除详情 ⭐ 新增：级联删除
-        const exclusionDeleteResult = await DLTExclusionDetails.deleteMany({ task_id: taskId });
-        log(`🗑️  级联删除排除详情: ${exclusionDeleteResult.deletedCount} 条`);
-
         log(`✅ 删除任务: ${taskId}`);
 
         res.json({
             success: true,
-            message: '任务已删除',
-            exclusion_details_deleted: exclusionDeleteResult.deletedCount
+            message: '任务已删除'
         });
     } catch (error) {
         log(`❌ 删除任务失败: ${error.message}`);
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
-/**
- * 批量删除任务
- */
-app.post('/api/dlt/prediction-tasks/batch-delete', async (req, res) => {
-    try {
-        const { taskIds } = req.body;
-
-        // 参数验证
-        if (!Array.isArray(taskIds) || taskIds.length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: '请提供要删除的任务ID数组'
-            });
-        }
-
-        log(`🗑️  批量删除任务: ${taskIds.length} 个`);
-
-        // 批量删除任务
-        const taskResult = await PredictionTask.deleteMany({
-            task_id: { $in: taskIds }
-        });
-
-        // 批量删除任务结果
-        const resultResult = await PredictionTaskResult.deleteMany({
-            task_id: { $in: taskIds }
-        });
-
-        // 批量删除排除详情
-        const exclusionResult = await DLTExclusionDetails.deleteMany({
-            task_id: { $in: taskIds }
-        });
-
-        log(`✅ 批量删除成功: 任务=${taskResult.deletedCount}, 结果=${resultResult.deletedCount}, 排除详情=${exclusionResult.deletedCount}`);
-
-        res.json({
-            success: true,
-            message: `成功删除 ${taskResult.deletedCount} 个任务`,
-            data: {
-                deletedTasks: taskResult.deletedCount,
-                deletedResults: resultResult.deletedCount,
-                deletedExclusions: exclusionResult.deletedCount
-            }
-        });
-    } catch (error) {
-        log(`❌ 批量删除任务失败: ${error.message}`);
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
-// ========== 排除详情查询API ==========
-
-/**
- * 查询任务的排除详情
- * GET /api/dlt/exclusion-details/:taskId?period=xxx&step=xxx&condition=xxx
- */
-app.get('/api/dlt/exclusion-details/:taskId', async (req, res) => {
-    try {
-        const { taskId } = req.params;
-        const { period, step, condition } = req.query;
-
-        const query = { task_id: taskId };
-        if (period) query.period = period;
-        if (step) query.step = parseInt(step);
-        if (condition) query.condition = condition;
-
-        const details = await DLTExclusionDetails.find(query)
-            .sort({ period: 1, step: 1, chunk_index: 1 })
-            .lean();
-
-        // 合并分片数据
-        const mergedDetails = {};
-        for (const detail of details) {
-            const key = `${detail.period}_${detail.step}_${detail.condition}`;
-            if (!mergedDetails[key]) {
-                mergedDetails[key] = {
-                    task_id: detail.task_id,
-                    result_id: detail.result_id,
-                    period: detail.period,
-                    step: detail.step,
-                    condition: detail.condition,
-                    excluded_combination_ids: [],
-                    excluded_count: 0,
-                    is_partial: detail.is_partial,
-                    total_chunks: detail.total_chunks || 1
-                };
-            }
-            mergedDetails[key].excluded_combination_ids.push(...detail.excluded_combination_ids);
-            mergedDetails[key].excluded_count += detail.excluded_count;
-        }
-
-        const result = Object.values(mergedDetails);
-
-        res.json({
-            success: true,
-            total_records: result.length,
-            total_excluded_ids: result.reduce((sum, d) => sum + d.excluded_count, 0),
-            details: result
-        });
-    } catch (error) {
-        log(`❌ 查询排除详情失败: ${error.message}`);
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
-/**
- * 查询某个组合被哪些条件排除
- * GET /api/dlt/exclusion-details/combination/:combinationId?taskId=xxx&period=xxx
- */
-app.get('/api/dlt/exclusion-details/combination/:combinationId', async (req, res) => {
-    try {
-        const combinationId = parseInt(req.params.combinationId);
-        const { taskId, period } = req.query;
-
-        const query = { excluded_combination_ids: combinationId };
-        if (taskId) query.task_id = taskId;
-        if (period) query.period = period;
-
-        const details = await DLTExclusionDetails.find(query)
-            .select('task_id result_id period step condition excluded_count created_at')
-            .sort({ period: 1, step: 1 })
-            .lean();
-
-        res.json({
-            success: true,
-            combination_id: combinationId,
-            excluded_by_count: details.length,
-            excluded_by: details
-        });
-    } catch (error) {
-        log(`❌ 查询组合排除情况失败: ${error.message}`);
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
-/**
- * 分析任务的排除条件效果
- * GET /api/dlt/exclusion-details/analysis/:taskId
- */
-app.get('/api/dlt/exclusion-details/analysis/:taskId', async (req, res) => {
-    try {
-        const { taskId } = req.params;
-
-        const details = await DLTExclusionDetails.aggregate([
-            { $match: { task_id: taskId } },
-            {
-                $group: {
-                    _id: { condition: '$condition', step: '$step' },
-                    total_excluded: { $sum: '$excluded_count' },
-                    periods_count: { $addToSet: '$period' }
-                }
-            },
-            {
-                $project: {
-                    condition: '$_id.condition',
-                    step: '$_id.step',
-                    total_excluded: 1,
-                    periods_count: { $size: '$periods_count' },
-                    avg_excluded: { $divide: ['$total_excluded', { $size: '$periods_count' }] }
-                }
-            },
-            { $sort: { step: 1 } }
-        ]);
-
-        res.json({
-            success: true,
-            task_id: taskId,
-            condition_effectiveness: details.map(d => ({
-                step: d.step,
-                condition: d.condition,
-                total_excluded: d.total_excluded,
-                periods: d.periods_count,
-                avg_excluded: Math.round(d.avg_excluded)
-            }))
-        });
-    } catch (error) {
-        log(`❌ 分析排除条件效果失败: ${error.message}`);
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
-/**
- * 批量清理孤立的排除详情（任务已删除）
- * DELETE /api/dlt/exclusion-details/cleanup
- */
-app.delete('/api/dlt/exclusion-details/cleanup', async (req, res) => {
-    try {
-        // 查找所有有效的任务ID
-        const validTaskIds = await PredictionTask.distinct('task_id');
-
-        // 删除孤立的详情记录
-        const deleteResult = await DLTExclusionDetails.deleteMany({
-            task_id: { $nin: validTaskIds }
-        });
-
-        log(`🗑️  清理孤立的排除详情: ${deleteResult.deletedCount} 条`);
-
-        res.json({
-            success: true,
-            deleted_count: deleteResult.deletedCount,
-            message: '清理完成'
-        });
-    } catch (error) {
-        log(`❌ 清理排除详情失败: ${error.message}`);
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
-/**
- * 导出排除详情到XLSX文件
- * GET /api/dlt/export-exclusion-details/:taskId/:period
- */
-app.get('/api/dlt/export-exclusion-details/:taskId/:period', async (req, res) => {
-    try {
-        const { taskId, period } = req.params;
-
-        log(`📊 开始导出排除详情: taskId=${taskId}, period=${period}`);
-
-        // ===== 辅助函数：计算热温冷比 =====
-        let missingDataCache = null;
-        async function calculateHWC(red1, red2, red3, red4, red5) {
-            // 缓存遗漏数据（只查询一次）
-            if (!missingDataCache) {
-                const previousIssue = (parseInt(period) - 1).toString().padStart(5, '0');
-                missingDataCache = await DLTMissingValues.findOne({ Issue: previousIssue }).lean();
-                if (!missingDataCache) {
-                    log(`⚠️  未找到期号${previousIssue}的遗漏数据，热温冷比将为空`);
-                    return '';
-                }
-            }
-
-            let hot = 0, warm = 0, cold = 0;
-            for (const ball of [red1, red2, red3, red4, red5]) {
-                const missing = missingDataCache[`Red${ball}`];
-                if (missing === undefined) continue;
-
-                if (missing <= 4) hot++;
-                else if (missing <= 9) warm++;
-                else cold++;
-            }
-
-            return `${hot}:${warm}:${cold}`;
-        }
-
-        // ===== 辅助函数：生成排除详情 =====
-        async function generateExclusionDetail(combo, condition, taskConfig) {
-            switch(condition) {
-                case 'basic':
-                    return generateBasicDetail(combo, taskConfig);
-                case 'hwc':
-                    return '';  // 热温冷比排除留空
-                case 'conflict':
-                    return generateConflictDetail(combo, taskConfig);
-                case 'coOccurrencePerBall':
-                    return generateCoOccurrencePerBallDetail(combo, taskConfig);
-                case 'coOccurrenceByIssues':
-                    return generateCoOccurrenceByIssuesDetail(combo, taskConfig);
-                default:
-                    return '';
-            }
-        }
-
-        function generateBasicDetail(combo, config) {
-            const details = [];
-            const excludedSums = config?.excludedSums || [];
-            const excludedZoneRatios = config?.excludedZoneRatios || [];
-            const excludedOddEvenRatios = config?.excludedOddEvenRatios || [];
-
-            if (excludedSums.includes(combo.sum)) {
-                details.push(`和值=${combo.sum}被排除`);
-            }
-            if (excludedZoneRatios.includes(combo.zone_ratio)) {
-                details.push(`区间比=${combo.zone_ratio}被排除`);
-            }
-            if (excludedOddEvenRatios.includes(combo.odd_even_ratio)) {
-                details.push(`奇偶比=${combo.odd_even_ratio}被排除`);
-            }
-
-            return details.join(', ');
-        }
-
-        function generateConflictDetail(combo, config) {
-            const balls = [combo.red1, combo.red2, combo.red3, combo.red4, combo.red5];
-            const conflicts = [];
-            const conflictPairs = config?.conflictPairs || [];
-
-            for (let i = 0; i < balls.length; i++) {
-                for (let j = i + 1; j < balls.length; j++) {
-                    const pair1 = `${balls[i]}-${balls[j]}`;
-                    const pair2 = `${balls[j]}-${balls[i]}`;
-                    if (conflictPairs.includes(pair1) || conflictPairs.includes(pair2)) {
-                        conflicts.push(`${String(balls[i]).padStart(2,'0')}↔${String(balls[j]).padStart(2,'0')}`);
-                    }
-                }
-            }
-
-            return conflicts.length > 0 ? `包含相克号码对: ${conflicts.join(', ')}` : '';
-        }
-
-        function generateCoOccurrencePerBallDetail(combo, config) {
-            const balls = [combo.red1, combo.red2, combo.red3, combo.red4, combo.red5];
-            const insufficientCombos = [];
-            const excludedCombos = config?.insufficientCombos || {};
-
-            for (const comboStr of Object.keys(excludedCombos)) {
-                const comboBalls = comboStr.split('-').map(Number);
-                if (comboBalls.every(b => balls.includes(b))) {
-                    insufficientCombos.push(comboStr);
-                }
-            }
-
-            return insufficientCombos.length > 0
-                ? `包含同出组合: ${insufficientCombos.join(', ')}`
-                : '';
-        }
-
-        function generateCoOccurrenceByIssuesDetail(combo, config) {
-            const balls = [combo.red1, combo.red2, combo.red3, combo.red4, combo.red5];
-            const insufficientCombos = [];
-            const excludedCombos = config?.insufficientCombos || {};
-            const referenceIssues = config?.referenceIssues || [];
-
-            for (const comboStr of Object.keys(excludedCombos)) {
-                const comboBalls = comboStr.split('-').map(Number);
-                if (comboBalls.every(b => balls.includes(b))) {
-                    insufficientCombos.push(comboStr);
-                }
-            }
-
-            const issueRange = referenceIssues.length > 0
-                ? `${referenceIssues[0]}-${referenceIssues[referenceIssues.length - 1]}`
-                : '';
-
-            return insufficientCombos.length > 0
-                ? `包含同出组合: ${insufficientCombos.join(', ')} (基于期号${issueRange})`
-                : `基于期号${issueRange}的同出分析`;
-        }
-
-        // 1. 查询任务结果
-        const result = await PredictionTaskResult.findOne({
-            task_id: taskId,
-            period: period
-        }).lean();
-
-        if (!result) {
-            return res.status(404).json({
-                success: false,
-                message: '未找到任务结果'
-            });
-        }
-
-        // 1.5. 查询任务配置（用于生成排除详情）
-        const task = await PredictionTask.findOne({ task_id: taskId }).lean();
-        const taskConfig = task?.exclusion_conditions || {};
-
-        // 2. 获取保留的组合ID列表
-        const retainedIds = result.red_combinations || [];
-        log(`📊 保留组合数: ${retainedIds.length}`);
-
-        // 3. 查询各排除条件的详情
-        const exclusionDetails = await DLTExclusionDetails.find({
-            task_id: taskId,
-            period: period
-        }).lean();
-
-        log(`📊 查询到 ${exclusionDetails.length} 条排除详情记录`);
-
-        // 4. 按条件分组排除的组合ID
-        const excludedByCondition = {};
-        for (const detail of exclusionDetails) {
-            const condition = detail.condition;
-            if (!excludedByCondition[condition]) {
-                excludedByCondition[condition] = [];
-            }
-            excludedByCondition[condition].push(...detail.excluded_combination_ids);
-        }
-
-        // 去重
-        for (const condition in excludedByCondition) {
-            excludedByCondition[condition] = [...new Set(excludedByCondition[condition])];
-        }
-
-        log(`📊 排除条件统计:`, Object.keys(excludedByCondition).map(k =>
-            `${k}: ${excludedByCondition[k].length}`
-        ).join(', '));
-
-        // 5. 创建Excel工作簿
-        const workbook = new ExcelJS.Workbook();
-
-        // 定义列结构（红球组合特征）
-        const redColumns = [
-            { header: '组合ID', key: 'combination_id', width: 12 },
-            { header: '红球1', key: 'red1', width: 8 },
-            { header: '红球2', key: 'red2', width: 8 },
-            { header: '红球3', key: 'red3', width: 8 },
-            { header: '红球4', key: 'red4', width: 8 },
-            { header: '红球5', key: 'red5', width: 8 },
-            { header: '和值', key: 'sum', width: 8 },
-            { header: '跨度', key: 'span', width: 8 },
-            { header: '区间比', key: 'zone_ratio', width: 12 },
-            { header: '奇偶比', key: 'odd_even_ratio', width: 12 },
-            { header: '热温冷比', key: 'hwc_ratio', width: 12 }
-        ];
-
-        // 6. Sheet1: 保留的组合
-        log(`📊 正在生成Sheet1: 保留的组合...`);
-        const retainedSheet = workbook.addWorksheet('保留的组合');
-        retainedSheet.columns = redColumns;
-
-        if (retainedIds.length > 0) {
-            const retainedCombos = await DLTRedCombinations.find({
-                combination_id: { $in: retainedIds }
-            }).lean();
-
-            // 动态计算热温冷比
-            const retainedRows = [];
-            for (const combo of retainedCombos) {
-                const hwcRatio = await calculateHWC(
-                    combo.red_ball_1,
-                    combo.red_ball_2,
-                    combo.red_ball_3,
-                    combo.red_ball_4,
-                    combo.red_ball_5
-                );
-
-                retainedRows.push({
-                    combination_id: combo.combination_id,
-                    red1: combo.red_ball_1,
-                    red2: combo.red_ball_2,
-                    red3: combo.red_ball_3,
-                    red4: combo.red_ball_4,
-                    red5: combo.red_ball_5,
-                    sum: combo.sum_value,
-                    span: combo.span_value,
-                    zone_ratio: combo.zone_ratio,
-                    odd_even_ratio: combo.odd_even_ratio,
-                    hwc_ratio: hwcRatio
-                });
-            }
-
-            retainedSheet.addRows(retainedRows);
-        }
-
-        // 设置表头样式
-        retainedSheet.getRow(1).font = { bold: true };
-        retainedSheet.getRow(1).fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FF4CAF50' }
-        };
-
-        log(`✅ Sheet1完成: ${retainedIds.length} 行`);
-
-        // 7. 为每个排除条件创建一个工作表
-        const conditionNames = {
-            'basic': '基础条件排除',
-            'hwc': '热温冷比排除',
-            'conflict': '相克排除',
-            'coOccurrencePerBall': '同出排除(按红球)',
-            'coOccurrenceByIssues': '同出排除(按期号)'
-        };
-
-        let sheetIndex = 2;
-        for (const [condition, excludedIds] of Object.entries(excludedByCondition)) {
-            if (excludedIds.length === 0) continue;
-
-            const sheetName = conditionNames[condition] || condition;
-            log(`📊 正在生成Sheet${sheetIndex}: ${sheetName}... (${excludedIds.length} 条)`);
-
-            const excludedSheet = workbook.addWorksheet(sheetName);
-
-            // 添加"排除原因"和"排除详情"列
-            const columnsWithDetails = [
-                ...redColumns,
-                { header: '排除原因', key: 'exclude_reason', width: 20 },
-                { header: '排除详情', key: 'exclude_detail', width: 50 }
-            ];
-            excludedSheet.columns = columnsWithDetails;
-
-            // 分批查询（避免一次查询过多）
-            const batchSize = 10000;
-            let totalProcessed = 0;
-
-            for (let i = 0; i < excludedIds.length; i += batchSize) {
-                const batch = excludedIds.slice(i, i + batchSize);
-                const excludedCombos = await DLTRedCombinations.find({
-                    combination_id: { $in: batch }
-                }).lean();
-
-                // 动态计算热温冷比和排除详情
-                const excludedRows = [];
-                for (const combo of excludedCombos) {
-                    const hwcRatio = await calculateHWC(
-                        combo.red_ball_1,
-                        combo.red_ball_2,
-                        combo.red_ball_3,
-                        combo.red_ball_4,
-                        combo.red_ball_5
-                    );
-
-                    // 获取该条件的配置
-                    const conditionConfig = taskConfig[condition] || result.exclusion_chain?.find(s => s.condition === condition)?.config || {};
-
-                    const exclusionDetail = await generateExclusionDetail({
-                        red1: combo.red_ball_1,
-                        red2: combo.red_ball_2,
-                        red3: combo.red_ball_3,
-                        red4: combo.red_ball_4,
-                        red5: combo.red_ball_5,
-                        sum: combo.sum_value,
-                        span: combo.span_value,
-                        zone_ratio: combo.zone_ratio,
-                        odd_even_ratio: combo.odd_even_ratio
-                    }, condition, conditionConfig);
-
-                    excludedRows.push({
-                        combination_id: combo.combination_id,
-                        red1: combo.red_ball_1,
-                        red2: combo.red_ball_2,
-                        red3: combo.red_ball_3,
-                        red4: combo.red_ball_4,
-                        red5: combo.red_ball_5,
-                        sum: combo.sum_value,
-                        span: combo.span_value,
-                        zone_ratio: combo.zone_ratio,
-                        odd_even_ratio: combo.odd_even_ratio,
-                        hwc_ratio: hwcRatio,
-                        exclude_reason: sheetName,
-                        exclude_detail: exclusionDetail
-                    });
-                }
-
-                excludedSheet.addRows(excludedRows);
-                totalProcessed += excludedCombos.length;
-            }
-
-            // 设置表头样式
-            excludedSheet.getRow(1).font = { bold: true };
-            excludedSheet.getRow(1).fill = {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'FFF44336' }
-            };
-
-            log(`✅ Sheet${sheetIndex}完成: ${totalProcessed} 行`);
-            sheetIndex++;
-        }
-
-        // 8. 生成文件并返回
-        const fileName = `排除详情_${taskId}_${period}_${Date.now()}.xlsx`;
-        const filePath = path.join(__dirname, '../../exports', fileName);
-
-        // 确保导出目录存在
-        const exportDir = path.join(__dirname, '../../exports');
-        if (!fs.existsSync(exportDir)) {
-            fs.mkdirSync(exportDir, { recursive: true });
-        }
-
-        await workbook.xlsx.writeFile(filePath);
-        log(`✅ XLSX文件生成成功: ${fileName}`);
-        log(`📁 文件保存位置: ${filePath}`);
-
-        // 返回文件（不删除，永久保存）
-        res.download(filePath, fileName, (err) => {
-            if (err) {
-                log(`❌ 文件下载失败: ${err.message}`);
-            } else {
-                log(`✅ 文件下载成功: ${fileName}`);
-            }
-            // 文件保留在服务器，不自动删除
-        });
-
-    } catch (error) {
-        log(`❌ 导出排除详情失败: ${error.message}`);
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
-/**
- * 查看导出文件列表
- * GET /api/dlt/export-files
- */
-app.get('/api/dlt/export-files', async (req, res) => {
-    try {
-        const exportDir = path.join(__dirname, '../../exports');
-
-        // 确保目录存在
-        if (!fs.existsSync(exportDir)) {
-            return res.json({
-                success: true,
-                files: [],
-                message: '导出目录不存在'
-            });
-        }
-
-        // 读取所有文件
-        const files = fs.readdirSync(exportDir);
-        const fileList = files
-            .filter(f => f.endsWith('.xlsx'))
-            .map(f => {
-                const filePath = path.join(exportDir, f);
-                const stats = fs.statSync(filePath);
-                return {
-                    name: f,
-                    size: stats.size,
-                    sizeKB: (stats.size / 1024).toFixed(2),
-                    sizeMB: (stats.size / 1024 / 1024).toFixed(2),
-                    created: stats.birthtime,
-                    modified: stats.mtime
-                };
-            })
-            .sort((a, b) => b.created - a.created);  // 按创建时间倒序
-
-        log(`📂 查询导出文件列表: 共 ${fileList.length} 个文件`);
-
-        res.json({
-            success: true,
-            files: fileList,
-            total: fileList.length,
-            directory: exportDir
-        });
-
-    } catch (error) {
-        log(`❌ 查询导出文件失败: ${error.message}`);
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
-/**
- * 删除导出文件
- * DELETE /api/dlt/export-files/:fileName
- */
-app.delete('/api/dlt/export-files/:fileName', async (req, res) => {
-    try {
-        const { fileName } = req.params;
-        const exportDir = path.join(__dirname, '../../exports');
-        const filePath = path.join(exportDir, fileName);
-
-        // 安全检查：确保文件在导出目录内
-        if (!filePath.startsWith(exportDir)) {
-            return res.status(403).json({
-                success: false,
-                message: '非法的文件路径'
-            });
-        }
-
-        // 检查文件是否存在
-        if (!fs.existsSync(filePath)) {
-            return res.status(404).json({
-                success: false,
-                message: '文件不存在'
-            });
-        }
-
-        // 删除文件
-        fs.unlinkSync(filePath);
-        log(`🗑️  已删除导出文件: ${fileName}`);
-
-        res.json({
-            success: true,
-            message: '文件删除成功',
-            fileName: fileName
-        });
-
-    } catch (error) {
-        log(`❌ 删除导出文件失败: ${error.message}`);
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
-/**
- * 清空所有导出文件
- * DELETE /api/dlt/export-files
- */
-app.delete('/api/dlt/export-files', async (req, res) => {
-    try {
-        const exportDir = path.join(__dirname, '../../exports');
-
-        if (!fs.existsSync(exportDir)) {
-            return res.json({
-                success: true,
-                message: '导出目录不存在',
-                deletedCount: 0
-            });
-        }
-
-        const files = fs.readdirSync(exportDir).filter(f => f.endsWith('.xlsx'));
-        let deletedCount = 0;
-
-        for (const file of files) {
-            const filePath = path.join(exportDir, file);
-            fs.unlinkSync(filePath);
-            deletedCount++;
-        }
-
-        log(`🗑️  已清空导出目录: 删除 ${deletedCount} 个文件`);
-
-        res.json({
-            success: true,
-            message: `成功删除 ${deletedCount} 个文件`,
-            deletedCount: deletedCount
-        });
-
-    } catch (error) {
-        log(`❌ 清空导出文件失败: ${error.message}`);
         res.status(500).json({
             success: false,
             message: error.message
@@ -13702,63 +12820,18 @@ async function executePredictionTask(taskId) {
                 log(`🔄 处理期号: ${targetIssue} (ID: ${issue.ID}) (${i + 1}/${issues.length})`);
                 log(`📋 排除条件: ${JSON.stringify(task.exclude_conditions, null, 2)}`);
 
-                // ===== 新增：初始化排除条件执行链 =====
-                const exclusion_chain = [];
-                let currentStep = 0;
-
                 // 1. 应用基础排除条件筛选红球组合（和值、跨度、区间比、奇偶比）
-                const basicStartTime = Date.now();
                 const redQuery = await buildRedQueryFromExcludeConditions(task.exclude_conditions, issue.ID);
                 log(`🔍 构建的查询条件: ${JSON.stringify(redQuery, null, 2)}`);
 
-                // 先获取总数和所有组合ID（用于对比找出被排除的ID）
+                // 先获取总数用于对比
                 const totalRedCount = await DLTRedCombinations.countDocuments({});
                 log(`📊 数据库中红球总组合数: ${totalRedCount}`);
 
                 let filteredRedCombinations = await DLTRedCombinations.find(redQuery).lean();
                 log(`📊 基础筛选后红球组合数: ${filteredRedCombinations.length}`);
 
-                // ===== 新增：收集被基础条件排除的组合ID =====
-                let basicExcludedIds = [];
-                if (EXCLUSION_DETAILS_CONFIG.enabled) {
-                    const basicExcludedCount = totalRedCount - filteredRedCombinations.length;
-                    if (basicExcludedCount > 0) {
-                        // 方案：查询所有组合ID，对比找出被排除的
-                        const allCombinationIds = await DLTRedCombinations.distinct('combination_id');
-                        const retainedIds = new Set(filteredRedCombinations.map(c => c.combination_id));
-                        basicExcludedIds = allCombinationIds.filter(id => !retainedIds.has(id));
-                        log(`📝 基础排除收集到${basicExcludedIds.length}个被排除的组合ID`);
-                    }
-                }
-
-                // ===== 新增：记录基础排除条件执行情况 =====
-                const basicExecutionTime = Date.now() - basicStartTime;
-                const basicExcludedCount = totalRedCount - filteredRedCombinations.length;
-                if (basicExcludedCount > 0 || Object.keys(redQuery).length > 0) {
-                    currentStep++;
-                    exclusion_chain.push({
-                        step: currentStep,
-                        condition: 'basic',
-                        config: {
-                            sum: task.exclude_conditions?.sum || null,
-                            span: task.exclude_conditions?.span || null,
-                            zone: task.exclude_conditions?.zone || null,
-                            oddEven: task.exclude_conditions?.oddEven || null
-                        },
-                        excluded_combination_ids: [], // 保持为空（详情存储在DLTExclusionDetails表）
-                        excluded_ids_for_details: basicExcludedIds, // 临时保存，用于写入详情表
-                        excluded_count: basicExcludedCount,
-                        combinations_before: totalRedCount,
-                        combinations_after: filteredRedCombinations.length,
-                        execution_time_ms: basicExecutionTime
-                    });
-                    log(`✅ 基础排除条件记录: 排除${basicExcludedCount}个组合(收集${basicExcludedIds.length}个ID), 耗时${basicExecutionTime}ms`);
-                }
-
                 // 2. 处理热温冷比排除条件（需要查询热温冷比表）
-                const hwcStartTime = Date.now();
-                let hwcBeforeFilter = filteredRedCombinations.length;
-                let hwcExcludedIds = [];  // 在外部定义，便于后续记录
                 if (task.exclude_conditions?.hwc) {
                     log(`🔥 处理热温冷比排除:`, task.exclude_conditions.hwc);
                     let excludedHWCRatios = [...(task.exclude_conditions.hwc.excludeRatios || [])];
@@ -13818,16 +12891,11 @@ async function executePredictionTask(taskId) {
                                 log(`🔥 热温冷比允许的组合ID总数: ${allowedCombinationIds.size}`);
                                 log(`🔥 过滤前红球组合数: ${filteredRedCombinations.length}`);
 
-                                // 过滤红球组合，同时收集被排除的ID
+                                // 过滤红球组合
                                 const beforeFilter = filteredRedCombinations.length;
-
-                                filteredRedCombinations = filteredRedCombinations.filter(combo => {
-                                    const isAllowed = allowedCombinationIds.has(combo.combination_id);
-                                    if (!isAllowed) {
-                                        hwcExcludedIds.push(combo.combination_id);  // 记录被排除的ID
-                                    }
-                                    return isAllowed;
-                                });
+                                filteredRedCombinations = filteredRedCombinations.filter(combo =>
+                                    allowedCombinationIds.has(combo.combination_id)
+                                );
                                 const afterFilter = filteredRedCombinations.length;
 
                                 log(`🔥 热温冷比筛选后红球组合数: ${afterFilter} (过滤掉 ${beforeFilter - afterFilter} 个)`);
@@ -13844,29 +12912,8 @@ async function executePredictionTask(taskId) {
                     log(`ℹ️ 未设置热温冷比排除条件`);
                 }
 
-                // ===== 新增：记录热温冷比排除执行情况 =====
-                const hwcExecutionTime = Date.now() - hwcStartTime;
-                const hwcExcludedCount = hwcBeforeFilter - filteredRedCombinations.length;
-                if (hwcExcludedCount > 0 && task.exclude_conditions?.hwc) {
-                    currentStep++;
-                    exclusion_chain.push({
-                        step: currentStep,
-                        condition: 'hwc',
-                        config: task.exclude_conditions.hwc,
-                        excluded_combination_ids: [], // 保持为空（详情存储在DLTExclusionDetails表）
-                        excluded_ids_for_details: hwcExcludedIds, // 临时保存，用于写入详情表
-                        excluded_count: hwcExcludedCount,
-                        combinations_before: hwcBeforeFilter,
-                        combinations_after: filteredRedCombinations.length,
-                        execution_time_ms: hwcExecutionTime
-                    });
-                    log(`✅ 热温冷比排除条件记录: 排除${hwcExcludedCount}个组合(收集${hwcExcludedIds.length}个ID), 耗时${hwcExecutionTime}ms`);
-                }
-
                 // 2.5. 处理相克排除条件
-                const conflictStartTime = Date.now();
                 let conflictData = null; // 用于保存相克数据
-                let conflictExcludedIds = []; // 收集被相克排除的组合ID
                 if (task.exclude_conditions?.conflict && task.exclude_conditions.conflict.enabled) {
                     const beforeConflict = filteredRedCombinations.length;
                     const conflictConfig = task.exclude_conditions.conflict;
@@ -13880,12 +12927,11 @@ async function executePredictionTask(taskId) {
                         if (conflictPairs && conflictPairs.length > 0) {
                             log(`⚔️ 获取到${conflictPairs.length}对相克号码`);
 
-                            // 过滤红球组合，同时收集被排除的ID
+                            // 过滤红球组合
                             filteredRedCombinations = filteredRedCombinations.filter(combo => {
                                 const numbers = [combo.red_ball_1, combo.red_ball_2, combo.red_ball_3, combo.red_ball_4, combo.red_ball_5];
                                 for (const pair of conflictPairs) {
                                     if (numbers.includes(pair[0]) && numbers.includes(pair[1])) {
-                                        conflictExcludedIds.push(combo.combination_id); // 记录被排除的组合ID
                                         return false;
                                     }
                                 }
@@ -13922,28 +12968,8 @@ async function executePredictionTask(taskId) {
                     log(`ℹ️ 未设置相克排除条件`);
                 }
 
-                // ===== 新增：记录相克排除执行情况 =====
-                const conflictExecutionTime = Date.now() - conflictStartTime;
-                if (conflictData && conflictData.excluded_count > 0) {
-                    currentStep++;
-                    exclusion_chain.push({
-                        step: currentStep,
-                        condition: 'conflict',
-                        config: task.exclude_conditions.conflict,
-                        excluded_combination_ids: [], // 保持为空（详情存储在DLTExclusionDetails表）
-                        excluded_ids_for_details: conflictExcludedIds, // 临时保存，用于写入详情表
-                        excluded_count: conflictData.excluded_count,
-                        combinations_before: conflictData.combinations_before,
-                        combinations_after: conflictData.combinations_after,
-                        execution_time_ms: conflictExecutionTime
-                    });
-                    log(`✅ 相克排除条件记录: 排除${conflictData.excluded_count}个组合(收集${conflictExcludedIds.length}个ID), 耗时${conflictExecutionTime}ms`);
-                }
-
                 // 2.6. 处理同出排除条件(按红球) - 使用特征匹配优化
-                const coOccurrencePerBallStartTime = Date.now();
                 let coOccurrencePerBallData = null;
-                let coOccurrencePerBallExcludedIds = []; // 收集被同出排除(按红球)的组合ID
                 if (task.exclude_conditions?.coOccurrencePerBall && task.exclude_conditions.coOccurrencePerBall.enabled) {
                     const beforeCoOccurrence = filteredRedCombinations.length;
                     const coOccurrenceConfig = task.exclude_conditions.coOccurrencePerBall;
@@ -13967,7 +12993,7 @@ async function executePredictionTask(taskId) {
                         if (totalFeatures > 0) {
                             log(`🔗 待排除特征 - 2码:${excludeFeatures.combo_2.size}个, 3码:${excludeFeatures.combo_3.size}个, 4码:${excludeFeatures.combo_4.size}个`);
 
-                            // 使用特征匹配过滤（动态计算特征修复），同时收集被排除的ID
+                            // 使用特征匹配过滤（动态计算特征修复）
                             filteredRedCombinations = filteredRedCombinations.filter(combo => {
                                 // 🎯 动态计算组合特征（修复bug：支持没有预存特征的组合）
                                 let combo_2, combo_3, combo_4;
@@ -13990,7 +13016,6 @@ async function executePredictionTask(taskId) {
                                 if (excludeFeatures.combo_2.size > 0) {
                                     for (const feature of combo_2) {
                                         if (excludeFeatures.combo_2.has(feature)) {
-                                            coOccurrencePerBallExcludedIds.push(combo.combination_id); // 记录被排除的组合ID
                                             return false;
                                         }
                                     }
@@ -14000,7 +13025,6 @@ async function executePredictionTask(taskId) {
                                 if (excludeFeatures.combo_3.size > 0) {
                                     for (const feature of combo_3) {
                                         if (excludeFeatures.combo_3.has(feature)) {
-                                            coOccurrencePerBallExcludedIds.push(combo.combination_id); // 记录被排除的组合ID
                                             return false;
                                         }
                                     }
@@ -14010,7 +13034,6 @@ async function executePredictionTask(taskId) {
                                 if (excludeFeatures.combo_4.size > 0) {
                                     for (const feature of combo_4) {
                                         if (excludeFeatures.combo_4.has(feature)) {
-                                            coOccurrencePerBallExcludedIds.push(combo.combination_id); // 记录被排除的组合ID
                                             return false;
                                         }
                                     }
@@ -14047,28 +13070,8 @@ async function executePredictionTask(taskId) {
                     log(`ℹ️ 未设置同出排除(按红球)条件`);
                 }
 
-                // ===== 新增：记录同出排除(按红球)执行情况 =====
-                const coOccurrencePerBallExecutionTime = Date.now() - coOccurrencePerBallStartTime;
-                if (coOccurrencePerBallData && coOccurrencePerBallData.excluded_count > 0) {
-                    currentStep++;
-                    exclusion_chain.push({
-                        step: currentStep,
-                        condition: 'coOccurrencePerBall',
-                        config: task.exclude_conditions.coOccurrencePerBall,
-                        excluded_combination_ids: [], // 保持为空（详情存储在DLTExclusionDetails表）
-                        excluded_ids_for_details: coOccurrencePerBallExcludedIds, // 临时保存，用于写入详情表
-                        excluded_count: coOccurrencePerBallData.excluded_count,
-                        combinations_before: coOccurrencePerBallData.combinations_before,
-                        combinations_after: coOccurrencePerBallData.combinations_after,
-                        execution_time_ms: coOccurrencePerBallExecutionTime
-                    });
-                    log(`✅ 同出排除(按红球)条件记录: 排除${coOccurrencePerBallData.excluded_count}个组合(收集${coOccurrencePerBallExcludedIds.length}个ID), 耗时${coOccurrencePerBallExecutionTime}ms`);
-                }
-
                 // 2.7. 处理同出排除条件(按期号) - 使用特征匹配优化
-                const coOccurrenceByIssuesStartTime = Date.now();
                 let coOccurrenceByIssuesData = null;
-                let coOccurrenceByIssuesExcludedIds = []; // 收集被同出排除(按期号)的组合ID
                 if (task.exclude_conditions?.coOccurrenceByIssues && task.exclude_conditions.coOccurrenceByIssues.enabled) {
                     const beforeCoOccurrence = filteredRedCombinations.length;
                     const coOccurrenceConfig = task.exclude_conditions.coOccurrenceByIssues;
@@ -14092,7 +13095,7 @@ async function executePredictionTask(taskId) {
                         if (totalFeatures > 0) {
                             log(`🔗 待排除特征 - 2码:${excludeFeatures.combo_2.size}个, 3码:${excludeFeatures.combo_3.size}个, 4码:${excludeFeatures.combo_4.size}个`);
 
-                            // 使用特征匹配过滤（动态计算特征修复），同时收集被排除的ID
+                            // 使用特征匹配过滤（动态计算特征修复）
                             filteredRedCombinations = filteredRedCombinations.filter(combo => {
                                 // 🎯 动态计算组合特征（修复bug：支持没有预存特征的组合）
                                 let combo_2, combo_3, combo_4;
@@ -14115,7 +13118,6 @@ async function executePredictionTask(taskId) {
                                 if (excludeFeatures.combo_2.size > 0) {
                                     for (const feature of combo_2) {
                                         if (excludeFeatures.combo_2.has(feature)) {
-                                            coOccurrenceByIssuesExcludedIds.push(combo.combination_id); // 记录被排除的组合ID
                                             return false;
                                         }
                                     }
@@ -14125,7 +13127,6 @@ async function executePredictionTask(taskId) {
                                 if (excludeFeatures.combo_3.size > 0) {
                                     for (const feature of combo_3) {
                                         if (excludeFeatures.combo_3.has(feature)) {
-                                            coOccurrenceByIssuesExcludedIds.push(combo.combination_id); // 记录被排除的组合ID
                                             return false;
                                         }
                                     }
@@ -14135,7 +13136,6 @@ async function executePredictionTask(taskId) {
                                 if (excludeFeatures.combo_4.size > 0) {
                                     for (const feature of combo_4) {
                                         if (excludeFeatures.combo_4.has(feature)) {
-                                            coOccurrenceByIssuesExcludedIds.push(combo.combination_id); // 记录被排除的组合ID
                                             return false;
                                         }
                                     }
@@ -14170,24 +13170,6 @@ async function executePredictionTask(taskId) {
                     }
                 } else {
                     log(`ℹ️ 未设置同出排除(按期号)条件`);
-                }
-
-                // ===== 新增：记录同出排除(按期号)执行情况 =====
-                const coOccurrenceByIssuesExecutionTime = Date.now() - coOccurrenceByIssuesStartTime;
-                if (coOccurrenceByIssuesData && coOccurrenceByIssuesData.excluded_count > 0) {
-                    currentStep++;
-                    exclusion_chain.push({
-                        step: currentStep,
-                        condition: 'coOccurrenceByIssues',
-                        config: task.exclude_conditions.coOccurrenceByIssues,
-                        excluded_combination_ids: [], // 保持为空（详情存储在DLTExclusionDetails表）
-                        excluded_ids_for_details: coOccurrenceByIssuesExcludedIds, // 临时保存，用于写入详情表
-                        excluded_count: coOccurrenceByIssuesData.excluded_count,
-                        combinations_before: coOccurrenceByIssuesData.combinations_before,
-                        combinations_after: coOccurrenceByIssuesData.combinations_after,
-                        execution_time_ms: coOccurrenceByIssuesExecutionTime
-                    });
-                    log(`✅ 同出排除(按期号)条件记录: 排除${coOccurrenceByIssuesData.excluded_count}个组合(收集${coOccurrenceByIssuesExcludedIds.length}个ID), 耗时${coOccurrenceByIssuesExecutionTime}ms`);
                 }
 
                 // 3. 根据组合模式限制红球组合数
@@ -14263,12 +13245,6 @@ async function executePredictionTask(taskId) {
                     };
                 }
 
-                // ===== 新增：打印排除条件执行链摘要 =====
-                log(`📋 [${targetIssue}] 排除条件执行链摘要 (共${exclusion_chain.length}步):`);
-                exclusion_chain.forEach((step, index) => {
-                    log(`  步骤${step.step}: ${step.condition} - 排除${step.excluded_count}个 (${step.combinations_before}→${step.combinations_after}), 耗时${step.execution_time_ms}ms`);
-                });
-
                 // 8. 保存结果到数据库
                 const result = new PredictionTaskResult({
                     result_id: `${taskId}_${targetIssue}`,
@@ -14281,31 +13257,10 @@ async function executePredictionTask(taskId) {
                     hit_analysis: hitAnalysis,
                     conflict_data: conflictData,  // 保存相克数据
                     cooccurrence_perball_data: coOccurrencePerBallData,  // 保存同出数据(按红球)
-                    cooccurrence_byissues_data: coOccurrenceByIssuesData,  // 保存同出数据(按期号)
-                    exclusion_chain: exclusion_chain  // ===== 新增：保存排除条件执行链 =====
+                    cooccurrence_byissues_data: coOccurrenceByIssuesData  // 保存同出数据(按期号)
                 });
 
                 await result.save();
-
-                // 8.5. 记录排除详情到DLTExclusionDetails表
-                if (EXCLUSION_DETAILS_CONFIG.enabled && exclusion_chain.length > 0) {
-                    log(`📝 开始记录排除详情到DLTExclusionDetails表...`);
-                    for (const chainStep of exclusion_chain) {
-                        if (chainStep.excluded_ids_for_details && chainStep.excluded_ids_for_details.length > 0) {
-                            await recordExclusionDetails({
-                                taskId: taskId,
-                                resultId: result.result_id,
-                                period: targetIssue,
-                                step: chainStep.step,
-                                condition: chainStep.condition,
-                                excludedIds: chainStep.excluded_ids_for_details
-                            });
-                            // 清理临时字段，避免保存到PredictionTaskResult
-                            delete chainStep.excluded_ids_for_details;
-                        }
-                    }
-                    log(`✅ 排除详情记录完成`);
-                }
 
                 // 9. 累计统计信息
                 totalCombinations += result.combination_count;
@@ -14325,7 +13280,7 @@ async function executePredictionTask(taskId) {
 
                 // 7. 更新任务进度
                 task.progress.current = i + 1;
-                task.progress.percentage = Math.round(((i + 1) / issues.length) * 1000) / 10; // 保留1位小数
+                task.progress.percentage = Math.round(((i + 1) / issues.length) * 100);
                 task.updated_at = new Date();
                 await task.save();
 
@@ -17991,11 +16946,11 @@ if (require.main === module) {
     app.listen(PORT, async () => {
         log(`Server is running on port ${PORT}`);
 
-        // 初始化组合数据库（函数未定义，临时注释）
-        // await initializeCombinationDatabase();
+        // 初始化组合数据库
+        await initializeCombinationDatabase();
 
-        // 启动缓存管理器（临时注释）
-        // cacheManager.start();
+        // 启动缓存管理器
+        cacheManager.start();
 
         log('🚀 大乐透预测系统 v3 已启动，支持预生成表方案和优化期号缓存');
     });

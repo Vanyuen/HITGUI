@@ -25,7 +25,20 @@
       "Bash(git remote add:*)",
       "Bash(git branch:*)",
       "Bash(git push:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: 添加规律生成功能核心模块\n\n新增功能:\n- 数据库Schema: DLTPattern, DLTPatternHistory, DLTPatternRecommendation\n- 规律发现引擎 (PatternDiscoveryEngine)\n  - 和值规律分析\n  - 跨度规律分析\n  - 区间比规律分析\n  - 奇偶比规律分析\n  - 热温冷比规律分析 ⭐\n  - 连号规律分析\n  - 重号规律分析\n- 规律评分系统 (PatternScoringSystem)\n  - 多维度评分 (准确率/稳定性/时效性/支持度/趋势)\n  - 等级评定 (S/A/B/C/D)\n  - 规律验证与回测\n\n技术实现:\n- 周期性检测算法\n- 分布频率分析\n- 热温冷转换规律\n- 历史验证机制\n\n下一步:\n- 创建API接口\n- 实现前端界面\n- 功能联动\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: 添加规律生成功能核心模块\n\n新增功能:\n- 数据库Schema: DLTPattern, DLTPatternHistory, DLTPatternRecommendation\n- 规律发现引擎 (PatternDiscoveryEngine)\n  - 和值规律分析\n  - 跨度规律分析\n  - 区间比规律分析\n  - 奇偶比规律分析\n  - 热温冷比规律分析 ⭐\n  - 连号规律分析\n  - 重号规律分析\n- 规律评分系统 (PatternScoringSystem)\n  - 多维度评分 (准确率/稳定性/时效性/支持度/趋势)\n  - 等级评定 (S/A/B/C/D)\n  - 规律验证与回测\n\n技术实现:\n- 周期性检测算法\n- 分布频率分析\n- 热温冷转换规律\n- 历史验证机制\n\n下一步:\n- 创建API接口\n- 实现前端界面\n- 功能联动\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git commit:*)",
+      "Bash(timeout:*)",
+      "Bash(curl -s \"http://localhost:3000/api/dlt/cooccurrence-per-ball?targetIssue=2025001&periods=2\")",
+      "Bash(curl -s \"http://localhost:3003/api/dlt/cooccurrence-per-ball?targetIssue=2025001&periods=1\")",
+      "Bash(curl:*)",
+      "Bash(del \"E:\\HITGUI\\test-cooccurrence-exclusion.js\")",
+      "Bash(del test-dlt-api.js migrate-dlt-data.js import-dlt-from-csv.js)",
+      "Bash(del check-combo-features.js)",
+      "Bash(del:*)",
+      "Bash(copy:*)",
+      "Bash(cp:*)",
+      "Bash(npm install:*)",
+      "Bash(PORT=3003 node:*)"
     ],
     "deny": [],
     "ask": []

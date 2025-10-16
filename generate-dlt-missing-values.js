@@ -7,9 +7,9 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 
 async function connectDB() {
-    const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/lottery';
+    const mongoURI = 'mongodb://localhost:27017/lottery';
     await mongoose.connect(mongoURI);
-    console.log('✅ 数据库连接成功');
+    console.log('✅ 数据库连接成功: lottery');
 }
 
 // HIT_DLT Schema
@@ -70,6 +70,10 @@ async function generateMissingValues() {
             const drawnReds = [record.Red1, record.Red2, record.Red3, record.Red4, record.Red5];
             const drawnBlues = [record.Blue1, record.Blue2];
 
+            // 计算本期开奖号码的热温冷比（基于上一期开奖后的遗漏值）
+            const drawnRedsMissing = drawnReds.map(ball => redMissing[ball - 1]);
+            const hotWarmColdRatio = calculateHotWarmColdRatio(drawnRedsMissing);
+
             // 所有球的遗漏值+1
             for (let j = 0; j < 35; j++) redMissing[j]++;
             for (let j = 0; j < 12; j++) blueMissing[j]++;
@@ -81,9 +85,6 @@ async function generateMissingValues() {
             drawnBlues.forEach(ball => {
                 blueMissing[ball - 1] = 0;
             });
-
-            // 计算热温冷比
-            const hotWarmColdRatio = calculateHotWarmColdRatio(redMissing);
 
             // 生成红球遗漏记录
             const redRecord = {

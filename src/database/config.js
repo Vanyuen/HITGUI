@@ -36,8 +36,10 @@ class DatabaseManager {
           useNewUrlParser: true,
           useUnifiedTopology: true,
           serverSelectionTimeoutMS: 5000, // 5秒超时
-          connectTimeoutMS: 10000,
-          socketTimeoutMS: 10000
+          connectTimeoutMS: 30000,         // 连接超时30秒
+          socketTimeoutMS: 300000,         // Socket超时5分钟（批量操作需要）
+          maxPoolSize: 10,                 // 连接池大小
+          minPoolSize: 2
         });
 
         console.log('✅ 已连接到本地MongoDB数据库');
