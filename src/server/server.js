@@ -12731,7 +12731,7 @@ app.get('/api/dlt/export-exclusion-details/:taskId/:period', async (req, res) =>
             // 缓存遗漏数据（只查询一次）
             if (!missingDataCache) {
                 const previousIssue = (parseInt(period) - 1).toString().padStart(5, '0');
-                missingDataCache = await DLTMissingValues.findOne({ Issue: previousIssue }).lean();
+                missingDataCache = await DLTRedMissing.findOne({ Issue: previousIssue }).lean();
                 if (!missingDataCache) {
                     log(`⚠️  未找到期号${previousIssue}的遗漏数据，热温冷比将为空`);
                     return '';
