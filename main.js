@@ -182,9 +182,20 @@ async function startInternalServer() {
       const serverModule = require('./src/server/server.js');
 
       // 启动服务器
-      expressServer = serverModule.listen(3003, 'localhost', () => {
+      expressServer = serverModule.listen(3003, 'localhost', async () => {
         console.log('✅ 内嵌服务器已启动: http://localhost:3003');
         console.log('📊 数据库连接状态:', dbManager.getConnectionStatus());
+
+        // 性能优化：创建数据库索引
+        if (serverModule.ensureDatabaseIndexes) {
+          await serverModule.ensureDatabaseIndexes();
+        }
+
+        // 阶段2优化 B1：预加载组合特征缓存
+        if (serverModule.preloadComboFeaturesCache) {
+          await serverModule.preloadComboFeaturesCache();
+        }
+
         resolve();
       });
 

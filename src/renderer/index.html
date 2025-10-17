@@ -1805,6 +1805,44 @@
                                     </div>
                                 </div>
 
+                                <!-- 连号组数排除 -->
+                                <div class="filter-row">
+                                    <div class="filter-checkbox">
+                                        <label>
+                                            <input type="checkbox" id="batch-exclude-consecutive-groups">
+                                            <span>🔢 连号组数排除</span>
+                                        </label>
+                                    </div>
+                                    <div class="filter-config">
+                                        <div class="consecutive-selection">
+                                            <label><input type="checkbox" value="0" class="batch-consecutive-groups-cb" disabled> 无连号</label>
+                                            <label><input type="checkbox" value="1" class="batch-consecutive-groups-cb" disabled> 1连号</label>
+                                            <label><input type="checkbox" value="2" class="batch-consecutive-groups-cb" disabled> 2连号</label>
+                                            <label><input type="checkbox" value="3" class="batch-consecutive-groups-cb" disabled> 3连号</label>
+                                            <label><input type="checkbox" value="4" class="batch-consecutive-groups-cb" disabled> 4连号</label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 长连号组排除 -->
+                                <div class="filter-row">
+                                    <div class="filter-checkbox">
+                                        <label>
+                                            <input type="checkbox" id="batch-exclude-max-consecutive">
+                                            <span>📏 长连号组排除</span>
+                                        </label>
+                                    </div>
+                                    <div class="filter-config">
+                                        <div class="consecutive-selection">
+                                            <label><input type="checkbox" value="0" class="batch-max-consecutive-cb" disabled> 无连号</label>
+                                            <label><input type="checkbox" value="2" class="batch-max-consecutive-cb" disabled> 长2连号</label>
+                                            <label><input type="checkbox" value="3" class="batch-max-consecutive-cb" disabled> 长3连号</label>
+                                            <label><input type="checkbox" value="4" class="batch-max-consecutive-cb" disabled> 长4连号</label>
+                                            <label><input type="checkbox" value="5" class="batch-max-consecutive-cb" disabled> 长5连号</label>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- 相克排除 -->
                                 <div class="filter-row">
                                     <div class="filter-checkbox">
@@ -2848,6 +2886,24 @@
         batchOddEvenCheckbox?.addEventListener('change', function() {
             const enabled = this.checked;
             batchOddEvenCheckboxes.forEach(cb => cb.disabled = !enabled);
+        });
+
+        // 连号组数排除联动
+        const batchConsecutiveGroupsCheckbox = document.getElementById('batch-exclude-consecutive-groups');
+        const batchConsecutiveGroupsCheckboxes = document.querySelectorAll('.batch-consecutive-groups-cb');
+
+        batchConsecutiveGroupsCheckbox?.addEventListener('change', function() {
+            const enabled = this.checked;
+            batchConsecutiveGroupsCheckboxes.forEach(cb => cb.disabled = !enabled);
+        });
+
+        // 长连号组排除联动
+        const batchMaxConsecutiveCheckbox = document.getElementById('batch-exclude-max-consecutive');
+        const batchMaxConsecutiveCheckboxes = document.querySelectorAll('.batch-max-consecutive-cb');
+
+        batchMaxConsecutiveCheckbox?.addEventListener('change', function() {
+            const enabled = this.checked;
+            batchMaxConsecutiveCheckboxes.forEach(cb => cb.disabled = !enabled);
         });
 
         // 相克排除联动

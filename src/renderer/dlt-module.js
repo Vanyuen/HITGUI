@@ -10765,6 +10765,40 @@ function getBatchExcludeConditions() {
         console.log('🔗 同出排除(按期号)条件已收集:', conditions.coOccurrenceByIssues);
     }
 
+    // 连号组数排除
+    const consecutiveGroupsEnabled = document.getElementById('batch-exclude-consecutive-groups')?.checked || false;
+    console.log('🔍 [DEBUG] 连号组数主复选框状态:', consecutiveGroupsEnabled);
+    if (consecutiveGroupsEnabled) {
+        const selectedGroups = [];
+        const groupCheckboxes = document.querySelectorAll('.batch-consecutive-groups-cb:checked');
+        console.log('🔍 [DEBUG] 找到的勾选子复选框数量:', groupCheckboxes.length);
+        groupCheckboxes.forEach((cb, index) => {
+            console.log(`🔍 [DEBUG] 子复选框${index + 1}: value=${cb.value}, checked=${cb.checked}, disabled=${cb.disabled}`);
+            selectedGroups.push(parseInt(cb.value));
+        });
+        console.log('🔍 [DEBUG] selectedGroups:', selectedGroups);
+        if (selectedGroups.length > 0) {
+            conditions.consecutiveGroups = selectedGroups;
+            console.log('🔢 连号组数排除条件已收集:', conditions.consecutiveGroups);
+        } else {
+            console.log('⚠️ [DEBUG] selectedGroups为空，未添加到conditions');
+        }
+    } else {
+        console.log('⚠️ [DEBUG] 连号组数主复选框未勾选');
+    }
+
+    // 长连号组排除
+    const maxConsecutiveEnabled = document.getElementById('batch-exclude-max-consecutive')?.checked || false;
+    if (maxConsecutiveEnabled) {
+        const selectedLengths = [];
+        const lengthCheckboxes = document.querySelectorAll('.batch-max-consecutive-cb:checked');
+        lengthCheckboxes.forEach(cb => selectedLengths.push(parseInt(cb.value)));
+        if (selectedLengths.length > 0) {
+            conditions.maxConsecutiveLength = selectedLengths;
+            console.log('📏 长连号组排除条件已收集:', conditions.maxConsecutiveLength);
+        }
+    }
+
     // 调试：显示最终收集的条件
     console.log('📦 getBatchExcludeConditions 最终返回:', JSON.stringify(conditions, null, 2));
     console.log('📦 条件键名:', Object.keys(conditions));
@@ -14421,7 +14455,7 @@ function renderTaskDetail(data) {
 }
 
 /**
- * 渲染排除条件
+ * 渲染排除条件（按方案C分组显示）
  */
 function renderExcludeConditions(conditions) {
     console.log('🎨 renderExcludeConditions 收到的参数:', JSON.stringify(conditions, null, 2));
@@ -14431,6 +14465,11 @@ function renderExcludeConditions(conditions) {
     }
 
     let html = '';
+    let group1Html = '';  // 第1组：数据库查询
+    let group2Html = '';  // 第2组：预计算表
+    let group3Html = '';  // 第3组：内存过滤
+
+    // ========== 第1组：数据库查询级排除 ==========
 
     // 和值排除
     if (conditions.sum && conditions.sum.enabled) {
@@ -14451,7 +14490,7 @@ function renderExcludeConditions(conditions) {
         }
 
         if (sumDetails.length > 0) {
-            html += `<div>✅ 排除和值: ${sumDetails.join(', ')}</div>`;
+            group1Html += `<div>✅ 排除和值: ${sumDetails.join(', ')}</div>`;
         }
     }
 
@@ -14474,26 +14513,7 @@ function renderExcludeConditions(conditions) {
         }
 
         if (spanDetails.length > 0) {
-            html += `<div>✅ 排除跨度: ${spanDetails.join(', ')}</div>`;
-        }
-    }
-
-    // 热温冷比排除
-    if (conditions.hwc) {
-        let hwcDetails = [];
-
-        // 手动选择
-        if (conditions.hwc.excludeRatios && conditions.hwc.excludeRatios.length > 0) {
-            hwcDetails.push(`比例: ${conditions.hwc.excludeRatios.join(', ')}`);
-        }
-
-        // 历史排除
-        if (conditions.hwc.historical && conditions.hwc.historical.enabled) {
-            hwcDetails.push(`历史最近${conditions.hwc.historical.count}期`);
-        }
-
-        if (hwcDetails.length > 0) {
-            html += `<div>✅ 排除热温冷比: ${hwcDetails.join(' + ')}</div>`;
+            group1Html += `<div>✅ 排除跨度: ${spanDetails.join(', ')}</div>`;
         }
     }
 
@@ -14512,7 +14532,7 @@ function renderExcludeConditions(conditions) {
         }
 
         if (zoneDetails.length > 0) {
-            html += `<div>✅ 排除区间比: ${zoneDetails.join(' + ')}</div>`;
+            group1Html += `<div>✅ 排除区间比: ${zoneDetails.join(' + ')}</div>`;
         }
     }
 
@@ -14531,9 +14551,59 @@ function renderExcludeConditions(conditions) {
         }
 
         if (oddEvenDetails.length > 0) {
-            html += `<div>✅ 排除奇偶比: ${oddEvenDetails.join(' + ')}</div>`;
+            group1Html += `<div>✅ 排除奇偶比: ${oddEvenDetails.join(' + ')}</div>`;
         }
     }
+
+    // 连号组数排除
+    console.log('🔍 [RENDER-DEBUG] 检查consecutiveGroups:', conditions.consecutiveGroups);
+    if (conditions.consecutiveGroups && conditions.consecutiveGroups.length > 0) {
+        console.log('✅ 检测到连号组数排除条件:', conditions.consecutiveGroups);
+        const consecutiveGroupsHtml = `<div>✅ 排除连号组数: ${conditions.consecutiveGroups.join(', ')}组</div>`;
+        console.log('🔢 连号组数HTML片段:', consecutiveGroupsHtml);
+        group1Html += consecutiveGroupsHtml;
+    } else {
+        console.log('⚠️ [RENDER-DEBUG] consecutiveGroups为空或不存在');
+    }
+
+    // 长连号长度排除
+    console.log('🔍 [RENDER-DEBUG] 检查maxConsecutiveLength:', conditions.maxConsecutiveLength);
+    if (conditions.maxConsecutiveLength && conditions.maxConsecutiveLength.length > 0) {
+        console.log('✅ 检测到长连号排除条件:', conditions.maxConsecutiveLength);
+        const lengths = conditions.maxConsecutiveLength.sort((a, b) => a - b);
+        const displayText = lengths.map(len => {
+            if (len === 0) return '无连号';
+            return `长${len}连号`;
+        }).join('、');
+        const maxConsecutiveLengthHtml = `<div>✅ 排除长连号: ${displayText}</div>`;
+        console.log('📏 长连号HTML片段:', maxConsecutiveLengthHtml);
+        group1Html += maxConsecutiveLengthHtml;
+    } else {
+        console.log('⚠️ [RENDER-DEBUG] maxConsecutiveLength为空或不存在');
+    }
+
+    // ========== 第2组：预计算表查询级排除 ==========
+
+    // 热温冷比排除
+    if (conditions.hwc) {
+        let hwcDetails = [];
+
+        // 手动选择
+        if (conditions.hwc.excludeRatios && conditions.hwc.excludeRatios.length > 0) {
+            hwcDetails.push(`比例: ${conditions.hwc.excludeRatios.join(', ')}`);
+        }
+
+        // 历史排除
+        if (conditions.hwc.historical && conditions.hwc.historical.enabled) {
+            hwcDetails.push(`历史最近${conditions.hwc.historical.count}期`);
+        }
+
+        if (hwcDetails.length > 0) {
+            group2Html += `<div>✅ 排除热温冷比: ${hwcDetails.join(' + ')}</div>`;
+        }
+    }
+
+    // ========== 第3组：内存过滤级排除 ==========
 
     // 相克排除
     if (conditions.conflict && conditions.conflict.enabled) {
@@ -14555,7 +14625,7 @@ function renderExcludeConditions(conditions) {
         }
         const conflictHtml = `<div>✅ 相克排除: ${conflictDetails.join(', ')}</div>`;
         console.log('⚔️ 相克HTML片段:', conflictHtml);
-        html += conflictHtml;
+        group3Html += conflictHtml;
     } else {
         console.log('❌ 未检测到相克排除条件，conflict存在:', !!conditions.conflict, 'enabled:', conditions.conflict?.enabled);
     }
@@ -14565,7 +14635,7 @@ function renderExcludeConditions(conditions) {
         console.log('✅ 检测到同出排除条件(旧版):', conditions.coOccurrence);
         const coOccurrenceHtml = `<div>✅ 同出排除: 排除最近${conditions.coOccurrence.periods}期同出号码</div>`;
         console.log('🔗 同出HTML片段:', coOccurrenceHtml);
-        html += coOccurrenceHtml;
+        group3Html += coOccurrenceHtml;
     }
 
     // 同出排除(按红球)
@@ -14573,7 +14643,7 @@ function renderExcludeConditions(conditions) {
         console.log('✅ 检测到同出排除(按红球)条件:', conditions.coOccurrencePerBall);
         const coOccurrencePerBallHtml = `<div>✅ 同出排除(按红球): 每个红球最近${conditions.coOccurrencePerBall.periods}期</div>`;
         console.log('🔗 同出(按红球)HTML片段:', coOccurrencePerBallHtml);
-        html += coOccurrencePerBallHtml;
+        group3Html += coOccurrencePerBallHtml;
     }
 
     // 同出排除(按期号)
@@ -14581,7 +14651,27 @@ function renderExcludeConditions(conditions) {
         console.log('✅ 检测到同出排除(按期号)条件:', conditions.coOccurrenceByIssues);
         const coOccurrenceByIssuesHtml = `<div>✅ 同出排除(按期号): 排除最近${conditions.coOccurrenceByIssues.periods}期</div>`;
         console.log('🔗 同出(按期号)HTML片段:', coOccurrenceByIssuesHtml);
-        html += coOccurrenceByIssuesHtml;
+        group3Html += coOccurrenceByIssuesHtml;
+    }
+
+    // ========== 组装最终HTML ==========
+
+    // 第1组
+    if (group1Html) {
+        html += '<div style="margin-bottom: 8px;"><strong>【数据库查询级】</strong></div>';
+        html += group1Html;
+    }
+
+    // 第2组
+    if (group2Html) {
+        html += '<div style="margin-top: 10px; margin-bottom: 8px;"><strong>【预计算表查询级】</strong></div>';
+        html += group2Html;
+    }
+
+    // 第3组
+    if (group3Html) {
+        html += '<div style="margin-top: 10px; margin-bottom: 8px;"><strong>【内存过滤级】</strong></div>';
+        html += group3Html;
     }
 
     console.log('📊 最终html长度:', html.length);
