@@ -10879,6 +10879,61 @@ class StreamBatchPredictor {
     }
 
     /**
+     * 手动应用MongoDB查询条件到缓存数据（用于基础排除条件过滤）
+     */
+    applyQueryFilter(combinations, query) {
+        if (!query || Object.keys(query).length === 0) {
+            return combinations;
+        }
+
+        return combinations.filter(combo => {
+            // 遍历查询条件
+            for (const [field, condition] of Object.entries(query)) {
+                const value = combo[field];
+
+                // 处理各种MongoDB查询操作符
+                if (typeof condition === 'object' && condition !== null) {
+                    // $gte (大于等于)
+                    if (condition.$gte !== undefined && value < condition.$gte) {
+                        return false;
+                    }
+                    // $lte (小于等于)
+                    if (condition.$lte !== undefined && value > condition.$lte) {
+                        return false;
+                    }
+                    // $gt (大于)
+                    if (condition.$gt !== undefined && value <= condition.$gt) {
+                        return false;
+                    }
+                    // $lt (小于)
+                    if (condition.$lt !== undefined && value >= condition.$lt) {
+                        return false;
+                    }
+                    // $in (包含于)
+                    if (condition.$in !== undefined && !condition.$in.includes(value)) {
+                        return false;
+                    }
+                    // $nin (不包含于)
+                    if (condition.$nin !== undefined && condition.$nin.includes(value)) {
+                        return false;
+                    }
+                    // $ne (不等于)
+                    if (condition.$ne !== undefined && value === condition.$ne) {
+                        return false;
+                    }
+                } else {
+                    // 直接相等比较
+                    if (value !== condition) {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        });
+    }
+
+    /**
      * 清理缓存，释放内存
      */
     clearCache() {
@@ -10986,16 +11041,32 @@ class StreamBatchPredictor {
             log(`🔍 [${this.sessionId}] 排除条件详情: ${JSON.stringify(exclude_conditions, null, 2)}`);
             log(`⚔️ [${this.sessionId}] 相克配置检查: conflictExclude存在=${!!filters.conflictExclude}, enabled=${filters.conflictExclude?.enabled}`);
 
-            // ⚡ 性能优化：1. 优先从缓存获取红球组合，避免重复查询数据库
+            // 🔧 修复：1. 先应用基础排除条件构建查询（和值、区间比、奇偶比、连号等）
+            const issueRecord = await DLT.findOne({ Issue: issue });
+            if (!issueRecord) {
+                throw new Error(`期号${issue}不存在`);
+            }
+
+            // 构建基础查询条件（数据库级过滤）
+            const baseQuery = await buildRedQueryFromExcludeConditions(exclude_conditions, issueRecord.ID);
+            log(`🔧 [${this.sessionId}] 基础查询条件: ${JSON.stringify(baseQuery)}`);
+
+            // ⚡ 性能优化：2. 优先从缓存获取红球组合，然后应用基础过滤
             let allCombinations;
             if (this.cachedRedCombinations && this.cachedRedCombinations.length > 0) {
-                // 从缓存读取（深拷贝前maxCount个）
-                allCombinations = this.cachedRedCombinations.slice(0, maxCount).map(c => ({...c}));
-                log(`⚡ [${this.sessionId}] 从缓存获取红球组合: ${allCombinations.length}个`);
+                // 从缓存读取，然后手动应用基础过滤条件
+                log(`⚡ [${this.sessionId}] 从缓存获取所有红球组合: ${this.cachedRedCombinations.length}个`);
+                allCombinations = this.applyQueryFilter(this.cachedRedCombinations, baseQuery);
+                log(`🔧 [${this.sessionId}] 应用基础过滤后: ${allCombinations.length}个`);
+
+                // 限制数量
+                if (allCombinations.length > maxCount) {
+                    allCombinations = allCombinations.slice(0, maxCount);
+                }
             } else {
-                // 缓存未命中，回退到数据库查询
+                // 缓存未命中，回退到数据库查询（直接应用基础条件）
                 log(`⚠️ [${this.sessionId}] 缓存未命中，从数据库查询红球组合...`);
-                allCombinations = await DLTRedCombination.find({}).limit(maxCount).lean();
+                allCombinations = await DLTRedCombination.find(baseQuery).limit(maxCount).lean();
             }
 
             if (!allCombinations || allCombinations.length === 0) {
@@ -11003,7 +11074,7 @@ class StreamBatchPredictor {
                 return this.generateRedCombinations(maxCount, filters);
             }
 
-            log(`📊 [${this.sessionId}] 红球组合数量: ${allCombinations.length}个`);
+            log(`📊 [${this.sessionId}] 基础过滤后红球组合数量: ${allCombinations.length}个`);
 
             // 2. 应用相克排除过滤
             if (filters.conflictExclude && filters.conflictExclude.enabled) {
@@ -11119,12 +11190,103 @@ class StreamBatchPredictor {
                 }
             }
 
+            // 🔧 修复：添加热温冷比排除过滤
+            if (exclude_conditions && exclude_conditions.hwc && exclude_conditions.hwc.excludeRatios && exclude_conditions.hwc.excludeRatios.length > 0) {
+                const beforeHWC = allCombinations.length;
+                log(`🔥 [${this.sessionId}] 开始热温冷比过滤...`);
+
+                try {
+                    // 收集所有待排除的热温冷比
+                    let excludedHWCRatios = [...(exclude_conditions.hwc.excludeRatios || [])];
+
+                    // 处理历史排除
+                    if (exclude_conditions.hwc.historical && exclude_conditions.hwc.historical.enabled) {
+                        log(`🔥 [${this.sessionId}] 查询最近${exclude_conditions.hwc.historical.count}期热温冷比...`);
+                        const historicalRatios = await this.getHistoricalHWCRatios(issue, exclude_conditions.hwc.historical.count);
+                        excludedHWCRatios.push(...historicalRatios);
+                    }
+
+                    // 去重
+                    excludedHWCRatios = [...new Set(excludedHWCRatios)];
+
+                    if (excludedHWCRatios.length > 0) {
+                        log(`🔥 [${this.sessionId}] 合并后的热温冷比排除: ${excludedHWCRatios.join(', ')}`);
+
+                        // 查找前一期作为基准期号
+                        const targetIssueNum = parseInt(issue);
+                        const previousIssue = await DLT.findOne({ Issue: { $lt: targetIssueNum } })
+                            .sort({ Issue: -1 })
+                            .lean();
+
+                        if (previousIssue) {
+                            const baseIssue = previousIssue.Issue.toString();
+                            const targetIssueStr = issue.toString();
+                            log(`🔥 [${this.sessionId}] 查询热温冷比数据: base_issue=${baseIssue}, target_issue=${targetIssueStr}`);
+
+                            // 查询优化表
+                            const hwcData = await DLTRedCombinationsHotWarmColdOptimized.findOne({
+                                base_issue: baseIssue,
+                                target_issue: targetIssueStr
+                            }).lean();
+
+                            if (hwcData && hwcData.hot_warm_cold_data) {
+                                log(`🔥 [${this.sessionId}] 找到热温冷比数据，可用比例: ${Object.keys(hwcData.hot_warm_cold_data).join(', ')}`);
+
+                                // 从优化表获取允许的组合ID
+                                const allowedCombinationIds = new Set();
+                                for (const [ratio, combinationIds] of Object.entries(hwcData.hot_warm_cold_data)) {
+                                    if (!excludedHWCRatios.includes(ratio)) {
+                                        log(`  ✅ [${this.sessionId}] 保留比例 ${ratio}: ${combinationIds.length} 个组合`);
+                                        combinationIds.forEach(id => allowedCombinationIds.add(id));
+                                    } else {
+                                        log(`  ❌ [${this.sessionId}] 排除比例 ${ratio}: ${combinationIds.length} 个组合`);
+                                    }
+                                }
+
+                                // 过滤红球组合
+                                allCombinations = allCombinations.filter(combo =>
+                                    allowedCombinationIds.has(combo.combination_id)
+                                );
+
+                                log(`🔥 [${this.sessionId}] 热温冷比过滤后: ${allCombinations.length}个组合 (排除${beforeHWC - allCombinations.length}个)`);
+                            } else {
+                                log(`⚠️ [${this.sessionId}] 未找到期号 ${issue} 的热温冷比数据，跳过热温冷比筛选`);
+                            }
+                        } else {
+                            log(`⚠️ [${this.sessionId}] 未找到期号 ${issue} 的前一期，跳过热温冷比筛选`);
+                        }
+                    }
+                } catch (hwcError) {
+                    log(`❌ [${this.sessionId}] 热温冷比过滤失败: ${hwcError.message}`);
+                }
+            }
+
             log(`✅ [${this.sessionId}] 最终红球组合: ${allCombinations.length}个`);
             return allCombinations;
 
         } catch (error) {
             log(`❌ [${this.sessionId}] 获取红球组合失败，使用备用生成: ${error.message}`);
             return this.generateRedCombinations(maxCount, filters);
+        }
+    }
+
+    /**
+     * 获取历史热温冷比（适配器方法）
+     */
+    async getHistoricalHWCRatios(targetIssue, count) {
+        try {
+            // 获取目标期号的记录
+            const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+            if (!targetRecord) {
+                log(`⚠️ [${this.sessionId}] 未找到期号 ${targetIssue}`);
+                return [];
+            }
+
+            // 调用全局函数（传入count和期号ID）
+            return await getHistoricalHWCRatios(count, targetRecord.ID);
+        } catch (error) {
+            log(`❌ [${this.sessionId}] 获取历史热温冷比失败: ${error.message}`);
+            return [];
         }
     }
 
