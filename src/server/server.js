@@ -18,6 +18,28 @@ function getWeekDay(date) {
     return days[new Date(date).getDay()];
 }
 
+// 工具函数：计算AC值 (Arithmetic Complexity - 算术复杂度)
+// AC值用于衡量号码组合的离散程度
+// AC = 去重后的号码差值数量 - (n-1)，其中n为号码个数
+function calculateACValue(numbers) {
+    if (!numbers || numbers.length < 2) return 0;
+
+    const sorted = [...numbers].sort((a, b) => a - b);
+    const differences = new Set();
+
+    // 计算所有号码对之间的差值并去重
+    for (let i = 0; i < sorted.length - 1; i++) {
+        for (let j = i + 1; j < sorted.length; j++) {
+            const diff = sorted[j] - sorted[i];
+            differences.add(diff);
+        }
+    }
+
+    // AC值 = 去重后的差值数量 - (n-1)
+    const acValue = differences.size - (sorted.length - 1);
+    return Math.max(0, acValue); // AC值不能为负
+}
+
 // 设置宽松的CSP策略，允许所有必要的脚本执行
 app.use((req, res, next) => {
     res.setHeader(
@@ -38,7 +60,29 @@ app.use((req, res, next) => {
 // Electron环境下提供静态文件服务
 app.use(express.static(path.join(__dirname, '../renderer')));
 
-// MongoDB连接 - 由数据库管理器统一管理，这里不再重复连接
+// MongoDB连接配置
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/lottery';
+const MONGODB_OPTIONS = {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 5000,  // 5秒超时
+    socketTimeoutMS: 45000,           // 45秒socket超时
+};
+
+// MongoDB连接Promise（确保只连接一次）
+let mongooseConnected = false;
+const connectMongoDB = async () => {
+    if (mongooseConnected) return;
+
+    try {
+        await mongoose.connect(MONGODB_URI, MONGODB_OPTIONS);
+        mongooseConnected = true;
+        console.log('✅ MongoDB连接成功:', MONGODB_URI);
+    } catch (error) {
+        console.error('❌ MongoDB连接失败:', error.message);
+        throw error;
+    }
+};
 
 // 导出任务状态存储（用于CLI导出进度跟踪）
 const exportTasks = {};
@@ -115,7 +159,27 @@ const dltSchema = new mongoose.Schema({
     SecondPrizeAmount: { type: String },   // 二等奖奖金
     TotalSales: { type: String },          // 总投注额(元)
     DrawDate: { type: Date, required: true }, // 开奖日期
-    createdAt: { type: Date, default: Date.now }
+    createdAt: { type: Date, default: Date.now },
+
+    // ===== 预处理统计数据字段（走势图优化） =====
+    statistics: {
+        // 前区统计
+        frontSum: { type: Number },                    // 前区和值
+        frontSpan: { type: Number },                   // 前区跨度
+        frontHotWarmColdRatio: { type: String },       // 热温冷比 (格式: "2:2:1")
+        frontZoneRatio: { type: String },              // 区间比 (格式: "2:1:2")
+        frontOddEvenRatio: { type: String },           // 前区奇偶比 (格式: "3:2")
+        frontAcValue: { type: Number },                // AC值 (0-10)
+
+        // 后区统计
+        backSum: { type: Number },                     // 后区和值
+        backOddEvenRatio: { type: String },            // 后区奇偶比 (格式: "1:1")
+
+        // 辅助统计
+        consecutiveCount: { type: Number },            // 连号个数
+        repeatCount: { type: Number }                  // 重号个数（相对上一期）
+    },
+    updatedAt: { type: Date }                          // 统计数据最后更新时间
 });
 
 const DLT = mongoose.model('HIT_DLT', dltSchema);
@@ -433,7 +497,7 @@ const BlueBallMissing = mongoose.model('HIT_UnionLotto_Basictrendchart_blueballm
 
 // 定义大乐透红球组合模型
 const dltRedCombinationSchema = new mongoose.Schema({
-    id: { type: Number, required: true, unique: true }, 
+    id: { type: Number, required: true, unique: true },
     numbers: [Number], // [1,2,3,4,5]
     sum: Number, // 和值 15-175
     zoneRatio: String, // "2:1:2" 区域分布(1-12:13-24:25-35)
@@ -441,6 +505,7 @@ const dltRedCombinationSchema = new mongoose.Schema({
     largeSmallRatio: String, // "2:3" 大小比(1-17:18-35)
     consecutiveCount: Number, // 连号个数
     spanValue: Number, // 跨度值(最大-最小)
+    acValue: Number, // AC值(算术复杂度, 0-10)
     sumRange: String, // "70-80" 和值区间(便于索引)
     createdAt: { type: Date, default: Date.now }
 });
@@ -451,6 +516,7 @@ dltRedCombinationSchema.index({ sumRange: 1 });
 dltRedCombinationSchema.index({ zoneRatio: 1 });
 dltRedCombinationSchema.index({ evenOddRatio: 1 });
 dltRedCombinationSchema.index({ consecutiveCount: 1 });
+dltRedCombinationSchema.index({ acValue: 1 });
 
 const DLTRedCombination = mongoose.model('HIT_DLT_RedCombination', dltRedCombinationSchema);
 
@@ -2587,9 +2653,18 @@ app.get('/api/dlt/trendchart', async (req, res) => {
             log(`Fetching DLT trend chart data from ID ${idRange.startID} to ${idRange.endID} (issues: ${req.query.startIssue} to ${req.query.endIssue})`);
         }
 
+        // ===== 优化：同时获取DLT主表（包含statistics预处理数据）和遗漏值数据 =====
+
+        // 获取大乐透主表数据（包含预处理的statistics字段）
+        let dltMainData = await DLT.find(query).sort({ ID: 1 }).lean();
+
+        if (limit > 0) {
+            dltMainData = dltMainData.slice(-limit);
+        }
+
         // 获取大乐透前区遗漏值数据，始终按ID升序排列
         let dltRedData = await DLTRedMissing.find(query).sort({ ID: 1 });
-        
+
         if (limit > 0) {
             // 对于限制期数的查询，获取最后N条记录（保持ID升序）
             dltRedData = dltRedData.slice(-limit);
@@ -2603,7 +2678,7 @@ app.get('/api/dlt/trendchart', async (req, res) => {
             });
         }
 
-        log(`Found ${dltRedData.length} records for DLT red balls`);
+        log(`Found ${dltRedData.length} records for DLT red balls, ${dltMainData.length} records from main table`);
         
         // 调试：显示前3条和后3条记录的ID和期号
         if (dltRedData.length > 0) {
@@ -2640,74 +2715,98 @@ app.get('/api/dlt/trendchart', async (req, res) => {
             });
         }
 
+        // 创建主表数据索引（按Issue快速查找）
+        const dltMainDataMap = new Map(
+            dltMainData.map(record => [record.Issue, record])
+        );
+
         // 构建返回数据
         const trendChartData = dltRedData.map((redRecord, index) => {
             const blueRecord = dltBlueData[index];
-            
+            const mainRecord = dltMainDataMap.get(redRecord.Issue);  // 从主表获取预处理数据
+
             // 验证记录的完整性
             if (!redRecord || !blueRecord || !redRecord.Issue || !blueRecord.Issue || redRecord.Issue !== blueRecord.Issue) {
                 log(`DLT data integrity issue at index ${index}`);
                 throw new Error('大乐透数据完整性错误');
             }
-            
+
             // 构建前区数据
             const frontZone = Array.from({length: 35}, (_, i) => ({
                 number: i + 1,
                 missing: redRecord[(i + 1).toString()],
                 isDrawn: redRecord[(i + 1).toString()] === 0
             }));
-            
+
             const backZone = Array.from({length: 12}, (_, i) => ({
                 number: i + 1,
                 missing: blueRecord[(i + 1).toString()],
                 isDrawn: blueRecord[(i + 1).toString()] === 0
             }));
 
-            // 计算统计数据
-            const drawnFrontBalls = frontZone.filter(ball => ball.isDrawn);
-            const frontNumbers = drawnFrontBalls.map(ball => ball.number);
-            const drawnBackBalls = backZone.filter(ball => ball.isDrawn);
-            const backNumbers = drawnBackBalls.map(ball => ball.number);
-            
-            // 计算前区和值、跨度
-            const frontSum = frontNumbers.reduce((a, b) => a + b, 0);
-            const frontSpan = frontNumbers.length > 0 ? Math.max(...frontNumbers) - Math.min(...frontNumbers) : 0;
-            
-            // 计算前区区间比
-            let zone1Count = 0, zone2Count = 0, zone3Count = 0;
-            frontNumbers.forEach(n => {
-                if (n <= 12) zone1Count++;
-                else if (n <= 24) zone2Count++;
-                else zone3Count++;
-            });
-            const frontZoneRatio = `${zone1Count}:${zone2Count}:${zone3Count}`;
-            
-            // 计算前区奇偶比
-            let frontOddCount = 0, frontEvenCount = 0;
-            frontNumbers.forEach(n => n % 2 === 0 ? frontEvenCount++ : frontOddCount++);
-            const frontOddEvenRatio = `${frontOddCount}:${frontEvenCount}`;
+            // ===== 优先使用预处理的statistics字段，否则回退到实时计算 =====
+            let statistics;
 
-            // 计算后区和值、奇偶比
-            const backSum = backNumbers.reduce((a, b) => a + b, 0);
-            let backOddCount = 0, backEvenCount = 0;
-            backNumbers.forEach(n => n % 2 === 0 ? backEvenCount++ : backOddCount++);
-            const backOddEvenRatio = `${backOddCount}:${backEvenCount}`;
-            
-            return {
-                issue: redRecord.Issue,
-                drawingWeek: redRecord.DrawingWeek,
-                drawingDay: redRecord.DrawingDay,
-                frontZone,
-                backZone,
-                statistics: {
+            if (mainRecord && mainRecord.statistics && mainRecord.statistics.frontSum) {
+                // 使用预处理的统计数据（快速路径）
+                statistics = {
+                    frontSum: mainRecord.statistics.frontSum,
+                    frontSpan: mainRecord.statistics.frontSpan,
+                    frontHotWarmColdRatio: mainRecord.statistics.frontHotWarmColdRatio || redRecord.FrontHotWarmColdRatio || '0:0:0',
+                    frontZoneRatio: mainRecord.statistics.frontZoneRatio,
+                    frontOddEvenRatio: mainRecord.statistics.frontOddEvenRatio,
+                    backSum: mainRecord.statistics.backSum,
+                    backOddEvenRatio: mainRecord.statistics.backOddEvenRatio,
+                    frontAcValue: mainRecord.statistics.frontAcValue
+                };
+            } else {
+                // 回退到实时计算（兼容性处理）
+                const drawnFrontBalls = frontZone.filter(ball => ball.isDrawn);
+                const frontNumbers = drawnFrontBalls.map(ball => ball.number);
+                const drawnBackBalls = backZone.filter(ball => ball.isDrawn);
+                const backNumbers = drawnBackBalls.map(ball => ball.number);
+
+                const frontSum = frontNumbers.reduce((a, b) => a + b, 0);
+                const frontSpan = frontNumbers.length > 0 ? Math.max(...frontNumbers) - Math.min(...frontNumbers) : 0;
+
+                let zone1Count = 0, zone2Count = 0, zone3Count = 0;
+                frontNumbers.forEach(n => {
+                    if (n <= 12) zone1Count++;
+                    else if (n <= 24) zone2Count++;
+                    else zone3Count++;
+                });
+                const frontZoneRatio = `${zone1Count}:${zone2Count}:${zone3Count}`;
+
+                let frontOddCount = 0, frontEvenCount = 0;
+                frontNumbers.forEach(n => n % 2 === 0 ? frontEvenCount++ : frontOddCount++);
+                const frontOddEvenRatio = `${frontOddCount}:${frontEvenCount}`;
+
+                const backSum = backNumbers.reduce((a, b) => a + b, 0);
+                let backOddCount = 0, backEvenCount = 0;
+                backNumbers.forEach(n => n % 2 === 0 ? backEvenCount++ : backOddCount++);
+                const backOddEvenRatio = `${backOddCount}:${backEvenCount}`;
+
+                const frontAcValue = calculateACValue(frontNumbers);
+
+                statistics = {
                     frontSum,
                     frontSpan,
                     frontHotWarmColdRatio: redRecord.FrontHotWarmColdRatio || '0:0:0',
                     frontZoneRatio,
                     frontOddEvenRatio,
                     backSum,
-                    backOddEvenRatio
-                }
+                    backOddEvenRatio,
+                    frontAcValue
+                };
+            }
+
+            return {
+                issue: redRecord.Issue,
+                drawingWeek: redRecord.DrawingWeek,
+                drawingDay: redRecord.DrawingDay,
+                frontZone,
+                backZone,
+                statistics
             };
         });
 
@@ -2727,20 +2826,212 @@ app.get('/api/dlt/trendchart', async (req, res) => {
     }
 });
 
+// 大乐透统计关系分析接口 - 优化版（使用现成表格数据）
+app.get('/api/dlt/stats-relation', async (req, res) => {
+    try {
+        const { hwcRatios, startIssue, endIssue, periods } = req.query;
+
+        if (!hwcRatios) {
+            return res.status(400).json({ error: '缺少热温冷比参数' });
+        }
+
+        const ratioList = hwcRatios.split(',').map(r => r.trim());
+        console.log('📊 统计关系分析请求:', { hwcRatios: ratioList, startIssue, endIssue, periods });
+
+        // ===== 优化1: 先确定期号范围 =====
+        let issueQuery = {};
+        let totalRecords = 0;
+
+        if (startIssue && endIssue) {
+            const start = parseInt(startIssue);
+            const end = parseInt(endIssue);
+            issueQuery = { $gte: start, $lte: end };
+            totalRecords = end - start + 1;
+            console.log(`   期号范围: ${start} - ${end} (${totalRecords}期)`);
+        } else if (periods) {
+            const limit = parseInt(periods);
+
+            // 从DLT主表获取最近N期的期号
+            const recentRecords = await DLT.find({})
+                .select('Issue')
+                .sort({ Issue: -1 })
+                .limit(limit)
+                .lean()
+                .maxTimeMS(5000);
+
+            const issues = recentRecords.map(r => r.Issue);
+            issueQuery = { $in: issues };
+            totalRecords = issues.length;
+            console.log(`   最近${limit}期: ${issues.length}期数据`);
+        } else {
+            return res.status(400).json({ error: '请提供期数范围或自定义期号' });
+        }
+
+        // ===== 优化2: 查询符合热温冷比的数据（带回退机制） =====
+        let records = [];
+        let dataSource = 'DLT主表';
+
+        try {
+            // 优先使用DLT主表（有完整统计字段）
+            const query = {
+                Issue: issueQuery,
+                'statistics.frontHotWarmColdRatio': { $in: ratioList }
+            };
+
+            records = await DLT.find(query)
+                .select('Issue Red1 Red2 Red3 Red4 Red5 statistics')
+                .sort({ Issue: -1 })
+                .lean()
+                .maxTimeMS(10000);
+
+            console.log(`✅ DLT主表查询成功: ${records.length}条记录`);
+
+        } catch (mainTableError) {
+            // 回退到DLTRedMissing表
+            console.warn(`⚠️  DLT主表查询失败，回退到遗漏值表: ${mainTableError.message}`);
+            dataSource = 'DLTRedMissing表(回退)';
+
+            try {
+                // 从遗漏值表查询
+                const missingQuery = {
+                    Issue: issueQuery,
+                    FrontHotWarmColdRatio: { $in: ratioList }
+                };
+
+                const missingRecords = await DLTRedMissing.find(missingQuery)
+                    .select('Issue FrontHotWarmColdRatio')
+                    .sort({ Issue: -1 })
+                    .lean()
+                    .maxTimeMS(10000);
+
+                console.log(`✅ DLTRedMissing表查询成功: ${missingRecords.length}条记录`);
+
+                // 获取期号列表
+                const matchedIssues = missingRecords.map(r => r.Issue);
+
+                if (matchedIssues.length > 0) {
+                    // 从DLT主表获取完整开奖数据和统计信息
+                    records = await DLT.find({ Issue: { $in: matchedIssues } })
+                        .select('Issue Red1 Red2 Red3 Red4 Red5 statistics')
+                        .sort({ Issue: -1 })
+                        .lean()
+                        .maxTimeMS(10000);
+
+                    // 合并热温冷比数据
+                    const missingMap = new Map(missingRecords.map(r => [r.Issue, r.FrontHotWarmColdRatio]));
+                    records.forEach(record => {
+                        if (!record.statistics) {
+                            record.statistics = {};
+                        }
+                        if (!record.statistics.frontHotWarmColdRatio) {
+                            record.statistics.frontHotWarmColdRatio = missingMap.get(record.Issue) || '0:0:0';
+                        }
+                    });
+                }
+
+            } catch (fallbackError) {
+                console.error('❌ DLTRedMissing表查询也失败:', fallbackError);
+                throw new Error(`主表和备用表查询均失败: ${fallbackError.message}`);
+            }
+        }
+
+        console.log(`📈 查询汇总:`);
+        console.log(`   - 数据来源: ${dataSource}`);
+        console.log(`   - 分析范围: ${totalRecords} 期`);
+        console.log(`   - 符合热温冷比的期数: ${records.length} 期`);
+        console.log(`   - 匹配率: ${(records.length / totalRecords * 100).toFixed(1)}%`);
+
+        // ===== 优化3: 统计分析（增加更多维度） =====
+        const stats = {
+            frontSum: {},
+            frontSpan: {},
+            hwcRatio: {},
+            zoneRatio: {},
+            acValue: {},
+            oddEvenRatio: {}
+        };
+
+        const detailRecords = records.map(record => {
+            const s = record.statistics || {};
+
+            // 统计各维度的频率
+            if (s.frontSum) stats.frontSum[s.frontSum] = (stats.frontSum[s.frontSum] || 0) + 1;
+            if (s.frontSpan) stats.frontSpan[s.frontSpan] = (stats.frontSpan[s.frontSpan] || 0) + 1;
+            if (s.frontHotWarmColdRatio) stats.hwcRatio[s.frontHotWarmColdRatio] = (stats.hwcRatio[s.frontHotWarmColdRatio] || 0) + 1;
+            if (s.frontZoneRatio) stats.zoneRatio[s.frontZoneRatio] = (stats.zoneRatio[s.frontZoneRatio] || 0) + 1;
+            if (s.frontAcValue !== undefined) stats.acValue[s.frontAcValue] = (stats.acValue[s.frontAcValue] || 0) + 1;
+            if (s.frontOddEvenRatio) stats.oddEvenRatio[s.frontOddEvenRatio] = (stats.oddEvenRatio[s.frontOddEvenRatio] || 0) + 1;
+
+            return {
+                issue: record.Issue,
+                frontBalls: [record.Red1, record.Red2, record.Red3, record.Red4, record.Red5],
+                frontSum: s.frontSum,
+                frontSpan: s.frontSpan,
+                hwcRatio: s.frontHotWarmColdRatio,
+                zoneRatio: s.frontZoneRatio,
+                acValue: s.frontAcValue,
+                oddEvenRatio: s.frontOddEvenRatio
+            };
+        });
+
+        // 获取TOP3（增加百分比）
+        const getTop3 = (obj) => {
+            return Object.entries(obj)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 3)
+                .map(([value, count]) => ({
+                    value,
+                    count,
+                    percentage: ((count / records.length) * 100).toFixed(1)
+                }));
+        };
+
+        // ===== 优化4: 增强返回数据结构 =====
+        const result = {
+            success: true,
+            dataSource,
+            totalRecords,
+            matchedRecords: records.length,
+            matchRate: ((records.length / totalRecords) * 100).toFixed(1),
+            hwcRatios: ratioList,
+            topStats: {
+                frontSum: getTop3(stats.frontSum),
+                frontSpan: getTop3(stats.frontSpan),
+                hwcRatio: getTop3(stats.hwcRatio),
+                zoneRatio: getTop3(stats.zoneRatio),
+                acValue: getTop3(stats.acValue),
+                oddEvenRatio: getTop3(stats.oddEvenRatio)
+            },
+            allStats: stats,
+            detailRecords
+        };
+
+        res.json(result);
+
+    } catch (error) {
+        console.error('❌ 统计关系分析失败:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+
 app.get('/api/dlt/frequency', async (req, res) => {
     try {
         console.log('Fetching DLT frequency data...');
-        
+
         res.json({
             success: true,
             data: { frequencies: [] }
         });
-        
+
     } catch (error) {
         console.error('Error fetching DLT frequency:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: error.message 
+        res.status(500).json({
+            success: false,
+            message: error.message
         });
     }
 });
@@ -6756,6 +7047,7 @@ async function generateAndStoreRedCombinations() {
                             largeSmallRatio: calculateLargeSmallRatio(numbers),
                             consecutiveCount: calculateConsecutiveCount(numbers),
                             spanValue: calculateSpanValue(numbers),
+                            acValue: calculateACValue(numbers),
                             sumRange: getSumRange(sum)
                         });
                         
@@ -10354,6 +10646,13 @@ class StreamBatchPredictor {
         this.lastGCTime = Date.now();
         this.lastMemoryLevel = 0; // 上次内存水位级别（用于减少日志频率）
         this.minGCInterval = 30000; // 最少30秒间隔执行GC
+
+        // ⚡ 性能优化：数据缓存（避免重复查询数据库）
+        this.cachedRedCombinations = null;
+        this.cachedBlueCombinations = null;
+        this.cachedHistoryData = null;
+        this.cachedComboFeatures = null;
+        this.cacheTimestamp = null;
     }
 
     /**
@@ -10429,6 +10728,16 @@ class StreamBatchPredictor {
         log(`🔧 [${this.sessionId}] 排除条件:`, exclude_conditions);
 
         try {
+            // ⚡ 性能优化：预加载所有需要的数据（减少数据库IO次数）
+            log(`📥 [${this.sessionId}] 预加载数据中...`);
+            const preloadStart = Date.now();
+
+            await this.preloadData(targetIssues, filters, exclude_conditions, maxRedCombinations, enableValidation);
+
+            const preloadTime = Date.now() - preloadStart;
+            log(`✅ [${this.sessionId}] 数据预加载完成，耗时: ${preloadTime}ms`);
+            log(`📊 [${this.sessionId}] 缓存状态: 红球=${this.cachedRedCombinations?.length || 0}, 蓝球=${this.cachedBlueCombinations?.length || 0}, 历史=${this.cachedHistoryData?.length || 0}期`);
+
             // 分批处理期号
             const batches = this.createBatches(targetIssues, this.batchSize);
             let processedCount = 0;
@@ -10488,6 +10797,102 @@ class StreamBatchPredictor {
             throw error;
         } finally {
             this.isRunning = false;
+            // 预测完成后清理缓存，释放内存
+            this.clearCache();
+        }
+    }
+
+    /**
+     * ⚡ 性能优化：预加载所有需要的数据
+     * 一次性加载所有数据到内存，避免重复查询数据库
+     */
+    async preloadData(targetIssues, filters, exclude_conditions, maxRedCombinations, enableValidation) {
+        try {
+            log(`📥 [${this.sessionId}] 开始并行加载数据...`);
+
+            // 并行加载所有数据
+            const [redCombos, blueCombos, historyData, comboFeatures] = await Promise.all([
+                // 1. 红球组合（限制数量避免内存爆炸）
+                DLTRedCombination.find({}).limit(maxRedCombinations || 324632).lean().then(data => {
+                    log(`  ✅ [${this.sessionId}] 红球组合: ${data.length}条`);
+                    return data;
+                }),
+
+                // 2. 蓝球组合
+                DLTBlueCombination.find({}).lean().then(data => {
+                    log(`  ✅ [${this.sessionId}] 蓝球组合: ${data.length}条`);
+                    return data;
+                }),
+
+                // 3. 历史开奖数据（用于命中验证）
+                enableValidation ?
+                    DLT.find({}).select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2').lean().then(data => {
+                        log(`  ✅ [${this.sessionId}] 历史开奖: ${data.length}期`);
+                        return data;
+                    }) :
+                    Promise.resolve([]),
+
+                // 4. 组合特征（用于同出排除）
+                (exclude_conditions && exclude_conditions.coOccurrencePerBall && exclude_conditions.coOccurrencePerBall.enabled) ?
+                    DLTComboFeatures.find({}).lean().then(data => {
+                        log(`  ✅ [${this.sessionId}] 组合特征: ${data.length}期`);
+                        return data;
+                    }) :
+                    Promise.resolve([])
+            ]);
+
+            // 保存到缓存
+            this.cachedRedCombinations = redCombos;
+            this.cachedBlueCombinations = blueCombos;
+
+            // 历史数据转为Map，方便快速查找
+            this.cachedHistoryData = new Map();
+            historyData.forEach(h => {
+                this.cachedHistoryData.set(h.Issue.toString(), h);
+            });
+
+            // 组合特征转为Map
+            this.cachedComboFeatures = new Map();
+            comboFeatures.forEach(f => {
+                this.cachedComboFeatures.set(f.Issue, f);
+            });
+
+            this.cacheTimestamp = Date.now();
+
+            const totalMB = (
+                (JSON.stringify(redCombos).length +
+                 JSON.stringify(blueCombos).length +
+                 JSON.stringify(historyData).length +
+                 JSON.stringify(comboFeatures).length) / 1024 / 1024
+            ).toFixed(2);
+
+            log(`📊 [${this.sessionId}] 缓存占用预估: ${totalMB}MB`);
+
+        } catch (error) {
+            log(`❌ [${this.sessionId}] 数据预加载失败: ${error.message}`);
+            // 预加载失败不影响功能，继续使用原有查询方式
+            this.cachedRedCombinations = null;
+            this.cachedBlueCombinations = null;
+            this.cachedHistoryData = null;
+            this.cachedComboFeatures = null;
+        }
+    }
+
+    /**
+     * 清理缓存，释放内存
+     */
+    clearCache() {
+        log(`🧹 [${this.sessionId}] 清理缓存...`);
+        this.cachedRedCombinations = null;
+        this.cachedBlueCombinations = null;
+        this.cachedHistoryData = null;
+        this.cachedComboFeatures = null;
+        this.cacheTimestamp = null;
+
+        // 主动触发GC（如果可用）
+        if (global.gc) {
+            global.gc();
+            log(`🧹 [${this.sessionId}] 已触发垃圾回收`);
         }
     }
 
@@ -10581,15 +10986,24 @@ class StreamBatchPredictor {
             log(`🔍 [${this.sessionId}] 排除条件详情: ${JSON.stringify(exclude_conditions, null, 2)}`);
             log(`⚔️ [${this.sessionId}] 相克配置检查: conflictExclude存在=${!!filters.conflictExclude}, enabled=${filters.conflictExclude?.enabled}`);
 
-            // 1. 从数据库获取所有红球组合
-            let allCombinations = await DLTRedCombination.find({}).limit(maxCount).lean();
+            // ⚡ 性能优化：1. 优先从缓存获取红球组合，避免重复查询数据库
+            let allCombinations;
+            if (this.cachedRedCombinations && this.cachedRedCombinations.length > 0) {
+                // 从缓存读取（深拷贝前maxCount个）
+                allCombinations = this.cachedRedCombinations.slice(0, maxCount).map(c => ({...c}));
+                log(`⚡ [${this.sessionId}] 从缓存获取红球组合: ${allCombinations.length}个`);
+            } else {
+                // 缓存未命中，回退到数据库查询
+                log(`⚠️ [${this.sessionId}] 缓存未命中，从数据库查询红球组合...`);
+                allCombinations = await DLTRedCombination.find({}).limit(maxCount).lean();
+            }
 
             if (!allCombinations || allCombinations.length === 0) {
-                log(`⚠️ [${this.sessionId}] 数据库红球组合为空，动态生成组合`);
+                log(`⚠️ [${this.sessionId}] 红球组合为空，动态生成组合`);
                 return this.generateRedCombinations(maxCount, filters);
             }
 
-            log(`📊 [${this.sessionId}] 数据库返回${allCombinations.length}个红球组合`);
+            log(`📊 [${this.sessionId}] 红球组合数量: ${allCombinations.length}个`);
 
             // 2. 应用相克排除过滤
             if (filters.conflictExclude && filters.conflictExclude.enabled) {
@@ -11408,8 +11822,21 @@ class StreamBatchPredictor {
      */
     async performHitValidation(issue, redCombinations, blueCombinations) {
         try {
-            // 获取实际开奖结果
-            const actualResult = await DLT.findOne({ Issue: parseInt(issue) }).lean();
+            // ⚡ 性能优化：优先从缓存获取实际开奖结果
+            let actualResult;
+            if (this.cachedHistoryData && this.cachedHistoryData.size > 0) {
+                actualResult = this.cachedHistoryData.get(issue.toString());
+                if (actualResult) {
+                    log(`⚡ [${this.sessionId}] 从缓存获取期号${issue}开奖数据`);
+                }
+            }
+
+            // 缓存未命中，回退到数据库查询
+            if (!actualResult) {
+                log(`⚠️ [${this.sessionId}] 缓存未命中，从数据库查询期号${issue}开奖数据...`);
+                actualResult = await DLT.findOne({ Issue: parseInt(issue) }).lean();
+            }
+
             if (!actualResult) return null;
 
             const actualRed = [actualResult.Red1, actualResult.Red2, actualResult.Red3, actualResult.Red4, actualResult.Red5];
@@ -14706,6 +15133,33 @@ async function getHistoricalSpanValues(recentCount, beforePeriodID) {
 }
 
 /**
+ * 查询最近N期的AC值历史数据
+ * @param {number} recentCount - 查询最近N期
+ * @param {number} beforePeriodID - 当前预测期号的ID，查询该ID之前的数据
+ */
+async function getHistoricalACValues(recentCount, beforePeriodID) {
+    try {
+        const issues = await DLT.find({ ID: { $lt: beforePeriodID } })
+            .sort({ ID: -1 })
+            .limit(recentCount)
+            .lean();
+
+        const acValues = new Set();
+        issues.forEach(issue => {
+            const redBalls = [issue.Red1, issue.Red2, issue.Red3, issue.Red4, issue.Red5];
+            const acValue = calculateACValue(redBalls);
+            acValues.add(acValue);
+        });
+
+        console.log(`🔢 查询期号ID ${beforePeriodID} 之前最近${recentCount}期AC值: ${Array.from(acValues).sort((a, b) => a - b).join(', ')}`);
+        return Array.from(acValues);
+    } catch (error) {
+        console.error('查询历史AC值失败:', error);
+        return [];
+    }
+}
+
+/**
  * 查询最近N期的热温冷比历史数据
  * @param {number} recentCount - 查询最近N期
  * @param {number} beforePeriodID - 当前预测期号的ID，查询该ID之前的数据
@@ -14867,6 +15321,35 @@ async function buildRedQueryFromExcludeConditions(excludeConditions, currentPeri
             query.$nor = query.$nor || [];
             query.$nor.push(...excludeRanges);
             console.log(`  ✅ 添加了 ${excludeRanges.length} 个跨度排除条件`);
+        }
+    }
+
+    // AC值排除
+    if (excludeConditions.ac && excludeConditions.ac.enabled) {
+        console.log('📌 处理AC值排除:', excludeConditions.ac);
+        const excludeACValues = new Set();
+
+        // 手动选择的AC值
+        const excludeValues = excludeConditions.ac.excludeValues || [];
+        if (excludeValues.length > 0) {
+            console.log(`  ➜ 手动排除AC值: ${excludeValues.join(', ')}`);
+            excludeValues.forEach(ac => excludeACValues.add(ac));
+        }
+
+        // 历史排除
+        if (excludeConditions.ac.historical && excludeConditions.ac.historical.enabled) {
+            const historicalACs = await getHistoricalACValues(excludeConditions.ac.historical.count, currentPeriodID);
+            if (historicalACs.length > 0) {
+                console.log(`  ➜ 排除历史AC值: ${historicalACs.join(', ')}`);
+                historicalACs.forEach(ac => excludeACValues.add(ac));
+            }
+        }
+
+        // 应用排除条件
+        if (excludeACValues.size > 0) {
+            const acArray = Array.from(excludeACValues);
+            query.ac_value = { $nin: acArray };  // 使用$nin更高效
+            console.log(`  ✅ 排除AC值: ${acArray.sort((a, b) => a - b).join(', ')} (共${acArray.length}个)`);
         }
     }
 
@@ -18330,21 +18813,31 @@ module.exports.preloadComboFeaturesCache = preloadComboFeaturesCache;
 // 只在直接运行时启动服务器 (非Electron环境)
 if (require.main === module) {
     const PORT = process.env.PORT || 3000;
-    app.listen(PORT, async () => {
-        log(`Server is running on port ${PORT}`);
 
-        // 性能优化：创建数据库索引
-        await ensureDatabaseIndexes();
+    // 先连接MongoDB，再启动服务器
+    connectMongoDB()
+        .then(() => {
+            app.listen(PORT, async () => {
+                log(`Server is running on port ${PORT}`);
 
-        // 阶段2优化 B1：预加载组合特征缓存
-        await preloadComboFeaturesCache();
+                // 性能优化：创建数据库索引
+                await ensureDatabaseIndexes();
 
-        // 初始化组合数据库（函数未定义，临时注释）
-        // await initializeCombinationDatabase();
+                // 阶段2优化 B1：预加载组合特征缓存
+                await preloadComboFeaturesCache();
 
-        // 启动缓存管理器（临时注释）
-        // cacheManager.start();
+                // 初始化组合数据库（函数未定义，临时注释）
+                // await initializeCombinationDatabase();
 
-        log('🚀 大乐透预测系统 v3 已启动，支持预生成表方案和优化期号缓存');
-    });
+                // 启动缓存管理器（临时注释）
+                // cacheManager.start();
+
+                log('🚀 大乐透预测系统 v3 已启动，支持预生成表方案和优化期号缓存');
+            });
+        })
+        .catch(error => {
+            console.error('❌ 服务器启动失败: 无法连接到MongoDB');
+            console.error(error);
+            process.exit(1);
+        });
 }
