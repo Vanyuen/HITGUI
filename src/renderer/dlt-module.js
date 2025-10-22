@@ -23,6 +23,33 @@ let dltLastBackBallMissing = [];
 // 当前预测结果数据（用于导出功能）
 let currentPredictionData = null;
 
+// ===== 辅助计算函数 =====
+
+/**
+ * 计算AC值 (Arithmetic Complexity - 算术复杂度)
+ * AC值用于衡量号码组合的离散程度
+ * @param {Array<number>} numbers - 号码数组
+ * @returns {number} AC值
+ */
+function calculateACValueSimple(numbers) {
+    if (!numbers || numbers.length < 2) return 0;
+
+    const sorted = [...numbers].sort((a, b) => a - b);
+    const differences = new Set();
+
+    // 计算所有号码对之间的差值并去重
+    for (let i = 0; i < sorted.length - 1; i++) {
+        for (let j = i + 1; j < sorted.length; j++) {
+            const diff = sorted[j] - sorted[i];
+            differences.add(diff);
+        }
+    }
+
+    // AC值 = 去重后的差值数量 - (n-1)
+    const acValue = differences.size - (sorted.length - 1);
+    return Math.max(0, acValue);
+}
+
 // ===== 大乐透主要功能模块 =====
 
 /**
@@ -35,6 +62,7 @@ function initDLTSystem() {
     initDLTNavigation();
     initDLTHistoryModule();
     initDLTTrendModule();
+    initDLTStatsRelation(); // 统计关系分析
     initDLTAnalysisModule();
     initDLTExpertModule();
     initDLTCombinationModule();
@@ -1414,7 +1442,7 @@ function showDLTTrendLoading(container) {
                     <th colspan="12" class="zone-header red-zone red-zone-two">前区二区(13-24)</th>
                     <th colspan="11" class="zone-header red-zone">前区三区(25-35)</th>
                     <th colspan="12" class="zone-header blue-zone blue-section-start">后区(01-12)</th>
-                    <th colspan="7" class="zone-header stat-zone stat-section-start">统计数据</th>
+                    <th colspan="8" class="zone-header stat-zone stat-section-start">统计数据</th>
                 </tr>
                 <tr class="number-row">
                     ${Array.from({length: 12}, (_, i) => `<th class="red-section">${String(i + 1).padStart(2, '0')}</th>`).join('')}
@@ -1425,6 +1453,7 @@ function showDLTTrendLoading(container) {
                     <th class="stat-col-head">前区跨度</th>
                     <th class="stat-col-head">热温冷比</th>
                     <th class="stat-col-head">区间比</th>
+                    <th class="stat-col-head">AC值</th>
                     <th class="stat-col-head">前区奇偶</th>
                     <th class="stat-col-head">后区和值</th>
                     <th class="stat-col-head">后区奇偶</th>
@@ -1446,9 +1475,37 @@ function showDLTTrendLoading(container) {
                                 <div class="cell-content">${String(i + 1).padStart(2, '0')}</div>
                             </td>
                         `).join('')}
-                        <td colspan="7" class="stat-section-start">-</td>
+                        <td colspan="8" class="stat-section-start">-</td>
                     </tr>
                 `).join('')}
+
+                <!-- 号码统计面板 -->
+                <tr class="statistics-panel-row">
+                    <td colspan="2" class="fixed-col statistics-label">统计项</td>
+                    ${Array.from({length: 35}, (_, i) => `<td class="stat-cell"></td>`).join('')}
+                    ${Array.from({length: 12}, (_, i) => `<td class="stat-cell${i === 0 ? ' blue-section-start' : ''}"></td>`).join('')}
+                    <td colspan="8" class="stat-section-start"></td>
+                </tr>
+                <tr class="statistics-data-row" id="appearanceRow">
+                    <td colspan="2" class="fixed-col statistics-label">出现次数</td>
+                    ${Array.from({length: 47}, () => `<td class="stat-cell">-</td>`).join('')}
+                    <td colspan="8" class="stat-section-start"></td>
+                </tr>
+                <tr class="statistics-data-row" id="avgMissingRow">
+                    <td colspan="2" class="fixed-col statistics-label">平均遗漏</td>
+                    ${Array.from({length: 47}, () => `<td class="stat-cell">-</td>`).join('')}
+                    <td colspan="8" class="stat-section-start"></td>
+                </tr>
+                <tr class="statistics-data-row" id="maxMissingRow">
+                    <td colspan="2" class="fixed-col statistics-label">最大遗漏</td>
+                    ${Array.from({length: 47}, () => `<td class="stat-cell">-</td>`).join('')}
+                    <td colspan="8" class="stat-section-start"></td>
+                </tr>
+                <tr class="statistics-data-row" id="maxConsecutiveRow">
+                    <td colspan="2" class="fixed-col statistics-label">最大连出</td>
+                    ${Array.from({length: 47}, () => `<td class="stat-cell">-</td>`).join('')}
+                    <td colspan="8" class="stat-section-start"></td>
+                </tr>
             </tfoot>
         </table>
     `;
@@ -1527,6 +1584,7 @@ function displayDLTTrendData(data, frequencyData) {
                 <td class="stat-col stat-span">${item.statistics.frontSpan}</td>
                 <td class="stat-col stat-hotwarmcold">${item.statistics.frontHotWarmColdRatio}</td>
                 <td class="stat-col stat-zone">${item.statistics.frontZoneRatio}</td>
+                <td class="stat-col stat-ac">${item.statistics.frontAcValue !== undefined ? item.statistics.frontAcValue : '-'}</td>
                 <td class="stat-col stat-oddeven">${item.statistics.frontOddEvenRatio}</td>
                 <td class="stat-col stat-back-sum">${item.statistics.backSum}</td>
                 <td class="stat-col stat-back-oddeven">${item.statistics.backOddEvenRatio}</td>
@@ -1557,12 +1615,16 @@ function displayDLTTrendData(data, frequencyData) {
             const backSum = backs.reduce((a, b) => a + b, 0);
             let backOdd = 0, backEven = 0;
             backs.forEach(n => n % 2 === 0 ? backEven++ : backOdd++);
-            
+
+            // 计算AC值（前端简易实现）
+            const frontAcValue = fronts.length >= 2 ? calculateACValueSimple(fronts) : '-';
+
             statHtml = `
                 <td class="stat-col stat-sum stat-section-start">${frontSum}</td>
                 <td class="stat-col stat-span">${frontSpan}</td>
                 <td class="stat-col stat-hotwarmcold">${frontHotWarmColdRatio}</td>
                 <td class="stat-col stat-zone">${zone1}:${zone2}:${zone3}</td>
+                <td class="stat-col stat-ac">${frontAcValue}</td>
                 <td class="stat-col stat-oddeven">${frontOdd}:${frontEven}</td>
                 <td class="stat-col stat-back-sum">${backSum}</td>
                 <td class="stat-col stat-back-oddeven">${backOdd}:${backEven}</td>
@@ -1648,7 +1710,15 @@ function displayDLTTrendData(data, frequencyData) {
     } catch (error) {
         console.error('Error applying DLT frequency highlighting:', error);
     }
-    
+
+    // 更新统计面板
+    try {
+        updateDLTStatisticsPanel(data);
+        console.log('DLT statistics panel updated');
+    } catch (error) {
+        console.error('Error updating DLT statistics panel:', error);
+    }
+
     console.log(`DLT trend data displayed: ${data.length} records`);
 }
 
@@ -10022,6 +10092,7 @@ function initBatchPredictionEventListeners() {
     const exclusionCheckboxes = [
         { checkbox: 'batch-exclude-sum', inputs: ['batch-sum-min', 'batch-sum-max'] },
         { checkbox: 'batch-exclude-span', inputs: ['batch-span-min', 'batch-span-max'] },
+        { checkbox: 'batch-exclude-ac', inputs: ['batch-ac-min1', 'batch-ac-max1', 'batch-ac-min2', 'batch-ac-max2'] },
         { checkbox: 'batch-exclude-hwc', inputs: '.batch-hwc-cb' },
         { checkbox: 'batch-exclude-zone', inputs: '.batch-zone-cb' },
         { checkbox: 'batch-exclude-odd-even', inputs: '.batch-odd-even-cb' }
@@ -10046,9 +10117,42 @@ function initBatchPredictionEventListeners() {
                         }
                     });
                 }
+
+                // 特殊处理：AC值排除的复选框联动
+                if (checkbox === 'batch-exclude-ac') {
+                    // AC值0-6的复选框
+                    const acValueCheckboxes = document.querySelectorAll('.batch-ac-value-cb');
+                    acValueCheckboxes.forEach(cb => {
+                        cb.disabled = !checkboxEl.checked;
+                        if (!checkboxEl.checked) {
+                            cb.checked = false;
+                        }
+                    });
+
+                    // 历史AC值选项
+                    const acHistoricalCb = document.getElementById('batch-ac-historical-enabled');
+                    const acRecentInput = document.getElementById('batch-ac-recent-custom');
+
+                    if (acHistoricalCb) {
+                        acHistoricalCb.disabled = !checkboxEl.checked;
+                        if (!checkboxEl.checked) acHistoricalCb.checked = false;
+                    }
+                    if (acRecentInput) {
+                        acRecentInput.disabled = !checkboxEl.checked;
+                    }
+                }
             });
         }
     });
+
+    // AC值历史排除复选框联动
+    const acHistoricalCheckbox = document.getElementById('batch-ac-historical-enabled');
+    if (acHistoricalCheckbox) {
+        acHistoricalCheckbox.addEventListener('change', () => {
+            const acRecentInput = document.getElementById('batch-ac-recent-custom');
+            if (acRecentInput) acRecentInput.disabled = !acHistoricalCheckbox.checked;
+        });
+    }
     
     // 开始批量预测按钮
     const startBtn = document.getElementById('start-batch-prediction');
@@ -10622,6 +10726,35 @@ function getBatchExcludeConditions() {
         if (spanHistoricalEnabled) {
             const recentCount = document.getElementById('batch-span-recent-custom')?.value || 10;
             conditions.span.historical = {
+                enabled: true,
+                type: 'recent',
+                count: parseInt(recentCount)
+            };
+        }
+    }
+
+    // AC值排除
+    const acEnabled = document.getElementById('batch-exclude-ac')?.checked || false;
+    if (acEnabled) {
+        conditions.ac = {
+            enabled: true,
+            excludeValues: [],  // 直接排除的AC值数组
+            historical: {
+                enabled: false
+            }
+        };
+
+        // 收集选中的AC值
+        const acCheckboxes = document.querySelectorAll('.batch-ac-value-cb:checked');
+        acCheckboxes.forEach(cb => {
+            conditions.ac.excludeValues.push(parseInt(cb.value));
+        });
+
+        // 历史排除
+        const acHistoricalEnabled = document.getElementById('batch-ac-historical-enabled')?.checked || false;
+        if (acHistoricalEnabled) {
+            const recentCount = document.getElementById('batch-ac-recent-custom')?.value || 10;
+            conditions.ac.historical = {
                 enabled: true,
                 type: 'recent',
                 count: parseInt(recentCount)

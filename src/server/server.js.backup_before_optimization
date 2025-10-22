@@ -60,7 +60,29 @@ app.use((req, res, next) => {
 // Electron环境下提供静态文件服务
 app.use(express.static(path.join(__dirname, '../renderer')));
 
-// MongoDB连接 - 由数据库管理器统一管理，这里不再重复连接
+// MongoDB连接配置
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/lottery';
+const MONGODB_OPTIONS = {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 5000,  // 5秒超时
+    socketTimeoutMS: 45000,           // 45秒socket超时
+};
+
+// MongoDB连接Promise（确保只连接一次）
+let mongooseConnected = false;
+const connectMongoDB = async () => {
+    if (mongooseConnected) return;
+
+    try {
+        await mongoose.connect(MONGODB_URI, MONGODB_OPTIONS);
+        mongooseConnected = true;
+        console.log('✅ MongoDB连接成功:', MONGODB_URI);
+    } catch (error) {
+        console.error('❌ MongoDB连接失败:', error.message);
+        throw error;
+    }
+};
 
 // 导出任务状态存储（用于CLI导出进度跟踪）
 const exportTasks = {};
@@ -2804,7 +2826,7 @@ app.get('/api/dlt/trendchart', async (req, res) => {
     }
 });
 
-// 大乐透统计关系分析接口
+// 大乐透统计关系分析接口 - 优化版（使用现成表格数据）
 app.get('/api/dlt/stats-relation', async (req, res) => {
     try {
         const { hwcRatios, startIssue, endIssue, periods } = req.query;
@@ -2813,49 +2835,120 @@ app.get('/api/dlt/stats-relation', async (req, res) => {
             return res.status(400).json({ error: '缺少热温冷比参数' });
         }
 
-        const ratioList = hwcRatios.split(',');
-        console.log('统计关系分析请求:', { hwcRatios: ratioList, startIssue, endIssue, periods });
+        const ratioList = hwcRatios.split(',').map(r => r.trim());
+        console.log('📊 统计关系分析请求:', { hwcRatios: ratioList, startIssue, endIssue, periods });
 
-        // 构建查询条件
-        let query = {};
+        // ===== 优化1: 先确定期号范围 =====
+        let issueQuery = {};
         let totalRecords = 0;
 
         if (startIssue && endIssue) {
-            query.Issue = { $gte: parseInt(startIssue), $lte: parseInt(endIssue) };
-            totalRecords = await DLT.countDocuments({ Issue: { $gte: parseInt(startIssue), $lte: parseInt(endIssue) } });
+            const start = parseInt(startIssue);
+            const end = parseInt(endIssue);
+            issueQuery = { $gte: start, $lte: end };
+            totalRecords = end - start + 1;
+            console.log(`   期号范围: ${start} - ${end} (${totalRecords}期)`);
         } else if (periods) {
             const limit = parseInt(periods);
+
+            // 从DLT主表获取最近N期的期号
             const recentRecords = await DLT.find({})
+                .select('Issue')
                 .sort({ Issue: -1 })
                 .limit(limit)
-                .select('Issue');
+                .lean()
+                .maxTimeMS(5000);
+
             const issues = recentRecords.map(r => r.Issue);
-            query.Issue = { $in: issues };
+            issueQuery = { $in: issues };
             totalRecords = issues.length;
+            console.log(`   最近${limit}期: ${issues.length}期数据`);
         } else {
             return res.status(400).json({ error: '请提供期数范围或自定义期号' });
         }
 
-        // 查询符合热温冷比的数据
-        query['statistics.frontHotWarmColdRatio'] = { $in: ratioList };
+        // ===== 优化2: 查询符合热温冷比的数据（带回退机制） =====
+        let records = [];
+        let dataSource = 'DLT主表';
 
-        const records = await DLT.find(query)
-            .select('Issue Red1 Red2 Red3 Red4 Red5 statistics')
-            .sort({ Issue: -1 })
-            .lean();
+        try {
+            // 优先使用DLT主表（有完整统计字段）
+            const query = {
+                Issue: issueQuery,
+                'statistics.frontHotWarmColdRatio': { $in: ratioList }
+            };
 
-        console.log(`✅ 查询完成:`);
+            records = await DLT.find(query)
+                .select('Issue Red1 Red2 Red3 Red4 Red5 statistics')
+                .sort({ Issue: -1 })
+                .lean()
+                .maxTimeMS(10000);
+
+            console.log(`✅ DLT主表查询成功: ${records.length}条记录`);
+
+        } catch (mainTableError) {
+            // 回退到DLTRedMissing表
+            console.warn(`⚠️  DLT主表查询失败，回退到遗漏值表: ${mainTableError.message}`);
+            dataSource = 'DLTRedMissing表(回退)';
+
+            try {
+                // 从遗漏值表查询
+                const missingQuery = {
+                    Issue: issueQuery,
+                    FrontHotWarmColdRatio: { $in: ratioList }
+                };
+
+                const missingRecords = await DLTRedMissing.find(missingQuery)
+                    .select('Issue FrontHotWarmColdRatio')
+                    .sort({ Issue: -1 })
+                    .lean()
+                    .maxTimeMS(10000);
+
+                console.log(`✅ DLTRedMissing表查询成功: ${missingRecords.length}条记录`);
+
+                // 获取期号列表
+                const matchedIssues = missingRecords.map(r => r.Issue);
+
+                if (matchedIssues.length > 0) {
+                    // 从DLT主表获取完整开奖数据和统计信息
+                    records = await DLT.find({ Issue: { $in: matchedIssues } })
+                        .select('Issue Red1 Red2 Red3 Red4 Red5 statistics')
+                        .sort({ Issue: -1 })
+                        .lean()
+                        .maxTimeMS(10000);
+
+                    // 合并热温冷比数据
+                    const missingMap = new Map(missingRecords.map(r => [r.Issue, r.FrontHotWarmColdRatio]));
+                    records.forEach(record => {
+                        if (!record.statistics) {
+                            record.statistics = {};
+                        }
+                        if (!record.statistics.frontHotWarmColdRatio) {
+                            record.statistics.frontHotWarmColdRatio = missingMap.get(record.Issue) || '0:0:0';
+                        }
+                    });
+                }
+
+            } catch (fallbackError) {
+                console.error('❌ DLTRedMissing表查询也失败:', fallbackError);
+                throw new Error(`主表和备用表查询均失败: ${fallbackError.message}`);
+            }
+        }
+
+        console.log(`📈 查询汇总:`);
+        console.log(`   - 数据来源: ${dataSource}`);
         console.log(`   - 分析范围: ${totalRecords} 期`);
         console.log(`   - 符合热温冷比的期数: ${records.length} 期`);
-        console.log(`   - 查询条件:`, JSON.stringify(query));
+        console.log(`   - 匹配率: ${(records.length / totalRecords * 100).toFixed(1)}%`);
 
-        // 统计分析
+        // ===== 优化3: 统计分析（增加更多维度） =====
         const stats = {
             frontSum: {},
             frontSpan: {},
             hwcRatio: {},
             zoneRatio: {},
-            acValue: {}
+            acValue: {},
+            oddEvenRatio: {}
         };
 
         const detailRecords = records.map(record => {
@@ -2867,6 +2960,7 @@ app.get('/api/dlt/stats-relation', async (req, res) => {
             if (s.frontHotWarmColdRatio) stats.hwcRatio[s.frontHotWarmColdRatio] = (stats.hwcRatio[s.frontHotWarmColdRatio] || 0) + 1;
             if (s.frontZoneRatio) stats.zoneRatio[s.frontZoneRatio] = (stats.zoneRatio[s.frontZoneRatio] || 0) + 1;
             if (s.frontAcValue !== undefined) stats.acValue[s.frontAcValue] = (stats.acValue[s.frontAcValue] || 0) + 1;
+            if (s.frontOddEvenRatio) stats.oddEvenRatio[s.frontOddEvenRatio] = (stats.oddEvenRatio[s.frontOddEvenRatio] || 0) + 1;
 
             return {
                 issue: record.Issue,
@@ -2875,37 +2969,52 @@ app.get('/api/dlt/stats-relation', async (req, res) => {
                 frontSpan: s.frontSpan,
                 hwcRatio: s.frontHotWarmColdRatio,
                 zoneRatio: s.frontZoneRatio,
-                acValue: s.frontAcValue
+                acValue: s.frontAcValue,
+                oddEvenRatio: s.frontOddEvenRatio
             };
         });
 
-        // 获取TOP3
+        // 获取TOP3（增加百分比）
         const getTop3 = (obj) => {
             return Object.entries(obj)
                 .sort((a, b) => b[1] - a[1])
                 .slice(0, 3)
-                .map(([value, count]) => ({ value, count }));
+                .map(([value, count]) => ({
+                    value,
+                    count,
+                    percentage: ((count / records.length) * 100).toFixed(1)
+                }));
         };
 
+        // ===== 优化4: 增强返回数据结构 =====
         const result = {
+            success: true,
+            dataSource,
             totalRecords,
             matchedRecords: records.length,
+            matchRate: ((records.length / totalRecords) * 100).toFixed(1),
             hwcRatios: ratioList,
             topStats: {
                 frontSum: getTop3(stats.frontSum),
                 frontSpan: getTop3(stats.frontSpan),
                 hwcRatio: getTop3(stats.hwcRatio),
                 zoneRatio: getTop3(stats.zoneRatio),
-                acValue: getTop3(stats.acValue)
+                acValue: getTop3(stats.acValue),
+                oddEvenRatio: getTop3(stats.oddEvenRatio)
             },
+            allStats: stats,
             detailRecords
         };
 
         res.json(result);
 
     } catch (error) {
-        console.error('统计关系分析失败:', error);
-        res.status(500).json({ error: error.message });
+        console.error('❌ 统计关系分析失败:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 });
 
@@ -10612,6 +10721,16 @@ class StreamBatchPredictor {
         log(`🔧 [${this.sessionId}] 排除条件:`, exclude_conditions);
 
         try {
+            // ⚡ 性能优化：预加载所有需要的数据（减少数据库IO次数）
+            log(`📥 [${this.sessionId}] 预加载数据中...`);
+            const preloadStart = Date.now();
+
+            await this.preloadData(targetIssues, filters, exclude_conditions, maxRedCombinations, enableValidation);
+
+            const preloadTime = Date.now() - preloadStart;
+            log(`✅ [${this.sessionId}] 数据预加载完成，耗时: ${preloadTime}ms`);
+            log(`📊 [${this.sessionId}] 缓存状态: 红球=${this.cachedRedCombinations?.length || 0}, 蓝球=${this.cachedBlueCombinations?.length || 0}, 历史=${this.cachedHistoryData?.length || 0}期`);
+
             // 分批处理期号
             const batches = this.createBatches(targetIssues, this.batchSize);
             let processedCount = 0;
@@ -18569,21 +18688,31 @@ module.exports.preloadComboFeaturesCache = preloadComboFeaturesCache;
 // 只在直接运行时启动服务器 (非Electron环境)
 if (require.main === module) {
     const PORT = process.env.PORT || 3000;
-    app.listen(PORT, async () => {
-        log(`Server is running on port ${PORT}`);
 
-        // 性能优化：创建数据库索引
-        await ensureDatabaseIndexes();
+    // 先连接MongoDB，再启动服务器
+    connectMongoDB()
+        .then(() => {
+            app.listen(PORT, async () => {
+                log(`Server is running on port ${PORT}`);
 
-        // 阶段2优化 B1：预加载组合特征缓存
-        await preloadComboFeaturesCache();
+                // 性能优化：创建数据库索引
+                await ensureDatabaseIndexes();
 
-        // 初始化组合数据库（函数未定义，临时注释）
-        // await initializeCombinationDatabase();
+                // 阶段2优化 B1：预加载组合特征缓存
+                await preloadComboFeaturesCache();
 
-        // 启动缓存管理器（临时注释）
-        // cacheManager.start();
+                // 初始化组合数据库（函数未定义，临时注释）
+                // await initializeCombinationDatabase();
 
-        log('🚀 大乐透预测系统 v3 已启动，支持预生成表方案和优化期号缓存');
-    });
+                // 启动缓存管理器（临时注释）
+                // cacheManager.start();
+
+                log('🚀 大乐透预测系统 v3 已启动，支持预生成表方案和优化期号缓存');
+            });
+        })
+        .catch(error => {
+            console.error('❌ 服务器启动失败: 无法连接到MongoDB');
+            console.error(error);
+            process.exit(1);
+        });
 }

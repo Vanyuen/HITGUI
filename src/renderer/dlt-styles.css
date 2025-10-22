@@ -276,6 +276,10 @@
 .dlt-panel .sub-nav {
     background: rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(10px);
+    position: sticky;
+    top: 0; /* 相对于.panel容器置顶 */
+    z-index: 99;
+    margin-top: 0;
 }
 
 .dlt-panel .sub-nav-item {
@@ -3470,10 +3474,11 @@
     opacity: 0.6;
 }
 
-/* 热温冷比选择 */
+/* 热温冷比选择、AC值选择 */
 .hwc-ratios-selection,
 .zone-ratios-selection,
-.odd-even-selection {
+.odd-even-selection,
+.batch-ac-values-selection {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -3481,7 +3486,8 @@
 
 .hwc-ratios-selection label,
 .zone-ratios-selection label,
-.odd-even-selection label {
+.odd-even-selection label,
+.batch-ac-values-selection label {
     display: flex;
     align-items: center;
     padding: 6px 12px;
@@ -3495,21 +3501,30 @@
 
 .hwc-ratios-selection label:hover,
 .zone-ratios-selection label:hover,
-.odd-even-selection label:hover {
+.odd-even-selection label:hover,
+.batch-ac-values-selection label:hover {
     background: #e3f2fd;
     border-color: #2196f3;
 }
 
 .hwc-ratios-selection input[type="checkbox"],
 .zone-ratios-selection input[type="checkbox"],
-.odd-even-selection input[type="checkbox"] {
+.odd-even-selection input[type="checkbox"],
+.batch-ac-values-selection input[type="checkbox"] {
     margin-right: 6px;
 }
 
 .hwc-ratios-selection input[type="checkbox"]:checked + span,
 .zone-ratios-selection input[type="checkbox"]:checked + span,
-.odd-even-selection input[type="checkbox"]:checked + span {
+.odd-even-selection input[type="checkbox"]:checked + span,
+.batch-ac-values-selection input[type="checkbox"]:checked + span {
     font-weight: 600;
+}
+
+/* AC值选择 - 选中状态高亮 */
+.batch-ac-values-selection label:has(input:checked) {
+    background: #e3f2fd;
+    border-color: #2196f3;
 }
 
 /* 输出配置 */
@@ -5218,3 +5233,586 @@
     line-height: 1.8;
 }
 
+
+/* ===== 大乐透走势图统计面板样式 ===== */
+
+/* 统计面板行样式 */
+.statistics-panel-row {
+    background: #f0f0f0;
+    font-weight: bold;
+    border-top: 2px solid #333;
+}
+
+.statistics-data-row {
+    background: #fafafa;
+    height: 32px;
+}
+
+.statistics-data-row:hover {
+    background: #f5f5f5;
+}
+
+/* 统计行单元格强制不重叠 */
+.statistics-data-row .stat-cell {
+    float: none !important;
+    position: static !important;
+    display: table-cell !important;
+}
+
+/* 统计标签列 */
+.statistics-label {
+    background: #e8e8e8 !important;
+    font-weight: bold;
+    text-align: center;
+    vertical-align: middle;
+    border-right: 1px solid #ddd;
+    font-size: 13px;
+    color: #333;
+    position: sticky;
+    left: 0;
+    z-index: 3;
+}
+
+/* 统计单元格基础样式 */
+.stat-cell {
+    display: table-cell !important;
+    text-align: center;
+    vertical-align: middle;
+    font-size: 12px;
+    padding: 6px 8px;
+    border: 1px solid #e0e0e0;
+    min-width: 40px;
+    width: 40px;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    box-sizing: border-box;
+    position: static !important;
+    float: none !important;
+}
+
+/* 出现次数颜色 */
+.stat-cell.high-frequency {
+    background: #d4edda;
+    color: #155724;
+    font-weight: bold;
+}
+
+.stat-cell.low-frequency {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+/* 平均遗漏颜色（热号冷号） */
+.stat-cell.hot-number {
+    background: #d4edda;
+    color: #155724;
+    font-weight: bold;
+}
+
+.stat-cell.cold-number {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+/* 最大遗漏颜色 */
+.stat-cell.very-cold {
+    background: #f8d7da;
+    color: #721c24;
+    font-weight: bold;
+}
+
+/* 最大连出颜色 */
+.stat-cell.high-consecutive {
+    background: #d4edda;
+    color: #155724;
+    font-weight: bold;
+}
+
+.stat-cell.medium-consecutive {
+    background: #d1ecf1;
+    color: #0c5460;
+}
+
+/* 后区起始边界 */
+.stat-cell.blue-section-start {
+    border-left: 2px solid #0066cc;
+}
+
+/* 统计面板鼠标悬停效果 */
+.stat-cell:hover {
+    transform: scale(1.05);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    z-index: 2;
+}
+
+/* ===== 统计关系分析面板样式 ===== */
+
+.stats-relation-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* 条件设置面板 */
+.stats-condition-panel {
+    background: linear-gradient(135deg, #f5f7fa 0%, #ffffff 100%);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    margin-bottom: 24px;
+}
+
+.stats-condition-panel h3 {
+    margin: 0 0 20px 0;
+    font-size: 20px;
+    color: #2c3e50;
+    font-weight: 600;
+    padding-bottom: 12px;
+    border-bottom: 3px solid #007bff;
+}
+
+.condition-section {
+    margin-bottom: 24px;
+}
+
+.condition-section h4 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    color: #495057;
+    font-weight: 600;
+}
+
+/* 热温冷比复选框网格 */
+.hwc-ratio-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.hwc-checkbox-label {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+    background: white;
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.hwc-checkbox-label:hover {
+    border-color: #007bff;
+    background: #f0f8ff;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.15);
+}
+
+.hwc-checkbox-label input[type="checkbox"] {
+    margin-right: 8px;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #007bff;
+}
+
+.hwc-checkbox-label input[type="checkbox"]:checked ~ .hwc-label-text {
+    color: #007bff;
+    font-weight: 600;
+}
+
+.hwc-checkbox-label:has(input:checked) {
+    background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+    border-color: #0056b3;
+    color: white;
+}
+
+.hwc-checkbox-label:has(input:checked) .hwc-label-text {
+    color: white;
+}
+
+.hwc-checkbox-label:has(input:checked) small {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.hwc-label-text {
+    font-size: 14px;
+    font-weight: 500;
+    color: #495057;
+    transition: color 0.2s;
+}
+
+.hwc-label-text small {
+    font-size: 11px;
+    color: #6c757d;
+    margin-left: 4px;
+}
+
+/* 快捷选择按钮 */
+.hwc-quick-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+
+.quick-select-btn,
+.clear-select-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.quick-select-btn {
+    background: linear-gradient(135deg, #28a745, #20c997);
+    color: white;
+}
+
+.quick-select-btn:hover {
+    background: linear-gradient(135deg, #218838, #1e9e87);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(40, 167, 69, 0.3);
+}
+
+.clear-select-btn {
+    background: #6c757d;
+    color: white;
+}
+
+.clear-select-btn:hover {
+    background: #5a6268;
+}
+
+/* 范围选择�?*/
+.range-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.range-radio-group {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.range-radio-label {
+    display: flex;
+    align-items: center;
+    padding: 10px 18px;
+    background: white;
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.range-radio-label:hover {
+    border-color: #007bff;
+    background: #f0f8ff;
+}
+
+.range-radio-label input[type="radio"] {
+    margin-right: 8px;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #007bff;
+}
+
+.range-radio-label:has(input:checked) {
+    background: linear-gradient(135deg, #007bff, #0056b3);
+    border-color: #0056b3;
+    color: white;
+    font-weight: 600;
+}
+
+.range-radio-label span {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.custom-range-inputs {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: white;
+    border-radius: 8px;
+    border: 2px solid #dee2e6;
+}
+
+.custom-range-inputs input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.custom-range-inputs input:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.custom-range-inputs span {
+    font-size: 14px;
+    color: #6c757d;
+    font-weight: 500;
+}
+
+/* 操作按钮 */
+.condition-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 2px solid #e9ecef;
+}
+
+.analyze-btn,
+.reset-btn {
+    padding: 12px 32px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.analyze-btn {
+    background: linear-gradient(135deg, #007bff, #0056b3);
+    color: white;
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+}
+
+.analyze-btn:hover {
+    background: linear-gradient(135deg, #0056b3, #004085);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 123, 255, 0.4);
+}
+
+.reset-btn {
+    background: #6c757d;
+    color: white;
+}
+
+.reset-btn:hover {
+    background: #5a6268;
+    transform: translateY(-2px);
+}
+
+/* 结果面板 */
+.stats-result-panel {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.stats-result-header {
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 3px solid #28a745;
+}
+
+.stats-result-header h3 {
+    margin: 0 0 8px 0;
+    font-size: 20px;
+    color: #2c3e50;
+    font-weight: 600;
+}
+
+.stats-result-summary {
+    font-size: 14px;
+    color: #6c757d;
+}
+
+.stats-result-summary strong {
+    color: #28a745;
+    font-size: 16px;
+}
+
+/* TOP3统计卡片网格 */
+.stats-top3-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.stats-top3-card {
+    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+    border-radius: 10px;
+    padding: 16px;
+    border: 2px solid #e9ecef;
+    transition: all 0.3s ease;
+}
+
+.stats-top3-card:hover {
+    border-color: #007bff;
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.15);
+    transform: translateY(-2px);
+}
+
+.stats-top3-card h5 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    color: #6c757d;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stats-value-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.stats-value-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: white;
+    border-radius: 6px;
+    border-left: 4px solid transparent;
+    transition: all 0.2s;
+}
+
+.stats-value-item:nth-child(1) {
+    border-left-color: #ffd700;
+    background: linear-gradient(90deg, #fffbeb 0%, white 100%);
+}
+
+.stats-value-item:nth-child(2) {
+    border-left-color: #c0c0c0;
+    background: linear-gradient(90deg, #f5f5f5 0%, white 100%);
+}
+
+.stats-value-item:nth-child(3) {
+    border-left-color: #cd7f32;
+    background: linear-gradient(90deg, #fef3e8 0%, white 100%);
+}
+
+.stats-value-label {
+    font-weight: 600;
+    color: #495057;
+    font-size: 14px;
+}
+
+.stats-value-count {
+    color: #28a745;
+    font-weight: 700;
+    font-size: 14px;
+}
+
+/* 详细数据表格 */
+.stats-detail-section {
+    margin-top: 24px;
+}
+
+.stats-detail-section h4 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    color: #495057;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.stats-detail-actions {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.export-csv-btn {
+    padding: 8px 16px;
+    background: #28a745;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.export-csv-btn:hover {
+    background: #218838;
+    transform: translateY(-1px);
+}
+
+.stats-detail-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.stats-detail-table thead {
+    background: linear-gradient(135deg, #007bff, #0056b3);
+    color: white;
+}
+
+.stats-detail-table th {
+    padding: 12px 10px;
+    text-align: center;
+    font-weight: 600;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.stats-detail-table td {
+    padding: 10px;
+    text-align: center;
+    border: 1px solid #dee2e6;
+}
+
+.stats-detail-table tbody tr:nth-child(even) {
+    background: #f8f9fa;
+}
+
+.stats-detail-table tbody tr:hover {
+    background: #e3f2fd;
+}
+
+/* 空状态提�?*/
+.stats-empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #6c757d;
+}
+
+.stats-empty-state svg {
+    width: 80px;
+    height: 80px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.stats-empty-state h4 {
+    margin: 0 0 8px 0;
+    font-size: 18px;
+    color: #495057;
+}
+
+.stats-empty-state p {
+    margin: 0;
+    font-size: 14px;
+}

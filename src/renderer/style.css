@@ -568,6 +568,11 @@ body::-webkit-scrollbar-thumb:hover {
     border-bottom: 1px solid #e9ecef;
     display: flex;
     gap: 15px;
+    position: sticky;
+    top: 0; /* 相对于.panel容器置顶 */
+    z-index: 99;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+    margin-top: 0;
 }
 
 .sub-nav-item {
@@ -1240,10 +1245,12 @@ body::-webkit-scrollbar-thumb:hover {
     .nav-bar {
         padding: 10px 15px;
     }
-    
+
     .sub-nav {
         padding: 10px 15px;
         flex-wrap: wrap;
+        top: 0; /* 相对于.panel容器置顶 */
+        margin-top: 0;
     }
     
     .content-header {

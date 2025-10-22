@@ -448,6 +448,7 @@
                 <div class="sub-nav">
                     <button class="sub-nav-item active" data-content="dlt-history">往期开奖</button>
                     <button class="sub-nav-item" data-content="dlt-trend">走势图</button>
+                    <button class="sub-nav-item" data-content="dlt-stats-relation">统计关系</button>
                     <button class="sub-nav-item" data-content="dlt-expert">专家和值预测</button>
                     <button class="sub-nav-item" data-content="dlt-combination">组合预测</button>
                     <button class="sub-nav-item" data-content="dlt-batch-prediction">组合批量预测</button>
@@ -986,6 +987,159 @@
                                     </tfoot>
                                 </table>
                             </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="dlt-stats-relation" class="panel-content">
+                        <div class="content-header">
+                            <h2>统计关系分析</h2>
+                            <p style="color: #6c757d; font-size: 14px; margin-top: 8px;">选择热温冷比，统计同时出现的前区和值、跨度、区间比、AC值的高频组合</p>
+                        </div>
+                        <div class="content-body">
+                            <div class="stats-relation-container">
+                                <!-- 分析条件设置区 -->
+                                <div class="stats-condition-panel">
+                                    <h3>📋 分析条件设置</h3>
+
+                                    <!-- 热温冷比选择 -->
+                                    <div class="condition-section">
+                                        <h4>1️⃣ 选择热温冷比（可多选）</h4>
+                                        <div class="hwc-ratio-grid">
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="5:0:0">
+                                                <span class="hwc-label-text">5:0:0 <small>(5热)</small></span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="4:1:0">
+                                                <span class="hwc-label-text">4:1:0</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="4:0:1">
+                                                <span class="hwc-label-text">4:0:1</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="3:2:0">
+                                                <span class="hwc-label-text">3:2:0</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="3:1:1">
+                                                <span class="hwc-label-text">3:1:1</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="3:0:2">
+                                                <span class="hwc-label-text">3:0:2</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="2:3:0">
+                                                <span class="hwc-label-text">2:3:0</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="2:2:1">
+                                                <span class="hwc-label-text">2:2:1</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="2:1:2">
+                                                <span class="hwc-label-text">2:1:2</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="2:0:3">
+                                                <span class="hwc-label-text">2:0:3</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="1:4:0">
+                                                <span class="hwc-label-text">1:4:0</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="1:3:1">
+                                                <span class="hwc-label-text">1:3:1</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="1:2:2">
+                                                <span class="hwc-label-text">1:2:2</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="1:1:3">
+                                                <span class="hwc-label-text">1:1:3</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="1:0:4">
+                                                <span class="hwc-label-text">1:0:4</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="0:5:0">
+                                                <span class="hwc-label-text">0:5:0 <small>(5温)</small></span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="0:4:1">
+                                                <span class="hwc-label-text">0:4:1</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="0:3:2">
+                                                <span class="hwc-label-text">0:3:2</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="0:2:3">
+                                                <span class="hwc-label-text">0:2:3</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="0:1:4">
+                                                <span class="hwc-label-text">0:1:4</span>
+                                            </label>
+                                            <label class="hwc-checkbox-label">
+                                                <input type="checkbox" class="hwc-ratio-checkbox" value="0:0:5">
+                                                <span class="hwc-label-text">0:0:5 <small>(5冷)</small></span>
+                                            </label>
+                                        </div>
+                                        <div class="hwc-quick-actions">
+                                            <button class="quick-select-btn" data-type="hot">快选：热号为主</button>
+                                            <button class="quick-select-btn" data-type="warm">快选：温号为主</button>
+                                            <button class="quick-select-btn" data-type="cold">快选：冷号为主</button>
+                                            <button class="quick-select-btn" data-type="balanced">快选：均衡型</button>
+                                            <button class="clear-select-btn">清空选择</button>
+                                        </div>
+                                    </div>
+
+                                    <!-- 分析范围选择 -->
+                                    <div class="condition-section">
+                                        <h4>2️⃣ 分析范围</h4>
+                                        <div class="range-selector">
+                                            <div class="range-radio-group">
+                                                <label class="range-radio-label">
+                                                    <input type="radio" name="stats-range" value="30" checked>
+                                                    <span>最近30期</span>
+                                                </label>
+                                                <label class="range-radio-label">
+                                                    <input type="radio" name="stats-range" value="50">
+                                                    <span>最近50期</span>
+                                                </label>
+                                                <label class="range-radio-label">
+                                                    <input type="radio" name="stats-range" value="100">
+                                                    <span>最近100期</span>
+                                                </label>
+                                                <label class="range-radio-label">
+                                                    <input type="radio" name="stats-range" value="custom">
+                                                    <span>自定义期号</span>
+                                                </label>
+                                            </div>
+                                            <div class="custom-range-inputs" style="display: none;">
+                                                <input type="text" id="stats-start-issue" placeholder="起始期号 (如: 2024001)" maxlength="7">
+                                                <span>至</span>
+                                                <input type="text" id="stats-end-issue" placeholder="结束期号 (如: 2024100)" maxlength="7">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 操作按钮 -->
+                                    <div class="condition-actions">
+                                        <button class="analyze-btn" id="start-stats-analyze">🔍 开始分析</button>
+                                        <button class="reset-btn" id="reset-stats-condition">🔄 重置条件</button>
+                                    </div>
+                                </div>
+
+                                <!-- 统计结果展示区 -->
+                                <div class="stats-result-panel" id="stats-result-panel" style="display: none;">
+                                    <!-- 结果将由JavaScript动态生成 -->
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1801,6 +1955,38 @@
                                             <label><input type="checkbox" value="0:5" class="batch-odd-even-cb" disabled> 0:5</label>
                                             <label><input type="checkbox" value="4:1" class="batch-odd-even-cb" disabled> 4:1</label>
                                             <label><input type="checkbox" value="1:4" class="batch-odd-even-cb" disabled> 1:4</label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- AC值排除 -->
+                                <div class="filter-row">
+                                    <div class="filter-checkbox">
+                                        <label>
+                                            <input type="checkbox" id="batch-exclude-ac">
+                                            <span>🔢 AC值排除</span>
+                                        </label>
+                                    </div>
+                                    <div class="filter-config">
+                                        <div class="batch-ac-values-selection">
+                                            <label><input type="checkbox" id="batch-ac-0" value="0" class="batch-ac-value-cb" disabled> AC=0</label>
+                                            <label><input type="checkbox" id="batch-ac-1" value="1" class="batch-ac-value-cb" disabled> AC=1</label>
+                                            <label><input type="checkbox" id="batch-ac-2" value="2" class="batch-ac-value-cb" disabled> AC=2</label>
+                                            <label><input type="checkbox" id="batch-ac-3" value="3" class="batch-ac-value-cb" disabled> AC=3</label>
+                                            <label><input type="checkbox" id="batch-ac-4" value="4" class="batch-ac-value-cb" disabled> AC=4</label>
+                                            <label><input type="checkbox" id="batch-ac-5" value="5" class="batch-ac-value-cb" disabled> AC=5</label>
+                                            <label><input type="checkbox" id="batch-ac-6" value="6" class="batch-ac-value-cb" disabled> AC=6</label>
+                                        </div>
+                                        <div class="batch-historical-exclude">
+                                            <label class="batch-checkbox-wrapper">
+                                                <input type="checkbox" id="batch-ac-historical-enabled" disabled>
+                                                <span>同时排除历史AC值:</span>
+                                            </label>
+                                            <label class="batch-radio-option">
+                                                <span>最近</span>
+                                                <input type="number" id="batch-ac-recent-custom" placeholder="期数" min="1" max="100" value="10" class="batch-custom-input" disabled>
+                                                <span>期</span>
+                                            </label>
                                         </div>
                                     </div>
                                 </div>
@@ -2723,7 +2909,9 @@
     </div>
     <script src="app.js"></script>
     <script src="dlt-module.js"></script>
-    
+    <script src="dlt-statistics-panel.js"></script>
+    <script src="dlt-stats-relation.js"></script>
+
     <script>
     // 批量预测复选框联动功能
     document.addEventListener('DOMContentLoaded', function() {

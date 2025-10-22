@@ -38,7 +38,9 @@
       "Bash(copy:*)",
       "Bash(cp:*)",
       "Bash(npm install:*)",
-      "Bash(PORT=3003 node:*)"
+      "Bash(PORT=3003 node:*)",
+      "Bash(git tag:*)",
+      "Bash(ping:*)"
     ],
     "deny": [],
     "ask": []

@@ -191,10 +191,12 @@ async function startInternalServer() {
           await serverModule.ensureDatabaseIndexes();
         }
 
-        // 阶段2优化 B1：预加载组合特征缓存
-        if (serverModule.preloadComboFeaturesCache) {
-          await serverModule.preloadComboFeaturesCache();
-        }
+        // ⚠️ 阶段2优化 B1：预加载组合特征缓存（已禁用，占用过多内存和CPU）
+        // 这个预加载会在启动时加载324,632个组合到内存（727MB），导致MongoDB和CPU负载过高
+        // 批量预测功能仍然会使用"阶段1优化"的按需缓存机制，已经提供6倍性能提升
+        // if (serverModule.preloadComboFeaturesCache) {
+        //   await serverModule.preloadComboFeaturesCache();
+        // }
 
         resolve();
       });
