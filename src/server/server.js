@@ -11062,7 +11062,7 @@ class StreamBatchPredictor {
                     if (excludeFeatures.combo_2.size > 0 || excludeFeatures.combo_3.size > 0 || excludeFeatures.combo_4.size > 0) {
                         log(`🔗 [${this.sessionId}] 待排除特征(按红球) - 2码:${excludeFeatures.combo_2.size}个, 3码:${excludeFeatures.combo_3.size}个, 4码:${excludeFeatures.combo_4.size}个`);
 
-                        // 使用特征匹配过滤
+                        // ⚡ 性能优化：使用优化的特征匹配过滤（早期退出 + 逆序检查）
                         allCombinations = allCombinations.filter(combo => {
                             // 🎯 动态计算组合特征（修复bug：支持没有预存特征的组合）
                             let combo_2, combo_3, combo_4;
@@ -11080,29 +11080,29 @@ class StreamBatchPredictor {
                                 combo_4 = features.combo_4;
                             }
 
-                            // 检查2码特征匹配
-                            if (excludeFeatures.combo_2.size > 0) {
-                                for (const feature of combo_2) {
-                                    if (excludeFeatures.combo_2.has(feature)) {
-                                        return false;  // 包含待排除的2码特征，排除该组合
-                                    }
-                                }
-                            }
-
-                            // 检查3码特征匹配
-                            if (excludeFeatures.combo_3.size > 0) {
-                                for (const feature of combo_3) {
-                                    if (excludeFeatures.combo_3.has(feature)) {
-                                        return false;  // 包含待排除的3码特征，排除该组合
-                                    }
-                                }
-                            }
-
-                            // 检查4码特征匹配
+                            // ⚡ 优化1：优先检查4码特征（数量最少，最容易命中排除，实现早期退出）
                             if (excludeFeatures.combo_4.size > 0) {
                                 for (const feature of combo_4) {
                                     if (excludeFeatures.combo_4.has(feature)) {
-                                        return false;  // 包含待排除的4码特征，排除该组合
+                                        return false;  // 早期退出：包含待排除的4码特征
+                                    }
+                                }
+                            }
+
+                            // ⚡ 优化2：再检查3码特征
+                            if (excludeFeatures.combo_3.size > 0) {
+                                for (const feature of combo_3) {
+                                    if (excludeFeatures.combo_3.has(feature)) {
+                                        return false;  // 早期退出：包含待排除的3码特征
+                                    }
+                                }
+                            }
+
+                            // ⚡ 优化3：最后检查2码特征（数量最多，放最后）
+                            if (excludeFeatures.combo_2.size > 0) {
+                                for (const feature of combo_2) {
+                                    if (excludeFeatures.combo_2.has(feature)) {
+                                        return false;  // 包含待排除的2码特征
                                     }
                                 }
                             }
