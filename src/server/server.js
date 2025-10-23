@@ -12004,38 +12004,170 @@ class StreamBatchPredictor {
             const actualRed = [actualResult.Red1, actualResult.Red2, actualResult.Red3, actualResult.Red4, actualResult.Red5];
             const actualBlue = [actualResult.Blue1, actualResult.Blue2];
 
-            // 分析命中情况
+            // 🔧 修复：支持对象格式的组合数据
+            // 分析红球命中情况
             const redHits = redCombinations.map(combo => {
-                const hitCount = combo.filter(num => actualRed.includes(num)).length;
-                return { combination: combo, hits: hitCount };
+                const comboArray = Array.isArray(combo)
+                    ? combo
+                    : [combo.red_ball_1, combo.red_ball_2, combo.red_ball_3, combo.red_ball_4, combo.red_ball_5];
+
+                const hitCount = comboArray.filter(num => actualRed.includes(num)).length;
+                return { combination: comboArray, hits: hitCount };
             });
 
-            const bestRedHit = Math.max(...redHits.map(h => h.hits));
+            const bestRedHit = Math.max(...redHits.map(h => h.hits), 0);
 
             // 分析蓝球命中情况
             const blueHits = blueCombinations.map(combo => {
-                const hitCount = combo.filter(num => actualBlue.includes(num)).length;
-                return { combination: combo, hits: hitCount };
+                const comboArray = Array.isArray(combo)
+                    ? combo
+                    : [combo.blue_ball_1, combo.blue_ball_2];
+
+                const hitCount = comboArray.filter(num => actualBlue.includes(num)).length;
+                return { combination: comboArray, hits: hitCount };
             });
 
-            const bestBlueHit = Math.max(...blueHits.map(h => h.hits));
+            const bestBlueHit = Math.max(...blueHits.map(h => h.hits), 0);
+
+            // 🔧 新增：计算奖项统计（一到九等奖）
+            const prize_stats = await this.calculatePrizeStats(redHits, blueHits, actualResult);
+
+            // 计算命中分布
+            const redHitDistribution = this.calculateHitDistribution(redHits);
+            const blueHitDistribution = this.calculateBlueHitDistribution(blueHits);
+
+            // 计算总命中组合数和命中率
+            const totalCombinations = redHits.length * blueHits.length;
+            const totalWinningCombos = Object.values(prize_stats).reduce((sum, stat) => sum + stat.count, 0);
+            const hitRate = totalCombinations > 0 ? (totalWinningCombos / totalCombinations) * 100 : 0;
+
+            // 计算总奖金
+            const totalPrize = Object.values(prize_stats).reduce((sum, stat) => sum + stat.amount, 0);
 
             return {
                 actual_red: actualRed,
                 actual_blue: actualBlue,
+                max_hit_count: bestRedHit,
+                max_hit_combinations: redHits.filter(h => h.hits === bestRedHit).map(h => h.combination),
+                hit_distribution: {
+                    red_5: redHitDistribution[5] || 0,
+                    red_4: redHitDistribution[4] || 0,
+                    red_3: redHitDistribution[3] || 0,
+                    red_2: redHitDistribution[2] || 0,
+                    red_1: redHitDistribution[1] || 0,
+                    red_0: redHitDistribution[0] || 0
+                },
+                prize_stats: prize_stats,
+                hit_rate: Math.round(hitRate * 100) / 100,
+                total_prize: totalPrize,
                 red_hit_analysis: {
                     best_hit: bestRedHit,
-                    hit_distribution: this.calculateHitDistribution(redHits)
+                    hit_distribution: redHitDistribution
                 },
                 blue_hit_analysis: {
                     best_hit: bestBlueHit,
-                    hit_distribution: this.calculateBlueHitDistribution(blueHits)
+                    hit_distribution: blueHitDistribution
                 }
             };
         } catch (error) {
             log(`❌ [${this.sessionId}] 命中验证失败: ${error.message}`);
+            console.error(error);
             return null;
         }
+    }
+
+    /**
+     * 🔧 新增：计算奖项统计（一到九等奖）
+     * 根据大乐透中奖规则判断奖项
+     */
+    async calculatePrizeStats(redHits, blueHits, actualResult) {
+        // 从DLT表读取浮动奖金
+        const firstPrizeAmount = this.parsePrizeAmount(actualResult.FirstPrizeAmount);
+        const secondPrizeAmount = this.parsePrizeAmount(actualResult.SecondPrizeAmount);
+
+        // 固定奖金（单位：元）
+        const FIXED_PRIZES = {
+            third: 10000,      // 三等奖
+            fourth: 3000,      // 四等奖
+            fifth: 300,        // 五等奖
+            sixth: 200,        // 六等奖
+            seventh: 100,      // 七等奖
+            eighth: 15,        // 八等奖
+            ninth: 5           // 九等奖
+        };
+
+        const prize_stats = {
+            first_prize: { count: 0, amount: 0 },
+            second_prize: { count: 0, amount: 0 },
+            third_prize: { count: 0, amount: 0 },
+            fourth_prize: { count: 0, amount: 0 },
+            fifth_prize: { count: 0, amount: 0 },
+            sixth_prize: { count: 0, amount: 0 },
+            seventh_prize: { count: 0, amount: 0 },
+            eighth_prize: { count: 0, amount: 0 },
+            ninth_prize: { count: 0, amount: 0 }
+        };
+
+        // 遍历所有红球+蓝球组合，判断奖项
+        for (const redHit of redHits) {
+            for (const blueHit of blueHits) {
+                const redHitCount = redHit.hits;
+                const blueHitCount = blueHit.hits;
+
+                // 根据大乐透中奖规则判断
+                if (redHitCount === 5 && blueHitCount === 2) {
+                    // 一等奖：5+2
+                    prize_stats.first_prize.count++;
+                    prize_stats.first_prize.amount += firstPrizeAmount;
+                } else if (redHitCount === 5 && blueHitCount === 1) {
+                    // 二等奖：5+1
+                    prize_stats.second_prize.count++;
+                    prize_stats.second_prize.amount += secondPrizeAmount;
+                } else if (redHitCount === 5 && blueHitCount === 0) {
+                    // 三等奖：5+0
+                    prize_stats.third_prize.count++;
+                    prize_stats.third_prize.amount += FIXED_PRIZES.third;
+                } else if (redHitCount === 4 && blueHitCount === 2) {
+                    // 四等奖：4+2
+                    prize_stats.fourth_prize.count++;
+                    prize_stats.fourth_prize.amount += FIXED_PRIZES.fourth;
+                } else if ((redHitCount === 4 && blueHitCount === 1) || (redHitCount === 3 && blueHitCount === 2)) {
+                    // 五等奖：4+1 或 3+2
+                    prize_stats.fifth_prize.count++;
+                    prize_stats.fifth_prize.amount += FIXED_PRIZES.fifth;
+                } else if ((redHitCount === 4 && blueHitCount === 0) || (redHitCount === 3 && blueHitCount === 1) || (redHitCount === 2 && blueHitCount === 2)) {
+                    // 六等奖：4+0 或 3+1 或 2+2
+                    prize_stats.sixth_prize.count++;
+                    prize_stats.sixth_prize.amount += FIXED_PRIZES.sixth;
+                } else if ((redHitCount === 3 && blueHitCount === 0) || (redHitCount === 2 && blueHitCount === 1) || (redHitCount === 1 && blueHitCount === 2)) {
+                    // 七等奖：3+0 或 2+1 或 1+2
+                    prize_stats.seventh_prize.count++;
+                    prize_stats.seventh_prize.amount += FIXED_PRIZES.seventh;
+                } else if ((redHitCount === 2 && blueHitCount === 0) || (redHitCount === 1 && blueHitCount === 1) || (redHitCount === 0 && blueHitCount === 2)) {
+                    // 八等奖：2+0 或 1+1 或 0+2
+                    prize_stats.eighth_prize.count++;
+                    prize_stats.eighth_prize.amount += FIXED_PRIZES.eighth;
+                } else if ((redHitCount === 1 && blueHitCount === 0) || (redHitCount === 0 && blueHitCount === 1)) {
+                    // 九等奖：1+0 或 0+1
+                    prize_stats.ninth_prize.count++;
+                    prize_stats.ninth_prize.amount += FIXED_PRIZES.ninth;
+                }
+            }
+        }
+
+        return prize_stats;
+    }
+
+    /**
+     * 🔧 新增：解析奖金金额字符串
+     * DLT表中奖金可能是 "1,234,567" 或 "1234567" 格式
+     */
+    parsePrizeAmount(amountStr) {
+        if (!amountStr) return 0;
+        // 移除逗号和空格，转为数字
+        const cleaned = amountStr.toString().replace(/,/g, '').replace(/\s/g, '');
+        const amount = parseInt(cleaned);
+        return isNaN(amount) ? 0 : amount;
     }
 
     /**
