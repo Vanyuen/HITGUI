@@ -56,6 +56,63 @@ dltComboFeaturesSchema.index({ combo_4: 1 });
 
 const DLTComboFeatures = mongoose.model('HIT_DLT_ComboFeatures', dltComboFeaturesSchema);
 
+// DLTRedCombinationsHotWarmColdOptimized Schema - 热温冷比优化表
+const dltRedCombinationsHotWarmColdOptimizedSchema = new mongoose.Schema({
+    base_issue: { type: String, required: true },
+    target_issue: { type: String, required: true },
+    hot_warm_cold_data: {
+        type: Map,
+        of: [Number], // 每个比例对应的combination_id数组
+        required: true
+    },
+    total_combinations: { type: Number, required: true },
+    hit_analysis: {
+        target_winning_reds: [Number],
+        target_winning_blues: [Number],
+        red_hit_data: {
+            type: Map,
+            of: [Number]
+        },
+        hit_statistics: {
+            hit_0: { type: Number, default: 0 },
+            hit_1: { type: Number, default: 0 },
+            hit_2: { type: Number, default: 0 },
+            hit_3: { type: Number, default: 0 },
+            hit_4: { type: Number, default: 0 },
+            hit_5: { type: Number, default: 0 }
+        },
+        is_drawn: { type: Boolean, default: false }
+    },
+    statistics: {
+        ratio_counts: {
+            type: Map,
+            of: Number
+        }
+    },
+    created_at: { type: Date, default: Date.now }
+});
+
+dltRedCombinationsHotWarmColdOptimizedSchema.index({ base_issue: 1 });
+dltRedCombinationsHotWarmColdOptimizedSchema.index({ target_issue: 1 });
+dltRedCombinationsHotWarmColdOptimizedSchema.index({ base_issue: 1, target_issue: 1 }, { unique: true });
+
+const DLTRedCombinationsHotWarmColdOptimized = mongoose.model(
+    'HIT_DLT_RedCombinationsHotWarmColdOptimized',
+    dltRedCombinationsHotWarmColdOptimizedSchema
+);
+
+// DLTRedCombination Schema - 红球组合表
+const dltRedCombinationSchema = new mongoose.Schema({
+    combination_id: { type: Number, required: true, unique: true },
+    red_ball_1: { type: Number, required: true },
+    red_ball_2: { type: Number, required: true },
+    red_ball_3: { type: Number, required: true },
+    red_ball_4: { type: Number, required: true },
+    red_ball_5: { type: Number, required: true }
+});
+
+const DLTRedCombination = mongoose.model('HIT_DLT_RedCombinations', dltRedCombinationSchema);
+
 // 组合特征生成工具函数
 function generateCombo2(balls) {
     const combos = [];
@@ -356,10 +413,166 @@ async function cleanupExpiredCache() {
     console.log(`✅ 已清理 ${result.deletedCount} 条过期缓存\n`);
 }
 
-// 步骤5: 验证数据
+// 步骤5: 生成热温冷比优化表
+async function generateHotWarmColdOptimizedTable() {
+    console.log('═══════════════════════════════════════════════════════════════');
+    console.log('🔥 步骤5/6: 生成热温冷比优化表');
+    console.log('═══════════════════════════════════════════════════════════════\n');
+
+    const startTime = Date.now();
+
+    // 获取所有期号（按升序）
+    const allIssues = await DLT.find({}).sort({ Issue: 1 }).lean();
+    console.log(`📊 找到 ${allIssues.length} 期数据\n`);
+
+    if (allIssues.length < 2) {
+        console.log('⚠️  数据不足（需要至少2期），跳过热温冷比生成\n');
+        return;
+    }
+
+    // 获取所有红球组合（324,632个）
+    console.log('📥 加载红球组合数据...');
+    const allRedCombinations = await DLTRedCombination.find({}).lean();
+
+    if (!allRedCombinations || allRedCombinations.length === 0) {
+        console.log('⚠️  红球组合表为空！请先运行 generate-all-combinations.js\n');
+        return;
+    }
+
+    console.log(`   加载了 ${allRedCombinations.length} 个红球组合\n`);
+
+    // 批量生成：每次处理一个目标期号
+    let processedCount = 0;
+    let createdCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+
+    console.log('🔄 开始批量生成热温冷比数据...\n');
+
+    for (let i = 1; i < allIssues.length; i++) {
+        const baseIssue = allIssues[i - 1]; // 前一期作为基准期
+        const targetIssue = allIssues[i];   // 当前期作为目标期
+
+        const baseIssueStr = baseIssue.Issue.toString();
+        const targetIssueStr = targetIssue.Issue.toString();
+
+        try {
+            // 检查是否已存在
+            const existing = await DLTRedCombinationsHotWarmColdOptimized.findOne({
+                base_issue: baseIssueStr,
+                target_issue: targetIssueStr
+            });
+
+            if (existing) {
+                skippedCount++;
+                processedCount++;
+                continue;
+            }
+
+            // 获取基准期的红球遗漏值
+            const baseMissingRecord = await mongoose.connection.db
+                .collection('hit_dlt_basictrendchart_redballmissing_histories')
+                .findOne({ ID: baseIssue.ID });
+
+            if (!baseMissingRecord) {
+                console.log(`⚠️  跳过（无遗漏数据）: 基准=${baseIssueStr}, 目标=${targetIssueStr}`);
+                errorCount++;
+                processedCount++;
+                continue;
+            }
+
+            // 计算每个组合的热温冷比
+            const hotWarmColdMap = new Map(); // 比例 -> [combination_id, ...]
+
+            for (const combo of allRedCombinations) {
+                const balls = [combo.red_ball_1, combo.red_ball_2, combo.red_ball_3, combo.red_ball_4, combo.red_ball_5];
+
+                // 获取每个红球的遗漏值
+                const missingValues = balls.map(ball => {
+                    const key = String(ball);
+                    return baseMissingRecord[key] || 0;
+                });
+
+                // 计算热温冷比（遗漏值≤4为热号, 5-9为温号, ≥10为冷号）
+                let hot = 0, warm = 0, cold = 0;
+                missingValues.forEach(missing => {
+                    if (missing <= 4) hot++;
+                    else if (missing <= 9) warm++;
+                    else cold++;
+                });
+
+                const ratio = `${hot}:${warm}:${cold}`;
+
+                // 按比例分组
+                if (!hotWarmColdMap.has(ratio)) {
+                    hotWarmColdMap.set(ratio, []);
+                }
+                hotWarmColdMap.get(ratio).push(combo.combination_id);
+            }
+
+            // 转换为普通对象（MongoDB Map格式）
+            const hotWarmColdData = {};
+            const ratioCounts = {};
+            for (const [ratio, combinationIds] of hotWarmColdMap.entries()) {
+                hotWarmColdData[ratio] = combinationIds;
+                ratioCounts[ratio] = combinationIds.length;
+            }
+
+            // 保存到数据库
+            await DLTRedCombinationsHotWarmColdOptimized.create({
+                base_issue: baseIssueStr,
+                target_issue: targetIssueStr,
+                hot_warm_cold_data: hotWarmColdData,
+                total_combinations: allRedCombinations.length,
+                hit_analysis: {
+                    target_winning_reds: [targetIssue.Red1, targetIssue.Red2, targetIssue.Red3, targetIssue.Red4, targetIssue.Red5],
+                    target_winning_blues: [targetIssue.Blue1, targetIssue.Blue2],
+                    red_hit_data: {},
+                    hit_statistics: {
+                        hit_0: 0,
+                        hit_1: 0,
+                        hit_2: 0,
+                        hit_3: 0,
+                        hit_4: 0,
+                        hit_5: 0
+                    },
+                    is_drawn: true
+                },
+                statistics: {
+                    ratio_counts: ratioCounts
+                }
+            });
+
+            createdCount++;
+            processedCount++;
+
+            // 每10期输出一次进度
+            if (processedCount % 10 === 0) {
+                const progress = ((processedCount / (allIssues.length - 1)) * 100).toFixed(1);
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                console.log(`📈 进度: ${progress}% (${processedCount}/${allIssues.length - 1}期), 新建${createdCount}条, 跳过${skippedCount}条, 耗时${elapsed}秒`);
+            }
+
+        } catch (error) {
+            console.log(`❌ 处理失败 - 基准=${baseIssueStr}, 目标=${targetIssueStr}: ${error.message}`);
+            errorCount++;
+            processedCount++;
+        }
+    }
+
+    const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`\n✅ 热温冷比生成完成!`);
+    console.log(`   处理: ${processedCount}期`);
+    console.log(`   新建: ${createdCount}条`);
+    console.log(`   跳过: ${skippedCount}条`);
+    console.log(`   错误: ${errorCount}条`);
+    console.log(`   耗时: ${totalTime}秒\n`);
+}
+
+// 步骤6: 验证数据
 async function verifyData() {
     console.log('═══════════════════════════════════════════════════════════════');
-    console.log('✔️  步骤5/5: 验证数据完整性');
+    console.log('✔️  步骤6/6: 验证数据完整性');
     console.log('═══════════════════════════════════════════════════════════════\n');
 
     const dltCount = await DLT.countDocuments();
@@ -368,17 +581,40 @@ async function verifyData() {
     const redMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories').countDocuments();
     const blueMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').countDocuments();
     const comboFeaturesCount = await DLTComboFeatures.countDocuments();
+    const hwcOptimizedCount = await DLTRedCombinationsHotWarmColdOptimized.countDocuments();
 
     console.log(`📊 HIT_DLT: ${dltCount} 期，最新期号 ${dltLatest?.Issue}`);
     console.log(`📊 红球遗漏: ${redMissingCount} 期`);
     console.log(`📊 蓝球遗漏: ${blueMissingCount} 期`);
-    console.log(`📊 组合特征: ${comboFeaturesCount} 期\n`);
+    console.log(`📊 组合特征: ${comboFeaturesCount} 期`);
+    console.log(`📊 热温冷比: ${hwcOptimizedCount} 条\n`);
 
-    if (dltCount === redMissingCount && dltCount === blueMissingCount && dltCount === comboFeaturesCount) {
+    const expectedHWCCount = dltCount > 0 ? dltCount - 1 : 0; // 期号数-1（第一期没有前一期基准）
+
+    const allComplete =
+        dltCount === redMissingCount &&
+        dltCount === blueMissingCount &&
+        dltCount === comboFeaturesCount &&
+        hwcOptimizedCount === expectedHWCCount;
+
+    if (allComplete) {
         console.log('✅ 数据完整性验证通过！\n');
         return true;
     } else {
-        console.log('⚠️  数据不一致，请检查！\n');
+        console.log('⚠️  数据不一致，请检查：');
+        if (dltCount !== redMissingCount) {
+            console.log(`   红球遗漏: 期望${dltCount}期, 实际${redMissingCount}期`);
+        }
+        if (dltCount !== blueMissingCount) {
+            console.log(`   蓝球遗漏: 期望${dltCount}期, 实际${blueMissingCount}期`);
+        }
+        if (dltCount !== comboFeaturesCount) {
+            console.log(`   组合特征: 期望${dltCount}期, 实际${comboFeaturesCount}期`);
+        }
+        if (hwcOptimizedCount !== expectedHWCCount) {
+            console.log(`   热温冷比: 期望${expectedHWCCount}条, 实际${hwcOptimizedCount}条`);
+        }
+        console.log('\n');
         return false;
     }
 }
@@ -389,7 +625,7 @@ async function updateAllTables(mode, csvPath) {
         await connectDB();
 
         console.log('═══════════════════════════════════════════════════════════════');
-        console.log('🚀 开始统一更新大乐透数据表');
+        console.log('🚀 开始统一更新大乐透数据表（包含热温冷比）');
         console.log(`   模式: ${mode === 'full' ? '全量更新' : '快速修复'}`);
         console.log('═══════════════════════════════════════════════════════════════\n');
 
@@ -404,6 +640,7 @@ async function updateAllTables(mode, csvPath) {
 
         await generateMissingTables();
         await generateComboFeatures();
+        await generateHotWarmColdOptimizedTable();
         await cleanupExpiredCache();
         const isValid = await verifyData();
 
