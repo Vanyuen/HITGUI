@@ -82,7 +82,7 @@ async function generateAllCombinations() {
 
     try {
         // 1. 连接数据库
-        const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/HIT';
+        const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/lottery';
         await mongoose.connect(MONGO_URI);
         console.log('✅ 数据库连接成功\n');
 
@@ -171,9 +171,19 @@ async function generateAllCombinations() {
 
         for (let i = 0; i < combinations.length; i += batchSize) {
             const batch = combinations.slice(i, i + batchSize);
-            await DLTRedCombinations.insertMany(batch, { ordered: false });
-            inserted += batch.length;
-            console.log(`   插入进度: ${inserted} / ${combinations.length} (${((inserted / combinations.length) * 100).toFixed(1)}%)`);
+            try {
+                const result = await DLTRedCombinations.insertMany(batch, { ordered: false });
+                inserted += result.length;
+                console.log(`   插入进度: ${inserted} / ${combinations.length} (${((inserted / combinations.length) * 100).toFixed(1)}%)`);
+            } catch (insertError) {
+                console.error(`\n❌ 批次${i}-${i+batchSize}插入失败:`);
+                console.error(`   错误: ${insertError.message}`);
+                if (insertError.writeErrors && insertError.writeErrors.length > 0) {
+                    console.error(`   失败记录数: ${insertError.writeErrors.length}`);
+                    console.error(`   第一个错误:`, insertError.writeErrors[0]);
+                }
+                throw insertError;
+            }
         }
 
         console.log(`\n✅ 数据插入完成！\n`);

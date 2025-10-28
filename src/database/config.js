@@ -35,11 +35,11 @@ class DatabaseManager {
         await mongoose.connect(localUri, {
           useNewUrlParser: true,
           useUnifiedTopology: true,
-          serverSelectionTimeoutMS: 5000, // 5秒超时
-          connectTimeoutMS: 30000,         // 连接超时30秒
-          socketTimeoutMS: 45000,          // Socket超时45秒（性能优化：更快发现问题）
-          maxPoolSize: 10,                 // 连接池大小
-          minPoolSize: 2
+          serverSelectionTimeoutMS: 5000,  // 5秒超时
+          connectTimeoutMS: 30000,          // 连接超时30秒
+          socketTimeoutMS: 360000,          // ⚡ 性能优化：Socket超时提升到6分钟（避免长时间操作超时）
+          maxPoolSize: 50,                  // ⚡ 性能优化：连接池增加到50（支持批量预测并发）
+          minPoolSize: 5                    // 最小保持5个连接
         });
 
         console.log('✅ 已连接到本地MongoDB数据库');
@@ -68,6 +68,11 @@ class DatabaseManager {
         const uri = this.mongod.getUri();
 
         await mongoose.connect(uri, {
+          maxPoolSize: 50,                  // ⚡ 性能优化：连接池增加到50
+          minPoolSize: 5,                   // 最小保持5个连接
+          serverSelectionTimeoutMS: 5000,
+          socketTimeoutMS: 360000,          // ⚡ 性能优化：Socket超时提升到6分钟
+          family: 4,
           useNewUrlParser: true,
           useUnifiedTopology: true
         });

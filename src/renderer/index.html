@@ -1666,25 +1666,32 @@
                             <!-- 期号范围配置 -->
                             <div class="config-group">
                                 <h3>📅 预测期号范围</h3>
+                                <!-- ⭐ 新增说明文字 -->
+                                <p class="hint-text" style="color: #666; font-size: 13px; margin: 8px 0;">
+                                    💡 提示：所有预测基于已开奖期号 + 自动推算的下一期目标期号
+                                </p>
                                 <div class="range-config">
                                     <div class="range-type">
                                         <label>
                                             <input type="radio" name="batch-range-type" value="all" checked>
                                             <span>全部历史期号 (所有已开奖期号)</span>
                                         </label>
-                                        <label>
+                                        <div class="radio-option">
                                             <input type="radio" name="batch-range-type" value="recent">
                                             <span>最近</span>
                                             <input type="number" id="recent-count" value="100" min="1" max="1000" class="inline-input">
-                                            <span>期</span>
-                                        </label>
-                                        <label>
+                                            <!-- ⭐ 修改说明文字 -->
+                                            <span>期 (已开奖100期 + 推算下一期)</span>
+                                        </div>
+                                        <div class="radio-option">
                                             <input type="radio" name="batch-range-type" value="custom">
                                             <span>自定义范围</span>
                                             <input type="number" id="custom-start" placeholder="起始期号" class="inline-input">
                                             <span>到</span>
                                             <input type="number" id="custom-end" placeholder="结束期号" class="inline-input">
-                                        </label>
+                                            <!-- ⭐ 新增最新期号提示区域 -->
+                                            <span class="latest-issue-hint" id="latest-issue-hint" style="color: #28a745; font-size: 12px; margin-left: 8px;"></span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1726,12 +1733,12 @@
                                                     <input type="checkbox" id="batch-sum-historical-enabled" disabled>
                                                     <span>排除历史和值:</span>
                                                 </label>
-                                                <label class="batch-radio-option">
+                                                <div class="batch-radio-option">
                                                     <input type="radio" name="batch-sum-exclude-type" value="recent" checked disabled>
                                                     <span>最近</span>
                                                     <input type="number" id="batch-sum-recent-custom" placeholder="期数" min="1" max="100" value="10" class="batch-custom-input" disabled>
                                                     <span>期</span>
-                                                </label>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -1770,12 +1777,12 @@
                                                     <input type="checkbox" id="batch-span-historical-enabled" disabled>
                                                     <span>排除历史跨度:</span>
                                                 </label>
-                                                <label class="batch-radio-option">
+                                                <div class="batch-radio-option">
                                                     <input type="radio" name="batch-span-exclude-type" value="recent" checked disabled>
                                                     <span>最近</span>
                                                     <input type="number" id="batch-span-recent-custom" placeholder="期数" min="1" max="100" value="10" class="batch-custom-input" disabled>
                                                     <span>期</span>
-                                                </label>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -1850,12 +1857,12 @@
                                                     <input type="checkbox" id="batch-hwc-historical-enabled" disabled>
                                                     <span>排除历史热温冷比:</span>
                                                 </label>
-                                                <label class="batch-radio-option">
+                                                <div class="batch-radio-option">
                                                     <input type="radio" name="batch-hwc-exclude-type" value="recent" checked disabled>
                                                     <span>最近</span>
                                                     <input type="number" id="batch-hwc-recent-custom" placeholder="期数" min="1" max="100" value="10" class="batch-custom-input" disabled>
                                                     <span>期</span>
-                                                </label>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -1930,12 +1937,12 @@
                                                     <input type="checkbox" id="batch-zone-historical-enabled" disabled>
                                                     <span>排除历史区间比:</span>
                                                 </label>
-                                                <label class="batch-radio-option">
+                                                <div class="batch-radio-option">
                                                     <input type="radio" name="batch-zone-exclude-type" value="recent" checked disabled>
                                                     <span>最近</span>
                                                     <input type="number" id="batch-zone-recent-custom" placeholder="期数" min="1" max="100" value="10" class="batch-custom-input" disabled>
                                                     <span>期</span>
-                                                </label>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -2599,13 +2606,13 @@
                                                 <span class="radiomark"></span>
                                                 <span>最近30期</span>
                                             </label>
-                                            <label class="radio-option">
+                                            <div class="radio-option">
                                                 <input type="radio" name="sum-exclude-type" id="sum-exclude-before-target" value="before-target">
                                                 <span class="radiomark"></span>
                                                 <span>排除预测期前</span>
                                                 <input type="number" id="sum-before-custom" placeholder="期数" min="5" max="50" class="custom-input inline-input" value="10">
                                                 <span>期和值</span>
-                                            </label>
+                                            </div>
                                         </div>
                                     </div>
                                     
@@ -2731,12 +2738,12 @@
                                                 <input type="radio" name="htc-exclude-type" value="recent-30">
                                                 <span>最近30期</span>
                                             </label>
-                                            <label class="radio-option">
+                                            <div class="radio-option">
                                                 <input type="radio" name="htc-exclude-type" value="before-target">
                                                 <span>排除预测期前</span>
                                                 <input type="number" id="htc-before-custom" placeholder="期数" min="5" max="50" class="custom-input inline-input" value="10">
                                                 <span>期热温冷比</span>
-                                            </label>
+                                            </div>
                                         </div>
                                     </div>
                                     
@@ -2862,12 +2869,12 @@
                                                 <input type="radio" name="zone-exclude-type" value="recent-30">
                                                 <span>最近30期</span>
                                             </label>
-                                            <label class="radio-option">
+                                            <div class="radio-option">
                                                 <input type="radio" name="zone-exclude-type" value="before-target">
                                                 <span>排除预测期前</span>
                                                 <input type="number" id="zone-before-custom" placeholder="期数" min="5" max="50" class="custom-input inline-input" value="10">
                                                 <span>期区间比</span>
-                                            </label>
+                                            </div>
                                         </div>
                                     </div>
                                     

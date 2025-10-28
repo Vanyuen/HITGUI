@@ -3638,11 +3638,13 @@
 /* 操作按钮 */
 .batch-actions {
     display: flex;
-    justify-content: center;
+    justify-content: flex-start;
+    align-items: center;
     gap: 15px;
     margin-top: 25px;
     padding-top: 20px;
     border-top: 1px solid #e9ecef;
+    position: relative;
 }
 
 .large-btn {
@@ -4695,12 +4697,35 @@
     align-items: center;
     flex: 1;
     margin-right: 15px;
+    position: relative;
+    z-index: 1;
 }
 
 .task-name-input-group label {
     white-space: nowrap;
     margin-right: 10px;
     font-weight: 500;
+}
+
+.task-name-input-group input[type="text"] {
+    position: relative;
+    z-index: 2;
+    pointer-events: auto;
+    cursor: text;
+    background: white;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
+.task-name-input-group input[type="text"]:hover {
+    border-color: #80bdff;
+}
+
+.task-name-input-group input[type="text"]:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.15);
 }
 
 /* 任务列表区域 */
@@ -5489,7 +5514,7 @@
     background: #5a6268;
 }
 
-/* 范围选择�?*/
+/* 范围选择�?*/
 .range-selector {
     display: flex;
     flex-direction: column;
@@ -5792,7 +5817,7 @@
     background: #e3f2fd;
 }
 
-/* 空状态提�?*/
+/* 空状态提�?*/
 .stats-empty-state {
     text-align: center;
     padding: 60px 20px;

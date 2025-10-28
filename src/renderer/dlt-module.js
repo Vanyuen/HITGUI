@@ -26,6 +26,34 @@ let currentPredictionData = null;
 // ===== 辅助计算函数 =====
 
 /**
+ * 验证热温冷比格式
+ * @param {string} ratio - 热温冷比字符串
+ * @returns {string} 验证后的热温冷比，格式错误时返回 '0:0:0'
+ */
+function validateHotWarmColdRatio(ratio) {
+    // 如果为空、未定义或标记为"需要后端数据"，返回默认值
+    if (!ratio || ratio === '需要后端数据' || ratio === 'undefined') {
+        return '0:0:0';
+    }
+
+    // 检查格式是否为 "数字:数字:数字"
+    if (!/^\d+:\d+:\d+$/.test(ratio)) {
+        console.warn(`⚠️ 热温冷比格式错误: ${ratio}，使用默认值 0:0:0`);
+        return '0:0:0';
+    }
+
+    // 验证三个数字之和是否为5（前区5个号码）
+    const parts = ratio.split(':').map(Number);
+    const sum = parts.reduce((a, b) => a + b, 0);
+    if (sum !== 5) {
+        console.warn(`⚠️ 热温冷比数字和不为5: ${ratio} (和=${sum})，使用默认值 0:0:0`);
+        return '0:0:0';
+    }
+
+    return ratio;
+}
+
+/**
  * 计算AC值 (Arithmetic Complexity - 算术复杂度)
  * AC值用于衡量号码组合的离散程度
  * @param {Array<number>} numbers - 号码数组
@@ -1082,23 +1110,33 @@ function initDLTHistoryRefresh() {
  * 显示统一更新对话框
  */
 async function showUpdateDialog() {
-    const confirmed = confirm('确定要执行快速修复吗？\n\n此操作将：\n1. 重新生成遗漏值表\n2. 清理过期缓存\n3. 验证数据完整性\n\n预计耗时: 30-60秒');
+    const confirmed = confirm('确定要执行统一更新吗？\n\n此操作将：\n1. 重新生成遗漏值表\n2. 生成组合特征表\n3. 生成statistics字段（包含热温冷比）\n4. 生成热温冷比优化表\n5. 清理过期缓存\n6. 验证数据完整性\n\n预计耗时: 1-3分钟\n\n注意：更新过程在后台执行，请稍后查看数据状态确认完成。');
 
     if (!confirmed) return;
 
     try {
-        const response = await fetch('http://localhost:3003/api/dlt/repair-data', {
-            method: 'POST'
+        console.log('🚀 开始统一更新...');
+
+        const response = await fetch('http://localhost:3003/api/dlt/unified-update', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                mode: 'repair'  // 快速修复模式
+            })
         });
 
         const result = await response.json();
 
         if (result.success) {
-            alert('✅ 修复任务已启动！\n\n请等待30-60秒后刷新数据查看结果。\n任务详情请查看控制台日志。');
+            alert(`✅ ${result.message}\n\n请稍后点击"数据状态"按钮查看更新结果。`);
+            console.log('✅ 统一更新已启动');
         } else {
             alert('❌ 启动失败: ' + result.message);
         }
     } catch (error) {
+        console.error('统一更新失败:', error);
         alert('❌ 请求失败: ' + error.message);
     }
 }
@@ -1516,10 +1554,17 @@ function showDLTTrendLoading(container) {
  */
 function displayDLTTrendData(data, frequencyData) {
     console.log('Displaying DLT trend data:', data?.length, 'records');
-    
+
+    // 🐛 Debug: Check if statistics data is present
+    if (data && data.length > 0) {
+        console.log('🔍 Sample data structure:', data[0]);
+        console.log('🔍 Has statistics:', !!data[0]?.statistics);
+        console.log('🔍 HWC ratio:', data[0]?.statistics?.frontHotWarmColdRatio);
+    }
+
     const tbody = document.querySelector('#dlt-trendTableBody');
     if (!tbody) return;
-    
+
     if (!data || data.length === 0) {
         tbody.innerHTML = '<tr><td colspan="49" style="text-align: center; padding: 20px; color: #666;">暂无数据</td></tr>';
         return;
@@ -1578,11 +1623,22 @@ function displayDLTTrendData(data, frequencyData) {
         // 统计列HTML
         let statHtml = '';
         if (item.statistics) {
-            // 使用后端预计算的统计数据
+            // 使用后端预计算的统计数据，并验证热温冷比格式
+            const hwcRatio = validateHotWarmColdRatio(item.statistics.frontHotWarmColdRatio);
+
+            // 🐛 Debug: Log when HWC ratio is 0:0:0
+            if (hwcRatio === '0:0:0') {
+                console.warn(`⚠️ HWC ratio is 0:0:0 for issue ${item.issue}:`, {
+                    original: item.statistics.frontHotWarmColdRatio,
+                    validated: hwcRatio,
+                    fullStatistics: item.statistics
+                });
+            }
+
             statHtml = `
                 <td class="stat-col stat-sum stat-section-start">${item.statistics.frontSum}</td>
                 <td class="stat-col stat-span">${item.statistics.frontSpan}</td>
-                <td class="stat-col stat-hotwarmcold">${item.statistics.frontHotWarmColdRatio}</td>
+                <td class="stat-col stat-hotwarmcold">${hwcRatio}</td>
                 <td class="stat-col stat-zone">${item.statistics.frontZoneRatio}</td>
                 <td class="stat-col stat-ac">${item.statistics.frontAcValue !== undefined ? item.statistics.frontAcValue : '-'}</td>
                 <td class="stat-col stat-oddeven">${item.statistics.frontOddEvenRatio}</td>
@@ -1590,14 +1646,17 @@ function displayDLTTrendData(data, frequencyData) {
                 <td class="stat-col stat-back-oddeven">${item.statistics.backOddEvenRatio}</td>
             `;
         } else {
+            // 🐛 Debug: Log when statistics is missing
+            console.warn(`⚠️ No statistics field for issue ${item.issue}`);
+
             // 前端计算（兼容性处理）
             const fronts = frontBalls.filter(b => b.isDrawn).map(b => b.number);
             const backs = backBalls.filter(b => b.isDrawn).map(b => b.number);
             const frontSum = fronts.reduce((a, b) => a + b, 0);
             const frontSpan = fronts.length > 0 ? Math.max(...fronts) - Math.min(...fronts) : 0;
-            
-            // 前区热温冷比需要基于上一期遗漏值，前端无法获取
-            const frontHotWarmColdRatio = '需要后端数据';
+
+            // 前区热温冷比需要基于上一期遗漏值，前端无法计算，使用默认值
+            const frontHotWarmColdRatio = '0:0:0';
             
             // 前区区间比
             let zone1 = 0, zone2 = 0, zone3 = 0;
@@ -10088,6 +10147,63 @@ function initBatchPredictionEventListeners() {
         }
     });
 
+    // ⭐ 新增：自定义范围输入框交互增强
+    const customStartInput = document.getElementById('custom-start');
+    const customEndInput = document.getElementById('custom-end');
+    const latestIssueHint = document.getElementById('latest-issue-hint');
+
+    if (customStartInput && customEndInput && latestIssueHint) {
+        // 获取并显示最新期号提示
+        const showLatestIssueHint = async () => {
+            try {
+                const response = await fetch('http://localhost:3003/api/dlt/latest-issues');
+                const result = await response.json();
+
+                if (result.success && result.data && result.data.length > 0) {
+                    const latestIssue = result.data[0].Issue;
+                    const nextIssue = latestIssue + 1;
+                    latestIssueHint.textContent = `(最新已开奖: ${latestIssue}, 下一期: ${nextIssue})`;
+                    latestIssueHint.style.color = '#28a745';
+
+                    // 存储最新期号供后续验证使用
+                    latestIssueHint.dataset.latestIssue = latestIssue;
+                    latestIssueHint.dataset.nextIssue = nextIssue;
+                }
+            } catch (error) {
+                console.error('获取最新期号失败:', error);
+                latestIssueHint.textContent = '(无法获取最新期号)';
+                latestIssueHint.style.color = '#dc3545';
+            }
+        };
+
+        // 焦点事件：显示提示
+        customStartInput.addEventListener('focus', showLatestIssueHint);
+        customEndInput.addEventListener('focus', showLatestIssueHint);
+
+        // ⭐ 新增：输入验证和智能提示
+        customEndInput.addEventListener('blur', () => {
+            const endValue = parseInt(customEndInput.value);
+            const latestIssue = parseInt(latestIssueHint.dataset.latestIssue);
+            const nextIssue = parseInt(latestIssueHint.dataset.nextIssue);
+
+            if (endValue && latestIssue) {
+                if (endValue > latestIssue && endValue !== nextIssue) {
+                    // 用户输入超出最新期号，但不是下一期
+                    latestIssueHint.textContent = `⚠️ 期号${endValue}超出已开奖数据，将自动包含下一期${nextIssue}作为预测目标`;
+                    latestIssueHint.style.color = '#ff9800';
+                } else if (endValue === nextIssue) {
+                    // 用户输入正好是下一期
+                    latestIssueHint.textContent = `✅ 包含下一期${nextIssue}作为预测目标`;
+                    latestIssueHint.style.color = '#28a745';
+                } else {
+                    // 用户输入在已开奖范围内
+                    latestIssueHint.textContent = `✅ 范围内全部为已开奖数据`;
+                    latestIssueHint.style.color = '#28a745';
+                }
+            }
+        });
+    }
+
     // 复选框控制输入框启用/禁用
     const exclusionCheckboxes = [
         { checkbox: 'batch-exclude-sum', inputs: ['batch-sum-min', 'batch-sum-max'] },
@@ -14219,22 +14335,29 @@ async function createPredictionTask() {
 
         // 获取期号范围配置
         const rangeConfigRaw = getBatchRangeConfig();
+        console.log('🔍 getBatchRangeConfig() 返回值:', rangeConfigRaw);
+
         if (!rangeConfigRaw) {
             alert('请配置期号范围');
             return;
         }
+
+        console.log('🔍 rangeConfigRaw.rangeType:', rangeConfigRaw.rangeType);
+        console.log('🔍 rangeConfigRaw 的所有键:', Object.keys(rangeConfigRaw));
 
         // 转换期号范围格式为后端API期望的格式
         let period_range = {};
         switch (rangeConfigRaw.rangeType) {
             case 'all':
                 period_range = { type: 'all' };
+                console.log('✅ 转换为 all 类型:', period_range);
                 break;
             case 'recent':
                 period_range = {
                     type: 'recent',
                     value: rangeConfigRaw.recentCount || 100
                 };
+                console.log('✅ 转换为 recent 类型:', period_range);
                 break;
             case 'custom':
                 period_range = {
@@ -14244,11 +14367,16 @@ async function createPredictionTask() {
                         end: parseInt(rangeConfigRaw.endIssue)
                     }
                 };
+                console.log('✅ 转换为 custom 类型:', period_range);
                 break;
             default:
-                alert('不支持的期号范围类型');
+                console.error('❌ 未知的 rangeType:', rangeConfigRaw.rangeType);
+                alert('不支持的期号范围类型: ' + rangeConfigRaw.rangeType);
                 return;
         }
+
+        console.log('🔍 最终的 period_range:', period_range);
+        console.log('🔍 period_range.type:', period_range.type);
 
         // 获取排除条件
         const excludeConditions = getBatchExcludeConditions();
@@ -14419,6 +14547,15 @@ function createTaskCard(task) {
         card.classList.add('selected');
     }
 
+    // 🔮 处理期号范围显示（含推算期标注）
+    const predictedCount = task.period_range.predicted_count || 0;
+    let periodRangeText = `${task.period_range.start} - ${task.period_range.end}`;
+    if (predictedCount > 0) {
+        periodRangeText += ` (${task.period_range.total}期, 含${predictedCount}期推算)`;
+    } else {
+        periodRangeText += ` (${task.period_range.total}期)`;
+    }
+
     card.innerHTML = `
         <input type="checkbox" class="task-checkbox" ${isSelected ? 'checked' : ''}
                onclick="toggleTaskSelection('${task.task_id}')">
@@ -14428,7 +14565,7 @@ function createTaskCard(task) {
         </div>
         <div class="task-card-body">
             <div class="task-info-row">
-                <span>📅 期号范围: ${task.period_range.start} - ${task.period_range.end} (${task.period_range.total}期)</span>
+                <span>📅 期号范围: ${periodRangeText}</span>
             </div>
             ${task.status === 'running' ? `
                 <div class="task-info-row">
@@ -14565,21 +14702,25 @@ function renderTaskDetail(data) {
             const row = document.createElement('tr');
             const hitAnalysis = result.hit_analysis || {};
             const prizeStats = hitAnalysis.prize_stats || {};
+            const isPredicted = result.is_predicted === true;  // 🔮 检查是否为推算期
 
             row.innerHTML = `
-                <td>${result.period}</td>
+                <td>
+                    ${result.period}
+                    ${isPredicted ? '<span style="display:inline-block;background:#ff9800;color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;margin-left:4px;">推算</span>' : ''}
+                </td>
                 <td>${result.combination_count?.toLocaleString() || 0}</td>
-                <td>${hitAnalysis.red_hit_analysis?.best_hit || 0}个</td>
-                <td>${hitAnalysis.blue_hit_analysis?.best_hit || 0}个</td>
-                <td>${prizeStats.first_prize?.count || 0}次</td>
-                <td>${prizeStats.second_prize?.count || 0}次</td>
-                <td>${prizeStats.third_prize?.count || 0}次</td>
-                <td>${(hitAnalysis.hit_rate || 0).toFixed(2)}%</td>
-                <td>¥${(hitAnalysis.total_prize || 0).toLocaleString()}</td>
+                <td>${isPredicted ? '-' : (hitAnalysis.red_hit_analysis?.best_hit || 0) + '个'}</td>
+                <td>${isPredicted ? '-' : (hitAnalysis.blue_hit_analysis?.best_hit || 0) + '个'}</td>
+                <td>${isPredicted ? '-' : (prizeStats.first_prize?.count || 0) + '次'}</td>
+                <td>${isPredicted ? '-' : (prizeStats.second_prize?.count || 0) + '次'}</td>
+                <td>${isPredicted ? '-' : (prizeStats.third_prize?.count || 0) + '次'}</td>
+                <td>${isPredicted ? '-' : (hitAnalysis.hit_rate || 0).toFixed(2) + '%'}</td>
+                <td>${isPredicted ? '-' : '¥' + (hitAnalysis.total_prize || 0).toLocaleString()}</td>
                 <td>
                     <button class="btn-sm" onclick="viewPeriodDetail('${task.task_id}', ${result.period})">详情</button>
                     <button class="btn-sm" onclick="exportSinglePeriod('${task.task_id}', ${result.period})">导出</button>
-                    <button class="btn-sm" style="background: #ff9800;" onclick="exportExclusionDetails('${task.task_id}', ${result.period})" title="导出排除详情（XLSX多工作表）">排除详情</button>
+                    ${!isPredicted ? `<button class="btn-sm" style="background: #ff9800;" onclick="exportExclusionDetails('${task.task_id}', ${result.period})" title="导出排除详情（XLSX多工作表）">排除详情</button>` : ''}
                 </td>
             `;
             tbody.appendChild(row);
@@ -15040,10 +15181,11 @@ function exportTaskQuick(taskId) {
 
 /**
  * 导出单期数据（CLI方式，支持大数据量）
+ * @param {string} format - 导出格式：'excel'(默认) 或 'csv'
  */
-async function exportSinglePeriod(taskId, period) {
+async function exportSinglePeriod(taskId, period, format = 'excel') {
     try {
-        console.log(`📥 开始导出 - 任务ID: ${taskId}, 期号: ${period}`);
+        console.log(`📥 开始导出 - 任务ID: ${taskId}, 期号: ${period}, 格式: ${format.toUpperCase()}`);
 
         // 显示进度对话框
         showExportProgressModal(taskId, period);
@@ -15055,6 +15197,7 @@ async function exportSinglePeriod(taskId, period) {
             body: JSON.stringify({
                 taskId,
                 period,
+                format: format,  // ⭐ 添加格式参数
                 compress: false  // 可选：是否压缩
             })
         });

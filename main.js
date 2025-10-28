@@ -109,6 +109,14 @@ function createMenu() {
       label: '工具',
       submenu: [
         {
+          label: '数据管理后台',
+          accelerator: 'CmdOrCtrl+M',
+          click: () => {
+            openAdminWindow();
+          }
+        },
+        { type: 'separator' },
+        {
           label: '数据库管理',
           click: () => {
             mainWindow.webContents.send('menu-database-manage');
@@ -182,20 +190,24 @@ async function startInternalServer() {
       const serverModule = require('./src/server/server.js');
 
       // 启动服务器
-      expressServer = serverModule.listen(3003, 'localhost', async () => {
+      expressServer = serverModule.listen(3003, 'localhost', () => {
         console.log('✅ 内嵌服务器已启动: http://localhost:3003');
         console.log('📊 数据库连接状态:', dbManager.getConnectionStatus());
 
-        // 性能优化：创建数据库索引
+        // 性能优化：在后台异步创建数据库索引（不阻塞窗口显示）
         if (serverModule.ensureDatabaseIndexes) {
-          await serverModule.ensureDatabaseIndexes();
+          serverModule.ensureDatabaseIndexes().catch(err => {
+            console.error('⚠️  索引创建失败（不影响正常使用）:', err.message);
+          });
         }
 
         // ⚠️ 阶段2优化 B1：预加载组合特征缓存（已禁用，占用过多内存和CPU）
         // 这个预加载会在启动时加载324,632个组合到内存（727MB），导致MongoDB和CPU负载过高
         // 批量预测功能仍然会使用"阶段1优化"的按需缓存机制，已经提供6倍性能提升
         // if (serverModule.preloadComboFeaturesCache) {
-        //   await serverModule.preloadComboFeaturesCache();
+        //   serverModule.preloadComboFeaturesCache().catch(err => {
+        //     console.error('⚠️  缓存预加载失败（不影响正常使用）:', err.message);
+        //   });
         // }
 
         resolve();
@@ -348,6 +360,38 @@ ipcMain.handle('open-pattern-analysis', () => {
     patternWindow.webContents.openDevTools();
   }
 
+  return { success: true };
+});
+
+// Open admin window function
+function openAdminWindow() {
+  const adminWindow = new BrowserWindow({
+    width: 1280,
+    height: 900,
+    minWidth: 1000,
+    minHeight: 700,
+    parent: mainWindow,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      preload: path.join(__dirname, 'preload.js'),
+      webSecurity: false
+    },
+    icon: path.join(__dirname, 'build/icon.png'),
+    title: '大乐透数据管理后台'
+  });
+
+  adminWindow.loadURL('http://localhost:3003/admin.html');
+
+  if (isDev) {
+    adminWindow.webContents.openDevTools();
+  }
+}
+
+// IPC handler for opening admin window (can also be called from renderer)
+ipcMain.handle('open-admin-window', () => {
+  openAdminWindow();
   return { success: true };
 });
 

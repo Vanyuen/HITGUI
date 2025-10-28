@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>大乐透数据管理后台</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .admin-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .admin-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .admin-header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+
+        .admin-header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .admin-body {
+            padding: 30px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+            padding: 25px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            background: #f9f9f9;
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 2px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+            box-sizing: border-box;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-inline {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .btn-warning {
+            background: #ffc107;
+            color: #333;
+        }
+
+        .btn-warning:hover {
+            background: #e0a800;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .checkbox-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .checkbox-group label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+            cursor: pointer;
+        }
+
+        .status-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 15px;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .status-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+
+        .status-item h4 {
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 14px;
+        }
+
+        .status-item .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .status-item .label {
+            font-size: 12px;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        .status-ok {
+            border-left-color: #28a745;
+        }
+
+        .status-ok .value {
+            color: #28a745;
+        }
+
+        .status-warning {
+            border-left-color: #ffc107;
+        }
+
+        .status-warning .value {
+            color: #ffc107;
+        }
+
+        .status-error {
+            border-left-color: #dc3545;
+        }
+
+        .status-error .value {
+            color: #dc3545;
+        }
+
+        .log-container {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 6px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            margin-top: 15px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+        }
+
+        .log-entry.success {
+            color: #4ec9b0;
+        }
+
+        .log-entry.error {
+            color: #f48771;
+        }
+
+        .log-entry.info {
+            color: #569cd6;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .ball-input-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .ball-input-group input {
+            width: 60px;
+            text-align: center;
+        }
+
+        .ball-input-group label {
+            margin: 0;
+            min-width: 80px;
+        }
+
+        /* ========== 进度条样式 ========== */
+        .progress-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .progress-header h4 {
+            margin: 0;
+            color: #333;
+            font-size: 16px;
+        }
+
+        .progress-percentage {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        /* 进度条 */
+        .progress-bar-wrapper {
+            width: 100%;
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }
+
+        /* 步骤列表 */
+        .progress-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .progress-step {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            background: #f5f5f5;
+            border-radius: 6px;
+            transition: all 0.3s;
+        }
+
+        .progress-step.active {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+        }
+
+        .progress-step.completed {
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+        }
+
+        .progress-step.failed {
+            background: #ffebee;
+            border-left: 4px solid #f44336;
+        }
+
+        .progress-step-icon {
+            font-size: 20px;
+        }
+
+        .progress-step-name {
+            flex: 1;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .progress-step-status {
+            font-size: 12px;
+            color: #888;
+        }
+
+        /* 进度消息 */
+        .progress-message {
+            padding: 10px;
+            background: #f9f9f9;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 14px;
+            color: #555;
+        }
+
+        /* 进度统计 */
+        .progress-stats {
+            display: flex;
+            justify-content: space-around;
+            gap: 20px;
+            font-size: 13px;
+            color: #666;
+        }
+
+        .progress-stats strong {
+            color: #667eea;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-container">
+        <div class="admin-header">
+            <h1>📊 大乐透数据管理后台</h1>
+            <p>Data Management System for China Lotto DLT</p>
+        </div>
+
+        <div class="admin-body">
+            <!-- 数据状态监控 -->
+            <div class="section">
+                <div class="section-title">📈 数据状态监控</div>
+                <div id="statusDisplay" class="status-card">
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="refreshStatus()">
+                            <span id="refreshIcon">🔄</span> 刷新状态
+                        </button>
+                    </div>
+                    <div id="statusContent" class="status-grid">
+                        <div class="status-item">
+                            <h4>系统状态</h4>
+                            <div class="value">-</div>
+                            <div class="label">等待加载...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 数据导入 -->
+            <div class="section">
+                <div class="section-title">📥 数据导入</div>
+
+                <div class="form-group">
+                    <label>导入方式</label>
+                    <select id="importMethod" onchange="toggleImportMethod()">
+                        <option value="manual">手动输入</option>
+                        <option value="json">JSON批量导入</option>
+                    </select>
+                </div>
+
+                <!-- 手动输入表单 -->
+                <div id="manualImport">
+                    <div class="form-group">
+                        <label>期号</label>
+                        <input type="text" id="issue" placeholder="例如: 25121" maxlength="7">
+                    </div>
+
+                    <div class="form-group">
+                        <label>红球 (5个号码, 1-35)</label>
+                        <div class="ball-input-group">
+                            <input type="number" id="red1" min="1" max="35" placeholder="红1">
+                            <input type="number" id="red2" min="1" max="35" placeholder="红2">
+                            <input type="number" id="red3" min="1" max="35" placeholder="红3">
+                            <input type="number" id="red4" min="1" max="35" placeholder="红4">
+                            <input type="number" id="red5" min="1" max="35" placeholder="红5">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>蓝球 (2个号码, 1-12)</label>
+                        <div class="ball-input-group">
+                            <input type="number" id="blue1" min="1" max="12" placeholder="蓝1">
+                            <input type="number" id="blue2" min="1" max="12" placeholder="蓝2">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>开奖日期</label>
+                        <input type="date" id="drawDate">
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-success" onclick="submitManualImport()">
+                            ✅ 添加开奖记录
+                        </button>
+                    </div>
+                </div>
+
+                <!-- JSON批量导入 -->
+                <div id="jsonImport" class="hidden">
+                    <div class="form-group">
+                        <label>JSON数据 (数组格式)</label>
+                        <textarea id="jsonData" rows="8" placeholder='[
+  {
+    "Issue": "25121",
+    "Red1": 3, "Red2": 7, "Red3": 15, "Red4": 22, "Red5": 28,
+    "Blue1": 5, "Blue2": 9,
+    "DrawDate": "2025-10-25"
+  }
+]'></textarea>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-success" onclick="submitJSONImport()">
+                            ✅ 批量导入
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <label>
+                            <input type="checkbox" id="autoUpdate" checked>
+                            导入后自动更新衍生数据表
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 数据更新 -->
+            <div class="section">
+                <div class="section-title">🔄 数据更新管理</div>
+
+                <p style="color: #666; margin-bottom: 20px;">
+                    导入新开奖数据后,需要更新以下数据表以保持系统正常运行:
+                </p>
+
+                <!-- 进度显示区域 (新增) -->
+                <div id="updateProgressContainer" class="hidden" style="margin-bottom: 20px;">
+                    <div class="progress-card">
+                        <div class="progress-header">
+                            <h4 id="progressTitle">更新进度</h4>
+                            <span id="progressPercentage" class="progress-percentage">0%</span>
+                        </div>
+
+                        <div class="progress-bar-wrapper">
+                            <div id="progressBar" class="progress-bar" style="width: 0%"></div>
+                        </div>
+
+                        <div class="progress-steps" id="progressSteps">
+                            <!-- 步骤列表将通过JS动态生成 -->
+                        </div>
+
+                        <div class="progress-message">
+                            <span id="progressMessage">等待开始...</span>
+                        </div>
+
+                        <div class="progress-stats">
+                            <span>⏱️ 已用时: <strong id="elapsedTime">0秒</strong></span>
+                            <span>📊 已处理: <strong id="processedCount">0</strong> / <strong id="totalCount">0</strong></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="checkbox-group" style="margin-bottom: 20px;">
+                    <label><input type="checkbox" checked disabled> 遗漏值表 (必须)</label>
+                    <label><input type="checkbox" checked disabled> 组合特征表 (必须)</label>
+                    <label><input type="checkbox" checked disabled> statistics字段 (必须)</label>
+                    <label><input type="checkbox" checked disabled> 热温冷比优化表 (必须)</label>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-primary" id="updateBtn" onclick="executeUnifiedUpdate()">
+                        🚀 一键更新全部数据表
+                    </button>
+                    <button class="btn btn-warning" onclick="clearExpiredCache()">
+                        🧹 清理过期缓存
+                    </button>
+                </div>
+            </div>
+
+            <!-- 操作日志 -->
+            <div class="section">
+                <div class="section-title">📋 操作日志</div>
+                <div id="logContainer" class="log-container">
+                    <div class="log-entry info">[系统] 管理后台已就绪</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="admin.js"></script>
+</body>
+</html>

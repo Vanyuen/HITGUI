@@ -1,37 +1,37 @@
 const mongoose = require('mongoose');
 
-mongoose.connect('mongodb://localhost:27017/lottery', {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-}).then(async () => {
-    const DLTPredictionTasks = mongoose.connection.db.collection('hit_dlt_prediction_tasks');
+const MONGO_URI = 'mongodb://127.0.0.1:27017/lottery';
 
-    // 查找最近10个任务
-    const tasks = await DLTPredictionTasks.find({})
-        .sort({ createdAt: -1 })
-        .limit(10)
-        .toArray();
+const PredictionTaskSchema = new mongoose.Schema({
+    task_id: String,
+    created_at: Date,
+    exclusion_conditions: Object
+}, { collection: 'PredictionTask' });
 
-    console.log(`📊 最近${tasks.length}个任务:\n`);
+const PredictionTask = mongoose.model('PredictionTask', PredictionTaskSchema);
 
-    tasks.forEach((task, idx) => {
-        console.log(`${idx + 1}. ${task.taskId}`);
-        console.log(`   期号: ${task.startIssue}-${task.endIssue}`);
-        console.log(`   状态: ${task.status}`);
-        console.log(`   创建时间: ${task.createdAt}`);
-        console.log(`   同出排除(按红球): ${task.exclude_conditions?.coOccurrencePerBall?.enabled ? '✅' : '❌'}`);
-        console.log(`   同出排除(按期号): ${task.exclude_conditions?.coOccurrenceByIssues?.enabled ? '✅' : '❌'}`);
+async function listRecentTasks() {
+    try {
+        await mongoose.connect(MONGO_URI);
+        console.log('✅ MongoDB连接成功\n');
 
-        if (task.predictions && task.predictions.length > 0) {
-            const first = task.predictions[0];
-            console.log(`   首期 ${first.issue}: ${first.red_combinations_count || first.combinations_count} 个组合`);
+        const tasks = await PredictionTask.find()
+            .sort({ created_at: -1 })
+            .limit(10)
+            .lean();
+
+        console.log(`📋 最近10个任务:\n`);
+        for (const task of tasks) {
+            console.log(`任务ID: ${task.task_id}`);
+            console.log(`创建时间: ${task.created_at}`);
+            console.log('---');
         }
-        console.log('');
-    });
 
-    await mongoose.connection.close();
-    process.exit(0);
-}).catch(err => {
-    console.error(err);
-    process.exit(1);
-});
+        process.exit(0);
+    } catch (error) {
+        console.error('❌ 错误:', error);
+        process.exit(1);
+    }
+}
+
+listRecentTasks();
