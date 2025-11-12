@@ -11872,14 +11872,6 @@ class StreamBatchPredictor {
             lastBatchTime: 0,
             lastBatchSize: 50
         };
-
-        // ⚡ 优化点1: Worker线程并行化配置
-        this.workerParallelConfig = {
-            enabled: true,  // 默认启用Worker并行化
-            threshold: 10000,  // 组合数超过10000时启用并行
-            maxWorkers: Math.min(require('os').cpus().length, 8),  // 最多8个Worker
-            timeoutMs: 60000  // Worker超时时间：60秒
-        };
     }
 
     /**
@@ -12076,53 +12068,6 @@ class StreamBatchPredictor {
     }
 
     /**
-     * ⚡ 优化点1: 将MongoDB查询转换为简化条件（供Worker使用）
-     */
-    convertQueryToSimpleConditions(query) {
-        const conditions = {};
-
-        if (!query || Object.keys(query).length === 0) {
-            return conditions;
-        }
-
-        // 解析和值范围
-        if (query.sum_value) {
-            conditions.sumRange = {
-                min: query.sum_value.$gte || 0,
-                max: query.sum_value.$lte || 999
-            };
-        }
-
-        // 解析跨度范围
-        if (query.span_value) {
-            conditions.spanRange = {
-                min: query.span_value.$gte || 0,
-                max: query.span_value.$lte || 999
-            };
-        }
-
-        // 解析区间比
-        if (query.zone_ratio && query.zone_ratio.$in) {
-            conditions.zoneRatios = query.zone_ratio.$in;
-        }
-
-        // 解析奇偶比
-        if (query.odd_even_ratio && query.odd_even_ratio.$in) {
-            conditions.oddEvenRatios = query.odd_even_ratio.$in;
-        }
-
-        // 解析AC值范围
-        if (query.ac_value) {
-            conditions.acRange = {
-                min: query.ac_value.$gte || 0,
-                max: query.ac_value.$lte || 999
-            };
-        }
-
-        return conditions;
-    }
-
-    /**
      * 手动应用MongoDB查询条件到缓存数据（用于基础排除条件过滤）
      */
     applyQueryFilter(combinations, query) {
@@ -12195,157 +12140,6 @@ class StreamBatchPredictor {
             global.gc();
             log(`🧹 [${this.sessionId}] 已触发垃圾回收`);
         }
-    }
-
-    /**
-     * ⚡ 优化点1: Worker线程并行过滤
-     * 将组合分配到多个Worker线程并行处理
-     * @param {Array} combinations - 组合数组
-     * @param {Object} conditions - 排除条件
-     * @returns {Promise<Array>} - 过滤后的组合数组
-     */
-    async applyParallelFiltering(combinations, conditions) {
-        const { Worker } = require('worker_threads');
-        const path = require('path');
-
-        const workerCount = this.workerParallelConfig.maxWorkers;
-        const batchSize = Math.ceil(combinations.length / workerCount);
-
-        log(`⚡ [Worker并行] 启动${workerCount}个Worker线程处理${combinations.length}条组合`);
-        const startTime = Date.now();
-
-        const promises = [];
-
-        for (let i = 0; i < workerCount; i++) {
-            const start = i * batchSize;
-            const end = Math.min(start + batchSize, combinations.length);
-            const batch = combinations.slice(start, end);
-
-            if (batch.length === 0) continue;
-
-            const promise = new Promise((resolve, reject) => {
-                const workerPath = path.join(__dirname, 'workers', 'filter-worker.js');
-
-                const worker = new Worker(workerPath, {
-                    workerData: {
-                        workerId: i + 1,
-                        combinations: batch,
-                        conditions: conditions
-                    }
-                });
-
-                // 超时控制
-                const timeout = setTimeout(() => {
-                    worker.terminate();
-                    reject(new Error(`Worker ${i + 1} 超时`));
-                }, this.workerParallelConfig.timeoutMs);
-
-                worker.on('message', (result) => {
-                    clearTimeout(timeout);
-
-                    if (result.success) {
-                        const { filtered, stats } = result.data;
-                        log(`  ✅ Worker ${stats.workerId} 完成: 输入${stats.inputCount}, 输出${stats.outputCount}, 耗时${stats.duration}ms`);
-                        resolve(filtered);
-                    } else {
-                        log(`  ❌ Worker ${i + 1} 返回错误: ${result.error.message}`);
-                        reject(new Error(result.error.message));
-                    }
-
-                    worker.terminate();
-                });
-
-                worker.on('error', (error) => {
-                    clearTimeout(timeout);
-                    log(`  ❌ Worker ${i + 1} 错误: ${error.message}`);
-                    worker.terminate();
-                    reject(error);
-                });
-
-                worker.on('exit', (code) => {
-                    clearTimeout(timeout);
-                    if (code !== 0) {
-                        log(`  ⚠️ Worker ${i + 1} 异常退出: ${code}`);
-                    }
-                });
-            });
-
-            promises.push(promise);
-        }
-
-        try {
-            const results = await Promise.all(promises);
-            const merged = results.flat();
-            const duration = Date.now() - startTime;
-
-            log(`⚡ [Worker并行] 所有Worker完成: 总输出${merged.length}条, 总耗时${duration}ms`);
-            log(`⚡ [Worker并行] 性能提升: ${workerCount}个Worker并行处理`);
-
-            return merged;
-        } catch (error) {
-            log(`❌ [Worker并行] 失败: ${error.message}`);
-            throw error;  // 抛出错误，由调用方决定是否回退
-        }
-    }
-
-    /**
-     * 单线程过滤（回退方案）
-     * @param {Array} combinations - 组合数组
-     * @param {Object} conditions - 排除条件
-     * @returns {Array} - 过滤后的组合数组
-     */
-    applySingleThreadFiltering(combinations, conditions) {
-        log(`🔄 [单线程过滤] 处理${combinations.length}条组合`);
-        const startTime = Date.now();
-
-        const filtered = combinations.filter(combo => {
-            // 和值范围过滤
-            if (conditions.sumRange) {
-                const sum = combo.sum_value;
-                if (sum < conditions.sumRange.min || sum > conditions.sumRange.max) {
-                    return false;
-                }
-            }
-
-            // 跨度范围过滤
-            if (conditions.spanRange) {
-                const span = combo.span_value;
-                if (span < conditions.spanRange.min || span > conditions.spanRange.max) {
-                    return false;
-                }
-            }
-
-            // 区间比过滤
-            if (conditions.zoneRatios && conditions.zoneRatios.length > 0) {
-                if (!conditions.zoneRatios.includes(combo.zone_ratio)) {
-                    return false;
-                }
-            }
-
-            // 奇偶比过滤
-            if (conditions.oddEvenRatios && conditions.oddEvenRatios.length > 0) {
-                if (!conditions.oddEvenRatios.includes(combo.odd_even_ratio)) {
-                    return false;
-                }
-            }
-
-            // AC值过滤
-            if (conditions.acRange) {
-                const ac = combo.ac_value;
-                if (ac !== undefined && ac !== null) {
-                    if (ac < conditions.acRange.min || ac > conditions.acRange.max) {
-                        return false;
-                    }
-                }
-            }
-
-            return true;
-        });
-
-        const duration = Date.now() - startTime;
-        log(`✅ [单线程过滤] 完成: 输入${combinations.length}, 输出${filtered.length}, 耗时${duration}ms`);
-
-        return filtered;
     }
 
     /**
@@ -12616,35 +12410,7 @@ class StreamBatchPredictor {
                     beforeBasicIds = new Set(beforeBasicCombos.map(c => c.combination_id));
                 }
 
-                // ⚡ 优化点1: Worker并行化基础过滤
-                const totalCombinations = this.cachedRedCombinations.length;
-                const useWorkerParallel = this.workerParallelConfig.enabled &&
-                                        totalCombinations > this.workerParallelConfig.threshold;
-
-                if (useWorkerParallel) {
-                    log(`⚡ [${this.sessionId}] 启用Worker并行过滤: ${totalCombinations}条组合`);
-
-                    try {
-                        // 转换查询为简化条件
-                        const simpleConditions = this.convertQueryToSimpleConditions(baseQuery);
-
-                        // 使用Worker并行过滤
-                        allCombinations = await this.applyParallelFiltering(
-                            this.cachedRedCombinations,
-                            simpleConditions
-                        );
-
-                        log(`⚡ [${this.sessionId}] Worker并行过滤完成: ${allCombinations.length}个`);
-                    } catch (error) {
-                        // Worker失败，回退到单线程
-                        log(`⚠️ [${this.sessionId}] Worker并行失败，回退到原有过滤: ${error.message}`);
-                        allCombinations = this.applyQueryFilter(this.cachedRedCombinations, baseQuery);
-                    }
-                } else {
-                    // 组合数较少或未启用，使用原有过滤
-                    allCombinations = this.applyQueryFilter(this.cachedRedCombinations, baseQuery);
-                }
-
+                allCombinations = this.applyQueryFilter(this.cachedRedCombinations, baseQuery);
                 log(`🔧 [${this.sessionId}] 应用基础过滤后: ${allCombinations.length}个`);
 
                 // 限制数量

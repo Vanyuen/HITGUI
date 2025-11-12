@@ -120,7 +120,9 @@
       "Bash(cmd /c \"tasklist | findstr /i \"\"node electron\"\"\")",
       "Bash(cmd /c \"copy src\\server\\server.js src\\server\\server.js.backup_sheet2_fix_complete_20250111\")",
       "Bash(cmd /c \"copy /Y src\\server\\server.js src\\server\\server.js.backup_sheet2_fix_complete_20250111\")",
-      "Bash(cmd /c \"TASKKILL /F /IM electron.exe /T & TASKKILL /F /IM node.exe /T\")"
+      "Bash(cmd /c \"TASKKILL /F /IM electron.exe /T & TASKKILL /F /IM node.exe /T\")",
+      "Bash(git commit:*)",
+      "Bash(cmd /c \"copy /Y src\\server\\server.js src\\server\\server.js.backup_phase3_worker_parallel_20251111\")"
     ],
     "deny": [],
     "ask": []
