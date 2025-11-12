@@ -11105,142 +11105,6 @@ setInterval(() => {
     unifiedDataFilter.cleanupExpiredSessions();
 }, 10 * 60 * 1000); // 每10分钟清理一次
 
-// ===== 相克对位图索引 =====
-
-/**
- * ⚡ 优化点2: 相克对位图索引
- * 使用Set结构快速查询相克关系，将查询复杂度从O(n²)降为O(n)
- *
- * @author Claude Code
- * @date 2025-11-11
- */
-class ConflictPairBitMapIndex {
-    constructor() {
-        this.index = new Map(); // Map<ball1, Set<ball2>>
-        this.conflictCount = 0;
-        this.buildTime = 0;
-    }
-
-    /**
-     * 构建索引
-     * @param {Array} conflictPairs - 相克对数组 [[1,2], [3,5], ...]
-     */
-    build(conflictPairs) {
-        if (!conflictPairs || conflictPairs.length === 0) {
-            log('  ⚠️ [位图索引] 无相克对数据，跳过构建');
-            return;
-        }
-
-        const buildStart = Date.now();
-        this.index.clear();
-        this.conflictCount = 0;
-
-        conflictPairs.forEach(pair => {
-            // 支持多种格式
-            let ball1, ball2;
-
-            if (Array.isArray(pair)) {
-                [ball1, ball2] = pair;
-            } else if (pair.ball1 !== undefined && pair.ball2 !== undefined) {
-                ball1 = pair.ball1;
-                ball2 = pair.ball2;
-            } else {
-                return; // 跳过无效格式
-            }
-
-            // 确保球号为数字
-            ball1 = parseInt(ball1);
-            ball2 = parseInt(ball2);
-
-            if (isNaN(ball1) || isNaN(ball2)) {
-                return; // 跳过无效球号
-            }
-
-            // 双向索引（ball1→ball2 和 ball2→ball1）
-            if (!this.index.has(ball1)) {
-                this.index.set(ball1, new Set());
-            }
-            if (!this.index.has(ball2)) {
-                this.index.set(ball2, new Set());
-            }
-
-            this.index.get(ball1).add(ball2);
-            this.index.get(ball2).add(ball1);
-            this.conflictCount++;
-        });
-
-        this.buildTime = Date.now() - buildStart;
-        log(`  ✅ [位图索引] 构建完成: ${this.conflictCount}对相克，${this.index.size}个球号，耗时${this.buildTime}ms`);
-    }
-
-    /**
-     * O(n)检查组合是否包含相克对
-     * @param {Array} balls - 球号数组 [1, 5, 12, 23, 35]
-     * @returns {boolean} - true表示包含相克对
-     */
-    hasConflict(balls) {
-        if (!balls || balls.length === 0) {
-            return false;
-        }
-
-        // O(n)检查：对每个球号，检查其后续球号是否在相克集合中
-        for (let i = 0; i < balls.length; i++) {
-            const ball1 = balls[i];
-            const conflicts = this.index.get(ball1);
-
-            if (!conflicts || conflicts.size === 0) {
-                continue;
-            }
-
-            // 只需检查后续球号，避免重复检查
-            for (let j = i + 1; j < balls.length; j++) {
-                if (conflicts.has(balls[j])) {
-                    return true; // 发现相克对
-                }
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * 获取某个球的所有相克球
-     * @param {number} ball - 球号
-     * @returns {Set} - 相克球号集合
-     */
-    getConflicts(ball) {
-        return this.index.get(ball) || new Set();
-    }
-
-    /**
-     * 获取索引统计信息
-     */
-    getStats() {
-        return {
-            conflictPairCount: this.conflictCount,
-            indexedBallCount: this.index.size,
-            buildTime: this.buildTime,
-            memorySize: this.index.size * 64 // 粗略估算（每个Set约64字节）
-        };
-    }
-
-    /**
-     * 清理索引
-     */
-    clear() {
-        this.index.clear();
-        this.conflictCount = 0;
-        this.buildTime = 0;
-    }
-
-    /**
-     * 检查索引是否可用
-     */
-    isReady() {
-        return this.index.size > 0;
-    }
-}
-
 // ===== 全局缓存管理器 =====
 
 /**
@@ -11268,9 +11132,6 @@ class GlobalCacheManager {
         // 🆕 v3.0: 超高速数据引擎
         this.ultraFastEngine = null;  // UltraFastDataEngine实例
         this.bitIndexEngine = null;   // BitIndexEngine实例
-
-        // ⚡ 优化点2: 相克对位图索引
-        this.conflictIndex = null;  // ConflictPairBitMapIndex实例
 
         // 缓存元数据
         this.cacheTimestamp = null;
@@ -11536,22 +11397,6 @@ class GlobalCacheManager {
             this.bitIndexEngine.buildStaticIndexes(redCombos);
             const bitEngineTime = Date.now() - bitEngineStart;
             log(`✅ [GlobalCache] BitIndexEngine初始化完成: 耗时${bitEngineTime}ms`);
-
-            // ⚡ 优化点2: 构建相克对位图索引
-            if (exclude_conditions?.conflictPairs?.enabled && exclude_conditions.conflictPairs.pairs) {
-                log(`🔨 [GlobalCache] 开始构建相克对位图索引...`);
-                const conflictIndexStart = Date.now();
-
-                this.conflictIndex = new ConflictPairBitMapIndex();
-                this.conflictIndex.build(exclude_conditions.conflictPairs.pairs);
-
-                const conflictIndexTime = Date.now() - conflictIndexStart;
-                const stats = this.conflictIndex.getStats();
-                log(`✅ [GlobalCache] 相克对位图索引构建完成: 耗时${conflictIndexTime}ms, ${stats.conflictPairCount}对相克，${stats.indexedBallCount}个球号`);
-            } else {
-                log(`⏭️ [GlobalCache] 跳过相克对位图索引构建（未启用或无数据）`);
-                this.conflictIndex = null;
-            }
 
             const totalMB = (
                 (JSON.stringify(redCombos).length +
@@ -11920,8 +11765,7 @@ class GlobalCacheManager {
             missingDataByIssueMap: this.missingDataByIssueMap,  // ⚡ 优化A
             hwcOptimizedCache: this.hwcOptimizedCache,  // ⚡ 优化B
             historicalIssuesCache: this.historicalIssuesCache,  // ⚡ 优化C
-            comboFeatures: this.comboFeaturesCache,
-            conflictIndex: this.conflictIndex  // ⚡ 优化点2: 相克对位图索引
+            comboFeatures: this.comboFeaturesCache
         };
     }
 
@@ -11940,13 +11784,6 @@ class GlobalCacheManager {
         this.historicalIssuesCache = null;  // ⚡ 优化C
         this.comboFeaturesCache = null;
         this.cacheTimestamp = null;
-
-        // ⚡ 优化点2: 清理相克对位图索引
-        if (this.conflictIndex) {
-            this.conflictIndex.clear();
-            this.conflictIndex = null;
-            log(`  ✅ [GlobalCache] 相克对位图索引已清理`);
-        }
     }
 
     /**
@@ -12024,7 +11861,6 @@ class StreamBatchPredictor {
         this.cachedComboFeatures = null;
         this.cachedMissingDataByIssueMap = null;  // ⚡ 优化A: 遗漏值快速索引
         this.featureToComboIdIndex = null;  // ⚡ 性能优化1：反向索引缓存
-        this.conflictIndex = null;  // ⚡ 优化点2: 相克对位图索引
         this.cacheTimestamp = null;
 
         // ⚡ 性能优化3：动态批次大小调整
@@ -12352,7 +12188,6 @@ class StreamBatchPredictor {
         this.cachedComboFeatures = null;
         this.cachedMissingDataByIssueMap = null;  // ⚡ 优化A: 清理遗漏值索引
         this.featureToComboIdIndex = null;  // ⚡ 性能优化：清理反向索引
-        this.conflictIndex = null;  // ⚡ 优化点2: 清理相克对位图索引
         this.cacheTimestamp = null;
 
         // 主动触发GC（如果可用）
@@ -12866,36 +12701,19 @@ class StreamBatchPredictor {
                     if (conflictPairs && conflictPairs.length > 0) {
                         log(`⚔️ [${this.sessionId}] 获取到${conflictPairs.length}对相克号码`);
 
-                        // ⚡ 优化点2: 使用位图索引优化相克对查询
-                        const useBitMapIndex = this.conflictIndex && this.conflictIndex.isReady();
-                        const conflictCheckStartTime = Date.now();
-
-                        if (useBitMapIndex) {
-                            log(`⚡ [${this.sessionId}] 使用位图索引进行相克过滤 (O(n)复杂度)`);
-
-                            // 使用位图索引过滤 - O(n)复杂度
-                            allCombinations = allCombinations.filter(combo => {
-                                const numbers = [combo.red_ball_1, combo.red_ball_2, combo.red_ball_3, combo.red_ball_4, combo.red_ball_5];
-                                return !this.conflictIndex.hasConflict(numbers);
-                            });
-                        } else {
-                            log(`⚠️ [${this.sessionId}] 位图索引未就绪，使用原有过滤逻辑 (O(n²)复杂度)`);
-
-                            // 原有过滤逻辑 - O(n²)复杂度
-                            allCombinations = allCombinations.filter(combo => {
-                                const numbers = [combo.red_ball_1, combo.red_ball_2, combo.red_ball_3, combo.red_ball_4, combo.red_ball_5];
-                                for (const pair of conflictPairs) {
-                                    if (numbers.includes(pair[0]) && numbers.includes(pair[1])) {
-                                        return false;
-                                    }
+                        // 过滤掉包含相克对的组合
+                        allCombinations = allCombinations.filter(combo => {
+                            const numbers = [combo.red_ball_1, combo.red_ball_2, combo.red_ball_3, combo.red_ball_4, combo.red_ball_5];
+                            for (const pair of conflictPairs) {
+                                if (numbers.includes(pair[0]) && numbers.includes(pair[1])) {
+                                    return false;
                                 }
-                                return true;
-                            });
-                        }
+                            }
+                            return true;
+                        });
 
-                        const conflictCheckDuration = Date.now() - conflictCheckStartTime;
                         const excludedCount = beforeConflict - allCombinations.length;
-                        log(`⚔️ [${this.sessionId}] 相克过滤后: ${allCombinations.length}个组合 (排除${excludedCount}个, 耗时${conflictCheckDuration}ms, 方法=${useBitMapIndex ? '位图索引' : '原有逻辑'})`);
+                        log(`⚔️ [${this.sessionId}] 相克过滤后: ${allCombinations.length}个组合 (排除${excludedCount}个)`);
 
                         // ⭐ 记录排除详情
                         log(`🔍 [${this.sessionId}] 相克排除检查: taskId=${!!taskId}, resultId=${!!resultId}, excludedCount=${excludedCount}`);
