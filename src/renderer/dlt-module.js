@@ -4652,6 +4652,10 @@ async function loadNewDLTCombinationPrediction() {
     } catch (error) {
         console.error('组合预测失败:', error);
         showErrorMessage(error.message);
+    } finally {
+        // 确保无论成功或失败，都恢复输入框的可用状态
+        console.log('📝 恢复输入框状态');
+        enableAllInputs();
     }
 }
 
@@ -5001,6 +5005,51 @@ function showSuccessMessage(message) {
     // 可以选择在页面上显示成功提示
     if (typeof showNotification === 'function') {
         showNotification(message, 'success');
+    }
+}
+
+/**
+ * 启用所有输入框和交互元素
+ * 用于在操作完成或出错后恢复UI的可交互状态
+ */
+function enableAllInputs() {
+    try {
+        // 1. 启用所有输入框
+        const inputs = document.querySelectorAll('input, select, textarea');
+        inputs.forEach(input => {
+            // 只恢复那些不是永久禁用的输入框
+            // 检查是否有 data-permanent-disabled 属性
+            if (!input.hasAttribute('data-permanent-disabled')) {
+                input.disabled = false;
+                input.style.pointerEvents = '';
+                input.style.userSelect = '';
+            }
+        });
+
+        // 2. 启用所有按钮
+        const buttons = document.querySelectorAll('button');
+        buttons.forEach(button => {
+            if (!button.hasAttribute('data-permanent-disabled')) {
+                button.disabled = false;
+                button.style.pointerEvents = '';
+            }
+        });
+
+        // 3. 移除可能存在的全局遮罩层
+        const overlays = document.querySelectorAll('.loading-overlay, .modal-overlay');
+        overlays.forEach(overlay => {
+            // 只移除非模态框的遮罩
+            if (!overlay.closest('.modal-container')) {
+                overlay.remove();
+            }
+        });
+
+        // 4. 恢复body的pointer-events
+        document.body.style.pointerEvents = '';
+
+        console.log('✅ 所有输入框和交互元素已恢复可用状态');
+    } catch (error) {
+        console.error('❌ 恢复输入框状态时出错:', error);
     }
 }
 
@@ -10472,11 +10521,15 @@ async function startBatchPrediction() {
         
         // 5. 执行批量预测
         await executeBatchPrediction(config);
-        
+
     } catch (error) {
         console.error('❌ 批量预测失败:', error);
         showErrorMessage('批量预测失败: ' + error.message);
         updateBatchUIState(false);
+    } finally {
+        // 确保无论成功或失败，都恢复输入框的可用状态
+        console.log('📝 批量预测操作结束，确保输入框可用');
+        enableAllInputs();
     }
 }
 
@@ -11131,6 +11184,10 @@ async function executeBatchPrediction(config) {
         showErrorMessage('流式批量预测失败: ' + error.message);
         batchPredictionState.isRunning = false;
         updateBatchUIState(false);
+    } finally {
+        // 确保无论成功或失败，都恢复输入框的可用状态
+        console.log('📝 批量预测结束，确保输入框可用');
+        enableAllInputs();
     }
 }
 
@@ -14710,11 +14767,11 @@ function renderTaskDetail(data) {
                     ${isPredicted ? '<span style="display:inline-block;background:#ff9800;color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;margin-left:4px;">推算</span>' : ''}
                 </td>
                 <td>${result.combination_count?.toLocaleString() || 0}</td>
-                <td>${isPredicted ? '-' : (hitAnalysis.red_hit_analysis?.best_hit || 0) + '个'}</td>
-                <td>${isPredicted ? '-' : (hitAnalysis.blue_hit_analysis?.best_hit || 0) + '个'}</td>
-                <td>${isPredicted ? '-' : (prizeStats.first_prize?.count || 0) + '次'}</td>
-                <td>${isPredicted ? '-' : (prizeStats.second_prize?.count || 0) + '次'}</td>
-                <td>${isPredicted ? '-' : (prizeStats.third_prize?.count || 0) + '次'}</td>
+                <td>${isPredicted ? '-' : (hitAnalysis.max_red_hit || 0) + '/5'}</td>
+                <td>${isPredicted ? '-' : (hitAnalysis.max_blue_hit || 0) + '/2'}</td>
+                <td>${isPredicted ? '-' : (prizeStats.first_prize?.count || 0)}</td>
+                <td>${isPredicted ? '-' : (prizeStats.second_prize?.count || 0)}</td>
+                <td>${isPredicted ? '-' : (prizeStats.third_prize?.count || 0)}</td>
                 <td>${isPredicted ? '-' : (hitAnalysis.hit_rate || 0).toFixed(2) + '%'}</td>
                 <td>${isPredicted ? '-' : '¥' + (hitAnalysis.total_prize || 0).toLocaleString()}</td>
                 <td>
@@ -14879,9 +14936,30 @@ function renderExcludeConditions(conditions) {
 
     // ========== 第3组：内存过滤级排除 ==========
 
-    // 相克排除
-    if (conditions.conflict && conditions.conflict.enabled) {
-        console.log('✅ 检测到相克排除条件:', conditions.conflict);
+    // ⭐ 新增：相克对排除（新版 conflictPairs 结构）
+    if (conditions.conflictPairs && conditions.conflictPairs.enabled) {
+        console.log('✅ 检测到相克对排除条件(新版):', conditions.conflictPairs);
+        let conflictDetails = [];
+
+        if (conditions.conflictPairs.globalTop?.enabled) {
+            conflictDetails.push(`全局Top${conditions.conflictPairs.globalTop.top}`);
+        }
+        if (conditions.conflictPairs.perBallTop?.enabled) {
+            conflictDetails.push(`每号Top${conditions.conflictPairs.perBallTop.top}`);
+        }
+        if (conditions.conflictPairs.threshold?.enabled) {
+            conflictDetails.push(`阈值≥${conditions.conflictPairs.threshold.value}`);
+        }
+
+        if (conflictDetails.length > 0) {
+            const conflictHtml = `<div>✅ 相克对排除: ${conflictDetails.join(', ')}</div>`;
+            console.log('⚔️ 相克对HTML片段:', conflictHtml);
+            group3Html += conflictHtml;
+        }
+    }
+    // 兼容旧版 conflict 结构
+    else if (conditions.conflict && conditions.conflict.enabled) {
+        console.log('✅ 检测到相克排除条件(旧版):', conditions.conflict);
         let conflictDetails = [];
         conflictDetails.push(`分析${conditions.conflict.analysisPeriods}期`);
         if (conditions.conflict.globalTopEnabled && conditions.conflict.topN > 0) {
@@ -14900,16 +14978,32 @@ function renderExcludeConditions(conditions) {
         const conflictHtml = `<div>✅ 相克排除: ${conflictDetails.join(', ')}</div>`;
         console.log('⚔️ 相克HTML片段:', conflictHtml);
         group3Html += conflictHtml;
-    } else {
-        console.log('❌ 未检测到相克排除条件，conflict存在:', !!conditions.conflict, 'enabled:', conditions.conflict?.enabled);
     }
 
-    // 同出排除(旧版)
+    // ⭐ 新增：同现比排除（新版 coOccurrence 结构）
     if (conditions.coOccurrence && conditions.coOccurrence.enabled) {
-        console.log('✅ 检测到同出排除条件(旧版):', conditions.coOccurrence);
-        const coOccurrenceHtml = `<div>✅ 同出排除: 排除最近${conditions.coOccurrence.periods}期同出号码</div>`;
-        console.log('🔗 同出HTML片段:', coOccurrenceHtml);
-        group3Html += coOccurrenceHtml;
+        console.log('✅ 检测到同现比排除条件:', conditions.coOccurrence);
+        let cooccurDetails = [];
+
+        if (conditions.coOccurrence.threshold?.enabled) {
+            cooccurDetails.push('阈值过滤');
+        }
+        if (conditions.coOccurrence.historical?.enabled) {
+            const hist = conditions.coOccurrence.historical;
+            const combos = [];
+            if (hist.combo2) combos.push('2球');
+            if (hist.combo3) combos.push('3球');
+            if (hist.combo4) combos.push('4球');
+            if (combos.length > 0) {
+                cooccurDetails.push(`历史排除(${combos.join('+')}, ${hist.period}期)`);
+            }
+        }
+
+        if (cooccurDetails.length > 0) {
+            const coOccurrenceHtml = `<div>✅ 同现比排除: ${cooccurDetails.join(', ')}</div>`;
+            console.log('🔗 同现比HTML片段:', coOccurrenceHtml);
+            group3Html += coOccurrenceHtml;
+        }
     }
 
     // 同出排除(按红球)
@@ -15737,6 +15831,1763 @@ window.closeExportProgressModal = closeExportProgressModal;
 
 // ========== 任务管理功能结束 ==========
 
+// ========================================
+// 热温冷正选批量预测功能 (Hot-Warm-Cold Positive Selection)
+// ========================================
+
+/**
+ * 初始化热温冷正选批量预测模块
+ */
+function initHwcPositivePrediction() {
+    console.log('🌡️ Initializing HWC Positive Prediction module...');
+
+    // 初始化事件监听器
+    initHwcEventListeners();
+
+    // 初始化UI状态
+    initHwcUI();
+
+    console.log('✅ HWC Positive Prediction initialized');
+}
+
+/**
+ * 初始化事件监听器
+ */
+function initHwcEventListeners() {
+    // 1. 期号范围交互
+    const customStartInput = document.getElementById('hwc-custom-start');
+    const customEndInput = document.getElementById('hwc-custom-end');
+
+    // 2. 数据覆盖率检查按钮
+    const checkCoverageBtn = document.getElementById('hwc-check-coverage-btn');
+    if (checkCoverageBtn) {
+        checkCoverageBtn.addEventListener('click', checkHwcDataCoverage);
+    }
+
+    // 3. 生成缺失数据按钮
+    const generateMissingBtn = document.getElementById('hwc-generate-missing-btn');
+    if (generateMissingBtn) {
+        generateMissingBtn.addEventListener('click', generateMissingHwcData);
+    }
+
+    // 4. 正选步骤的快速预设按钮
+    // (这些函数将在全局作用域中定义，供HTML内联onclick使用)
+
+    // 5. 正选条件复选框 - 实时更新统计
+    document.querySelectorAll('.hwc-pos-cb').forEach(cb => {
+        cb.addEventListener('change', updateHwcPositiveStats);
+    });
+
+    document.querySelectorAll('.zone-pos-cb').forEach(cb => {
+        cb.addEventListener('change', updateZonePositiveStats);
+    });
+
+    document.querySelectorAll('.odd-even-pos-cb').forEach(cb => {
+        cb.addEventListener('change', updateOddEvenPositiveStats);
+    });
+
+    document.querySelectorAll('.ac-pos-cb').forEach(cb => {
+        cb.addEventListener('change', updateAcPositiveStats);
+    });
+
+    // 和值范围复选框和输入框
+    for (let i = 1; i <= 3; i++) {
+        const checkbox = document.getElementById(`sum-pos-range${i}-enabled`);
+        const minInput = document.getElementById(`sum-pos-range${i}-min`);
+        const maxInput = document.getElementById(`sum-pos-range${i}-max`);
+
+        if (checkbox) {
+            checkbox.addEventListener('change', function() {
+                // 启用/禁用输入框
+                if (minInput) minInput.disabled = !this.checked;
+                if (maxInput) maxInput.disabled = !this.checked;
+                // 更新统计
+                updateSumRangeStats();
+            });
+        }
+
+        if (minInput) {
+            minInput.addEventListener('input', updateSumRangeStats);
+        }
+        if (maxInput) {
+            maxInput.addEventListener('input', updateSumRangeStats);
+        }
+    }
+
+    // 跨度范围复选框和输入框
+    for (let i = 1; i <= 3; i++) {
+        const checkbox = document.getElementById(`span-pos-range${i}-enabled`);
+        const minInput = document.getElementById(`span-pos-range${i}-min`);
+        const maxInput = document.getElementById(`span-pos-range${i}-max`);
+
+        if (checkbox) {
+            checkbox.addEventListener('change', function() {
+                // 启用/禁用输入框
+                if (minInput) minInput.disabled = !this.checked;
+                if (maxInput) maxInput.disabled = !this.checked;
+                // 更新统计
+                updateSpanRangeStats();
+            });
+        }
+
+        if (minInput) {
+            minInput.addEventListener('input', updateSpanRangeStats);
+        }
+        if (maxInput) {
+            maxInput.addEventListener('input', updateSpanRangeStats);
+        }
+    }
+
+    // 6. 排除条件启用/禁用切换
+    setupExclusionToggles();
+
+    // 7. 输出配置实时汇总更新
+    setupOutputConfigListeners();
+
+    // 8. 创建任务按钮
+    const createTaskBtn = document.getElementById('create-hwc-positive-task-btn');
+    if (createTaskBtn) {
+        createTaskBtn.addEventListener('click', createHwcPositiveTask);
+    }
+
+    console.log('✅ HWC event listeners initialized');
+}
+
+/**
+ * 初始化UI状态
+ */
+function initHwcUI() {
+    // 默认勾选推荐的正选条件
+    // 热温冷比: 平衡比例(已在HTML中设置默认值)
+    // 区间比: 平衡比例(已在HTML中设置默认值)
+    // 和值范围: 范围1和2启用(已在HTML中设置默认值)
+    // 跨度范围: 范围1和2启用(已在HTML中设置默认值)
+    // 奇偶比: 2:3和3:2(已在HTML中设置默认值)
+    // AC值: 6,7,8(已在HTML中设置默认值)
+
+    // 初始化统计显示
+    updateHwcPositiveStats();
+    updateZonePositiveStats();
+    updateSumRangeStats();
+    updateSpanRangeStats();
+    updateOddEvenPositiveStats();
+    updateAcPositiveStats();
+    updateExclusionStats();
+    updateOutputConfigSummary();
+}
+
+// ========================================
+// 数据覆盖率检查
+// ========================================
+
+async function checkHwcDataCoverage() {
+    const btn = document.getElementById('hwc-check-coverage-btn');
+    const statusIcon = document.getElementById('hwc-status-icon');
+    const statusText = document.getElementById('hwc-status-text');
+    const generateBtn = document.getElementById('hwc-generate-missing-btn');
+
+    // 显示加载状态
+    btn.disabled = true;
+    btn.textContent = '检查中...';
+    statusIcon.textContent = '⏳';
+    statusText.textContent = '正在检查热温冷优化表数据覆盖率...';
+
+    try {
+        // 获取期号范围
+        const rangeType = document.querySelector('input[name="hwc-range-type"]:checked').value;
+        let requestData = { rangeType };
+
+        if (rangeType === 'recent') {
+            requestData.recentCount = parseInt(document.getElementById('hwc-recent-count').value) || 100;
+        } else if (rangeType === 'custom') {
+            requestData.startIssue = document.getElementById('hwc-custom-start').value;
+            requestData.endIssue = document.getElementById('hwc-custom-end').value;
+        }
+
+        const response = await fetch('http://localhost:3003/api/dlt/check-hwc-coverage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestData)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            const coverage = result.data;
+            const coveragePercent = ((coverage.covered / coverage.total) * 100).toFixed(1);
+
+            if (coverage.missing === 0) {
+                // 100%覆盖
+                statusIcon.textContent = '✅';
+                statusText.innerHTML = `
+                    数据完整！已覆盖 <strong>${coverage.covered}</strong> 个期号对 (100%)
+                    <br><span style="font-size: 12px; color: #666;">
+                    可以开始创建任务
+                    </span>
+                `;
+                generateBtn.style.display = 'none';
+            } else {
+                // 部分缺失
+                statusIcon.textContent = '⚠️';
+                statusText.innerHTML = `
+                    数据覆盖率: <strong>${coveragePercent}%</strong>
+                    (${coverage.covered}/${coverage.total} 期号对)
+                    <br><span style="font-size: 12px; color: #d97706;">
+                    缺失 ${coverage.missing} 个期号对，建议生成缺失数据
+                    </span>
+                `;
+                generateBtn.style.display = 'inline-block';
+            }
+        } else {
+            throw new Error(result.message || '检查失败');
+        }
+    } catch (error) {
+        console.error('检查数据覆盖率失败:', error);
+        statusIcon.textContent = '❌';
+        statusText.textContent = `检查失败: ${error.message}`;
+        generateBtn.style.display = 'none';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '重新检查';
+    }
+}
+
+async function generateMissingHwcData() {
+    const btn = document.getElementById('hwc-generate-missing-btn');
+    const statusIcon = document.getElementById('hwc-status-icon');
+    const statusText = document.getElementById('hwc-status-text');
+
+    if (!confirm('生成缺失的热温冷优化表数据可能需要几分钟时间，确认继续吗？')) {
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '生成中...';
+    statusIcon.textContent = '⏳';
+    statusText.textContent = '正在生成缺失数据，请稍候...';
+
+    try {
+        // 获取期号范围
+        const rangeType = document.querySelector('input[name="hwc-range-type"]:checked').value;
+        let requestData = { rangeType };
+
+        if (rangeType === 'recent') {
+            requestData.recentCount = parseInt(document.getElementById('hwc-recent-count').value) || 100;
+        } else if (rangeType === 'custom') {
+            requestData.startIssue = document.getElementById('hwc-custom-start').value;
+            requestData.endIssue = document.getElementById('hwc-custom-end').value;
+        }
+
+        const response = await fetch('http://localhost:3003/api/dlt/generate-missing-hwc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestData)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            statusIcon.textContent = '✅';
+            statusText.innerHTML = `
+                数据生成完成！生成了 <strong>${result.data.generated}</strong> 个期号对的数据
+                <br><span style="font-size: 12px; color: #059669;">
+                数据已完整，可以开始创建任务
+                </span>
+            `;
+            btn.style.display = 'none';
+
+            // 自动重新检查覆盖率
+            setTimeout(() => checkHwcDataCoverage(), 1000);
+        } else {
+            throw new Error(result.message || '生成失败');
+        }
+    } catch (error) {
+        console.error('生成缺失数据失败:', error);
+        statusIcon.textContent = '❌';
+        statusText.textContent = `生成失败: ${error.message}`;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '生成缺失数据';
+    }
+}
+
+// ========================================
+// 正选步骤统计更新
+// ========================================
+
+function updateHwcPositiveStats() {
+    const checkedCount = document.querySelectorAll('.hwc-pos-cb:checked').length;
+    document.getElementById('hwc-pos-selected-count').textContent = checkedCount;
+
+    // 估算组合数 (简化估算: 平均每种比例约占总数的1/21)
+    const estimatedCount = Math.round(324632 * (checkedCount / 21));
+    document.getElementById('hwc-pos-estimated-count').textContent = estimatedCount.toLocaleString();
+}
+
+function updateZonePositiveStats() {
+    const checkedCount = document.querySelectorAll('.zone-pos-cb:checked').length;
+    document.getElementById('zone-pos-selected-count').textContent = checkedCount;
+
+    const estimatedCount = Math.round(324632 * (checkedCount / 21));
+    document.getElementById('zone-pos-estimated-count').textContent = estimatedCount.toLocaleString();
+}
+
+function updateOddEvenPositiveStats() {
+    const checkedCount = document.querySelectorAll('.odd-even-pos-cb:checked').length;
+    document.getElementById('odd-even-pos-selected-count').textContent = checkedCount;
+
+    const estimatedCount = Math.round(324632 * (checkedCount / 6));
+    document.getElementById('odd-even-pos-estimated-count').textContent = estimatedCount.toLocaleString();
+}
+
+function updateAcPositiveStats() {
+    const checkedCount = document.querySelectorAll('.ac-pos-cb:checked').length;
+    document.getElementById('ac-pos-selected-count').textContent = checkedCount;
+
+    const estimatedCount = Math.round(324632 * (checkedCount / 11));
+    document.getElementById('ac-pos-estimated-count').textContent = estimatedCount.toLocaleString();
+}
+
+function updateSumRangeStats() {
+    const ranges = [];
+    let enabledCount = 0;
+
+    for (let i = 1; i <= 3; i++) {
+        const enabled = document.getElementById(`sum-pos-range${i}-enabled`)?.checked;
+        if (enabled) {
+            const min = document.getElementById(`sum-pos-range${i}-min`)?.value;
+            const max = document.getElementById(`sum-pos-range${i}-max`)?.value;
+            if (min && max) {
+                enabledCount++;
+                ranges.push(`${min}-${max}`);
+            }
+        }
+    }
+
+    // 更新已启用数量
+    const enabledCountEl = document.getElementById('sum-pos-ranges-enabled');
+    if (enabledCountEl) {
+        enabledCountEl.textContent = enabledCount;
+    }
+
+    // 更新范围显示 (在括号中显示启用的范围)
+    const rangesSummaryEl = document.getElementById('sum-pos-ranges-summary');
+    if (rangesSummaryEl) {
+        rangesSummaryEl.textContent = ranges.length > 0 ? `(${ranges.join(', ')})` : '';
+    }
+
+    // 估算组合数 (简化估算: 假设每个范围平均覆盖总组合的25%)
+    const estimatedCount = enabledCount > 0 ? Math.round(150000 * 0.25 * enabledCount) : 150000;
+    const estimatedCountEl = document.getElementById('sum-pos-estimated-count');
+    if (estimatedCountEl) {
+        estimatedCountEl.textContent = estimatedCount.toLocaleString();
+    }
+}
+
+function updateSpanRangeStats() {
+    const ranges = [];
+    let enabledCount = 0;
+
+    for (let i = 1; i <= 3; i++) {
+        const enabled = document.getElementById(`span-pos-range${i}-enabled`)?.checked;
+        if (enabled) {
+            const min = document.getElementById(`span-pos-range${i}-min`)?.value;
+            const max = document.getElementById(`span-pos-range${i}-max`)?.value;
+            if (min && max) {
+                enabledCount++;
+                ranges.push(`${min}-${max}`);
+            }
+        }
+    }
+
+    // 更新已启用数量
+    const enabledCountEl = document.getElementById('span-pos-ranges-enabled');
+    if (enabledCountEl) {
+        enabledCountEl.textContent = enabledCount;
+    }
+
+    // 更新范围显示
+    const rangesSummaryEl = document.getElementById('span-pos-ranges-summary');
+    if (rangesSummaryEl) {
+        rangesSummaryEl.textContent = ranges.length > 0 ? `(${ranges.join(', ')})` : '';
+    }
+
+    // 估算组合数
+    const estimatedCount = enabledCount > 0 ? Math.round(150000 * 0.3 * enabledCount) : 150000;
+    const estimatedCountEl = document.getElementById('span-pos-estimated-count');
+    if (estimatedCountEl) {
+        estimatedCountEl.textContent = estimatedCount.toLocaleString();
+    }
+}
+
+// ========================================
+// 快速预设选择函数 (全局函数供HTML调用)
+// ========================================
+
+window.selectHwcPosPreset = function(preset) {
+    const checkboxes = document.querySelectorAll('.hwc-pos-cb');
+    checkboxes.forEach(cb => {
+        const group = cb.dataset.group;
+        if (preset === 'all') {
+            cb.checked = true;
+        } else if (preset === 'none') {
+            cb.checked = false;
+        } else {
+            cb.checked = group === preset;
+        }
+    });
+    updateHwcPositiveStats();
+};
+
+window.selectZonePosPreset = function(preset) {
+    const checkboxes = document.querySelectorAll('.zone-pos-cb');
+    checkboxes.forEach(cb => {
+        const group = cb.dataset.group;
+        if (preset === 'all') {
+            cb.checked = true;
+        } else if (preset === 'none') {
+            cb.checked = false;
+        } else {
+            cb.checked = group === preset;
+        }
+    });
+    updateZonePositiveStats();
+};
+
+window.selectOddEvenPosPreset = function(preset) {
+    const checkboxes = document.querySelectorAll('.odd-even-pos-cb');
+    if (preset === 'all') {
+        checkboxes.forEach(cb => cb.checked = true);
+    } else if (preset === 'none') {
+        checkboxes.forEach(cb => cb.checked = false);
+    } else if (preset === 'recommended') {
+        checkboxes.forEach(cb => {
+            const value = cb.value;
+            cb.checked = value === '2:3' || value === '3:2';
+        });
+    }
+    updateOddEvenPositiveStats();
+};
+
+window.selectAcPosPreset = function(preset) {
+    const checkboxes = document.querySelectorAll('.ac-pos-cb');
+    if (preset === 'all') {
+        checkboxes.forEach(cb => cb.checked = true);
+    } else if (preset === 'none') {
+        checkboxes.forEach(cb => cb.checked = false);
+    } else if (preset === 'low') {
+        // 低AC (0-2)
+        checkboxes.forEach(cb => {
+            const value = parseInt(cb.value);
+            cb.checked = value >= 0 && value <= 2;
+        });
+    } else if (preset === 'mid') {
+        // 中AC (3-4)
+        checkboxes.forEach(cb => {
+            const value = parseInt(cb.value);
+            cb.checked = value >= 3 && value <= 4;
+        });
+    } else if (preset === 'high') {
+        // 高AC (5-6)
+        checkboxes.forEach(cb => {
+            const value = parseInt(cb.value);
+            cb.checked = value >= 5 && value <= 6;
+        });
+    } else if (preset === 'balanced') {
+        // 推荐/平衡 (4-6)
+        checkboxes.forEach(cb => {
+            const value = parseInt(cb.value);
+            cb.checked = value >= 4 && value <= 6;
+        });
+    }
+    updateAcPositiveStats();
+};
+
+// ========================================
+// 排除条件交互
+// ========================================
+
+function setupExclusionToggles() {
+    // 设置每个排除条件的启用/禁用切换
+    const exclusions = [
+        { checkbox: 'excl-sum-enabled', config: 'excl-sum-config' },
+        { checkbox: 'excl-span-enabled', config: 'excl-span-config' },
+        { checkbox: 'excl-hwc-enabled', config: 'excl-hwc-config' },
+        { checkbox: 'excl-conflict-enabled', config: 'excl-conflict-config' },
+        { checkbox: 'excl-cooccur-enabled', config: 'excl-cooccur-config' },
+        { checkbox: 'excl-zone-enabled', config: 'excl-zone-config' },  // ⭐ 新增：排除条件6 - 历史区间比排除
+        { checkbox: 'excl-consecutive-groups-enabled', config: 'excl-consecutive-groups-config' },  // ⭐ 新增：排除条件7 - 连号组数排除
+        { checkbox: 'excl-max-consecutive-enabled', config: 'excl-max-consecutive-config' }  // ⭐ 新增：排除条件8 - 最长连号长度排除
+    ];
+
+    exclusions.forEach(({ checkbox, config }) => {
+        const cb = document.getElementById(checkbox);
+        const configDiv = document.getElementById(config);
+
+        if (cb && configDiv) {
+            cb.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    configDiv.style.opacity = '1';
+                    configDiv.style.pointerEvents = 'auto';
+                } else {
+                    configDiv.style.opacity = '0.5';
+                    configDiv.style.pointerEvents = 'none';
+                }
+                updateExclusionStats();
+            });
+        }
+    });
+
+    // ⭐ 新增：相克排除 - 全局Top联动
+    const conflictGlobalTopCb = document.getElementById('excl-conflict-global-top-enabled');
+    const conflictGlobalTopConfig = document.getElementById('excl-conflict-global-top-config');
+
+    if (conflictGlobalTopCb && conflictGlobalTopConfig) {
+        conflictGlobalTopCb.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                conflictGlobalTopConfig.style.opacity = '1';
+                conflictGlobalTopConfig.style.pointerEvents = 'auto';
+            } else {
+                conflictGlobalTopConfig.style.opacity = '0.5';
+                conflictGlobalTopConfig.style.pointerEvents = 'none';
+            }
+        });
+    }
+
+    // ⭐ 新增：相克排除 - 全局Top热号保护联动
+    const conflictGlobalHotCb = document.getElementById('excl-conflict-global-hot-protect-enabled');
+    const conflictGlobalHotConfig = document.getElementById('excl-conflict-global-hot-protect-config');
+
+    if (conflictGlobalHotCb && conflictGlobalHotConfig) {
+        conflictGlobalHotCb.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                conflictGlobalHotConfig.style.opacity = '1';
+                conflictGlobalHotConfig.style.pointerEvents = 'auto';
+            } else {
+                conflictGlobalHotConfig.style.opacity = '0.5';
+                conflictGlobalHotConfig.style.pointerEvents = 'none';
+            }
+        });
+    }
+
+    // ⭐ 新增：相克排除 - 每号Top联动
+    const conflictPerBallTopCb = document.getElementById('excl-conflict-per-ball-top-enabled');
+    const conflictPerBallTopConfig = document.getElementById('excl-conflict-per-ball-top-config');
+
+    if (conflictPerBallTopCb && conflictPerBallTopConfig) {
+        conflictPerBallTopCb.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                conflictPerBallTopConfig.style.opacity = '1';
+                conflictPerBallTopConfig.style.pointerEvents = 'auto';
+            } else {
+                conflictPerBallTopConfig.style.opacity = '0.5';
+                conflictPerBallTopConfig.style.pointerEvents = 'none';
+            }
+        });
+    }
+
+    // ⭐ 新增：相克排除 - 每号Top热号保护联动
+    const conflictPerBallHotCb = document.getElementById('excl-conflict-per-ball-hot-protect-enabled');
+    const conflictPerBallHotConfig = document.getElementById('excl-conflict-per-ball-hot-protect-config');
+
+    if (conflictPerBallHotCb && conflictPerBallHotConfig) {
+        conflictPerBallHotCb.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                conflictPerBallHotConfig.style.opacity = '1';
+                conflictPerBallHotConfig.style.pointerEvents = 'auto';
+            } else {
+                conflictPerBallHotConfig.style.opacity = '0.5';
+                conflictPerBallHotConfig.style.pointerEvents = 'none';
+            }
+        });
+    }
+
+    // ⭐ 新增：相克排除 - 阈值排除联动
+    const conflictThresholdCb = document.getElementById('excl-conflict-threshold-enabled');
+    const conflictThresholdConfig = document.getElementById('excl-conflict-threshold-config');
+
+    if (conflictThresholdCb && conflictThresholdConfig) {
+        conflictThresholdCb.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                conflictThresholdConfig.style.opacity = '1';
+                conflictThresholdConfig.style.pointerEvents = 'auto';
+            } else {
+                conflictThresholdConfig.style.opacity = '0.5';
+                conflictThresholdConfig.style.pointerEvents = 'none';
+            }
+        });
+    }
+
+    // ⭐ 新增：同现比排除 - 阈值过滤联动
+    const cooccurThresholdCb = document.getElementById('excl-cooccur-threshold-enabled');
+    const cooccurThresholdConfig = document.getElementById('excl-cooccur-threshold-config');
+
+    if (cooccurThresholdCb && cooccurThresholdConfig) {
+        cooccurThresholdCb.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                cooccurThresholdConfig.style.opacity = '1';
+                cooccurThresholdConfig.style.pointerEvents = 'auto';
+            } else {
+                cooccurThresholdConfig.style.opacity = '0.5';
+                cooccurThresholdConfig.style.pointerEvents = 'none';
+            }
+        });
+    }
+
+    // ⭐ 新增：同现比排除 - 历史排除联动
+    const cooccurHistoricalCb = document.getElementById('excl-cooccur-historical-enabled');
+    const cooccurHistoricalConfig = document.getElementById('excl-cooccur-historical-config');
+
+    if (cooccurHistoricalCb && cooccurHistoricalConfig) {
+        cooccurHistoricalCb.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                cooccurHistoricalConfig.style.opacity = '1';
+                cooccurHistoricalConfig.style.pointerEvents = 'auto';
+            } else {
+                cooccurHistoricalConfig.style.opacity = '0.5';
+                cooccurHistoricalConfig.style.pointerEvents = 'none';
+            }
+        });
+    }
+
+    // ⭐ 新增：同现比排除 - 按红球历史同出排除联动
+    const cooccurPerBallCb = document.getElementById('excl-cooccur-perball-enabled');
+    const cooccurPerBallConfig = document.getElementById('excl-cooccur-perball-config');
+
+    if (cooccurPerBallCb && cooccurPerBallConfig) {
+        cooccurPerBallCb.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                cooccurPerBallConfig.style.opacity = '1';
+                cooccurPerBallConfig.style.pointerEvents = 'auto';
+            } else {
+                cooccurPerBallConfig.style.opacity = '0.5';
+                cooccurPerBallConfig.style.pointerEvents = 'none';
+            }
+        });
+    }
+}
+
+function updateExclusionStats() {
+    const enabledCount = Array.from(document.querySelectorAll('[id^="excl-"][id$="-enabled"]'))
+        .filter(cb => cb.checked).length;
+
+    document.getElementById('excl-enabled-count').textContent = enabledCount;
+}
+
+// ========================================
+// 输出配置汇总
+// ========================================
+
+function setupOutputConfigListeners() {
+    // 配对模式
+    document.querySelectorAll('input[name="hwc-pairing-mode"]').forEach(radio => {
+        radio.addEventListener('change', updateOutputConfigSummary);
+    });
+
+    // 批处理大小
+    const batchSizeInput = document.getElementById('hwc-batch-size');
+    if (batchSizeInput) {
+        batchSizeInput.addEventListener('change', updateOutputConfigSummary);
+    }
+
+    // 命中分析
+    const hitAnalysisCheckbox = document.getElementById('hwc-enable-hit-analysis');
+    if (hitAnalysisCheckbox) {
+        hitAnalysisCheckbox.addEventListener('change', updateOutputConfigSummary);
+    }
+
+    // 自动导出
+    const autoExportCheckbox = document.getElementById('hwc-auto-export');
+    if (autoExportCheckbox) {
+        autoExportCheckbox.addEventListener('change', updateOutputConfigSummary);
+    }
+}
+
+function updateOutputConfigSummary() {
+    // 配对模式
+    const pairingMode = document.querySelector('input[name="hwc-pairing-mode"]:checked')?.value || 'default';
+    const modeText = pairingMode === 'default' ? '默认模式' :
+                     pairingMode === 'unlimited' ? '普通无限制' : '真正无限制';
+    document.getElementById('hwc-output-mode-summary').textContent = modeText;
+
+    // 批处理大小
+    const batchSize = parseInt(document.getElementById('hwc-batch-size')?.value) || 50000;
+    document.getElementById('hwc-output-batch-summary').textContent = batchSize.toLocaleString();
+
+    // 命中分析
+    const hitEnabled = document.getElementById('hwc-enable-hit-analysis')?.checked;
+    document.getElementById('hwc-output-hit-summary').textContent = hitEnabled ? '已启用' : '已禁用';
+
+    // 导出
+    const autoExport = document.getElementById('hwc-auto-export')?.checked;
+    document.getElementById('hwc-output-export-summary').textContent = autoExport ? '自动' : '手动';
+}
+
+// ========================================
+// 创建任务
+// ========================================
+
+async function createHwcPositiveTask() {
+    const btn = document.getElementById('create-hwc-positive-task-btn');
+
+    try {
+        // 1. 收集期号范围
+        const rangeType = document.querySelector('input[name="hwc-range-type"]:checked').value;
+        let issueRange = { rangeType };
+
+        if (rangeType === 'recent') {
+            issueRange.recentCount = parseInt(document.getElementById('hwc-recent-count').value) || 100;
+        } else if (rangeType === 'custom') {
+            issueRange.startIssue = document.getElementById('hwc-custom-start').value;
+            issueRange.endIssue = document.getElementById('hwc-custom-end').value;
+
+            if (!issueRange.startIssue || !issueRange.endIssue) {
+                alert('请输入自定义期号范围');
+                return;
+            }
+        }
+
+        // 2. 收集6步正选条件
+        const positiveSelection = {
+            hwcRatios: Array.from(document.querySelectorAll('.hwc-pos-cb:checked')).map(cb => cb.value),
+            zoneRatios: Array.from(document.querySelectorAll('.zone-pos-cb:checked')).map(cb => cb.value),
+            sumRanges: [],
+            spanRanges: [],
+            oddEvenRatios: Array.from(document.querySelectorAll('.odd-even-pos-cb:checked')).map(cb => cb.value),
+            acValues: Array.from(document.querySelectorAll('.ac-pos-cb:checked')).map(cb => parseInt(cb.value))
+        };
+
+        // 和值范围
+        for (let i = 1; i <= 3; i++) {
+            const enabled = document.getElementById(`sum-pos-range${i}-enabled`)?.checked;
+            if (enabled) {
+                const min = parseInt(document.getElementById(`sum-pos-range${i}-min`)?.value);
+                const max = parseInt(document.getElementById(`sum-pos-range${i}-max`)?.value);
+                if (!isNaN(min) && !isNaN(max)) {
+                    positiveSelection.sumRanges.push({ min, max });
+                }
+            }
+        }
+
+        // 跨度范围
+        for (let i = 1; i <= 3; i++) {
+            const enabled = document.getElementById(`span-pos-range${i}-enabled`)?.checked;
+            if (enabled) {
+                const min = parseInt(document.getElementById(`span-pos-range${i}-min`)?.value);
+                const max = parseInt(document.getElementById(`span-pos-range${i}-max`)?.value);
+                if (!isNaN(min) && !isNaN(max)) {
+                    positiveSelection.spanRanges.push({ min, max });
+                }
+            }
+        }
+
+        // 验证正选条件
+        if (positiveSelection.hwcRatios.length === 0) {
+            alert('请至少选择1种热温冷比');
+            return;
+        }
+
+        // 3. 收集排除条件
+        const exclusionConditions = {};
+
+        // ⭐ 修复：使用正确的嵌套结构 sum.historical
+        if (document.getElementById('excl-sum-enabled')?.checked) {
+            exclusionConditions.sum = {
+                historical: {
+                    enabled: true,
+                    count: parseInt(document.getElementById('excl-sum-period')?.value) || 10
+                }
+            };
+        }
+
+        // ⭐ 修复：使用正确的嵌套结构 span.historical
+        if (document.getElementById('excl-span-enabled')?.checked) {
+            exclusionConditions.span = {
+                historical: {
+                    enabled: true,
+                    count: parseInt(document.getElementById('excl-span-period')?.value) || 10
+                }
+            };
+        }
+
+        // ⭐ 修复：使用正确的嵌套结构 hwc.historical
+        if (document.getElementById('excl-hwc-enabled')?.checked) {
+            exclusionConditions.hwc = {
+                historical: {
+                    enabled: true,
+                    count: parseInt(document.getElementById('excl-hwc-period')?.value) || 10
+                }
+            };
+        }
+
+        // ⭐ 修改：相克对排除 - 多策略配置
+        if (document.getElementById('excl-conflict-enabled')?.checked) {
+            const globalTopEnabled = document.getElementById('excl-conflict-global-top-enabled')?.checked || false;
+            const perBallTopEnabled = document.getElementById('excl-conflict-per-ball-top-enabled')?.checked || false;
+            const thresholdEnabled = document.getElementById('excl-conflict-threshold-enabled')?.checked || false;
+
+            // 只有至少启用一个子功能时才添加conflictPairs配置
+            if (globalTopEnabled || perBallTopEnabled || thresholdEnabled) {
+                exclusionConditions.conflictPairs = {
+                    enabled: true
+                };
+
+                // 策略1: 全局排除Top
+                if (globalTopEnabled) {
+                    exclusionConditions.conflictPairs.globalTop = {
+                        enabled: true,
+                        period: parseInt(document.getElementById('excl-conflict-global-period')?.value) || 2700,
+                        top: parseInt(document.getElementById('excl-conflict-global-top')?.value) || 18
+                    };
+
+                    // 全局Top的热号保护
+                    const globalHotEnabled = document.getElementById('excl-conflict-global-hot-protect-enabled')?.checked || false;
+                    if (globalHotEnabled) {
+                        exclusionConditions.conflictPairs.globalTop.hotProtect = {
+                            enabled: true,
+                            top: parseInt(document.getElementById('excl-conflict-global-hot-top')?.value) || 3
+                        };
+                    }
+                }
+
+                // 策略2: 每个号码排除Top
+                if (perBallTopEnabled) {
+                    exclusionConditions.conflictPairs.perBallTop = {
+                        enabled: true,
+                        period: parseInt(document.getElementById('excl-conflict-per-ball-period')?.value) || 2700,
+                        top: parseInt(document.getElementById('excl-conflict-per-ball-top')?.value) || 1
+                    };
+
+                    // 每号Top的热号保护
+                    const perBallHotEnabled = document.getElementById('excl-conflict-per-ball-hot-protect-enabled')?.checked || false;
+                    if (perBallHotEnabled) {
+                        exclusionConditions.conflictPairs.perBallTop.hotProtect = {
+                            enabled: true,
+                            top: parseInt(document.getElementById('excl-conflict-per-ball-hot-top')?.value) || 3
+                        };
+                    }
+                }
+
+                // 策略3: 相克次数阈值（向后兼容）
+                if (thresholdEnabled) {
+                    exclusionConditions.conflictPairs.threshold = {
+                        enabled: true,
+                        value: parseInt(document.getElementById('excl-conflict-threshold')?.value) || 1
+                    };
+                }
+            }
+        }
+
+        // ⭐ 修改：同现比排除 - 区分阈值过滤、历史排除、按红球同出排除
+        if (document.getElementById('excl-cooccur-enabled')?.checked) {
+            const thresholdEnabled = document.getElementById('excl-cooccur-threshold-enabled')?.checked || false;
+            const historicalEnabled = document.getElementById('excl-cooccur-historical-enabled')?.checked || false;
+            const perBallEnabled = document.getElementById('excl-cooccur-perball-enabled')?.checked || false;
+
+            // 只有至少启用一个子功能时才添加coOccurrence配置
+            if (thresholdEnabled || historicalEnabled || perBallEnabled) {
+                exclusionConditions.coOccurrence = {
+                    enabled: true
+                };
+
+                // 阈值过滤配置（追热策略）
+                if (thresholdEnabled) {
+                    exclusionConditions.coOccurrence.threshold = {
+                        enabled: true,
+                        type: document.getElementById('excl-cooccur-type')?.value || 'combo_2',
+                        threshold: parseInt(document.getElementById('excl-cooccur-threshold')?.value) || 10,
+                        period: parseInt(document.getElementById('excl-cooccur-period')?.value) || 30
+                    };
+                }
+
+                // 历史排除配置（避重策略）
+                if (historicalEnabled) {
+                    const combo2 = document.getElementById('excl-cooccur-historical-combo2')?.checked || false;
+                    const combo3 = document.getElementById('excl-cooccur-historical-combo3')?.checked || false;
+                    const combo4 = document.getElementById('excl-cooccur-historical-combo4')?.checked || false;
+
+                    // 只有在至少勾选了一个子选项时才添加
+                    if (combo2 || combo3 || combo4) {
+                        exclusionConditions.coOccurrence.historical = {
+                            enabled: true,
+                            period: parseInt(document.getElementById('excl-cooccur-historical-period')?.value) || 10,
+                            combo2: combo2,
+                            combo3: combo3,
+                            combo4: combo4
+                        };
+                    }
+                }
+
+                // 🆕 按红球历史同出排除配置（避开每球历史配对）
+                if (perBallEnabled) {
+                    const combo2 = document.getElementById('excl-cooccur-perball-combo2')?.checked || false;
+                    const combo3 = document.getElementById('excl-cooccur-perball-combo3')?.checked || false;
+                    const combo4 = document.getElementById('excl-cooccur-perball-combo4')?.checked || false;
+
+                    exclusionConditions.coOccurrence.perBall = {
+                        enabled: true,
+                        periods: parseInt(document.getElementById('excl-cooccur-perball-periods')?.value) || 1,
+                        combo2: combo2,
+                        combo3: combo3,
+                        combo4: combo4
+                    };
+                }
+            }
+        }
+
+        // ⭐ 新增：排除条件 6 - 历史区间比排除
+        if (document.getElementById('excl-zone-enabled')?.checked) {
+            exclusionConditions.zone = exclusionConditions.zone || {};
+            exclusionConditions.zone.historical = {
+                enabled: true,
+                count: parseInt(document.getElementById('excl-zone-period')?.value) || 10
+            };
+        }
+
+        // ⭐ 新增：排除条件 7 - 连号组数排除
+        if (document.getElementById('excl-consecutive-groups-enabled')?.checked) {
+            const selectedGroups = Array.from(document.querySelectorAll('.excl-consecutive-groups-cb:checked'))
+                .map(cb => parseInt(cb.value));
+
+            if (selectedGroups.length > 0) {
+                exclusionConditions.consecutiveGroups = {
+                    enabled: true,
+                    groups: selectedGroups
+                };
+            }
+        }
+
+        // ⭐ 新增：排除条件 8 - 最长连号长度排除
+        if (document.getElementById('excl-max-consecutive-enabled')?.checked) {
+            const selectedLengths = Array.from(document.querySelectorAll('.excl-max-consecutive-cb:checked'))
+                .map(cb => parseInt(cb.value));
+
+            if (selectedLengths.length > 0) {
+                exclusionConditions.maxConsecutiveLength = {
+                    enabled: true,
+                    lengths: selectedLengths
+                };
+            }
+        }
+
+        // 4. 收集输出配置
+        const outputConfig = {
+            pairingMode: document.querySelector('input[name="hwc-pairing-mode"]:checked')?.value || 'default',
+            batchSize: parseInt(document.getElementById('hwc-batch-size')?.value) || 50000,
+            enableHitAnalysis: document.getElementById('hwc-enable-hit-analysis')?.checked,
+            autoExport: document.getElementById('hwc-auto-export')?.checked,
+            previewMode: document.getElementById('hwc-preview-mode')?.value || 'comprehensive',
+            includeExclusionDetails: document.getElementById('hwc-include-exclusion-details')?.checked
+        };
+
+        // 5. 任务名称
+        let taskName = document.getElementById('hwc-task-name')?.value.trim();
+        if (!taskName) {
+            const date = new Date().toISOString().split('T')[0];
+            taskName = `热温冷正选_${date}`;
+        }
+
+        // 6. 构造请求数据（对接新API）- 转换字段名为下划线格式
+        const requestData = {
+            task_name: taskName,
+            period_range: {
+                type: issueRange.rangeType,
+                value: issueRange.rangeType === 'recent' ? issueRange.recentCount :
+                       issueRange.rangeType === 'custom' ? { start: issueRange.startIssue, end: issueRange.endIssue } :
+                       undefined
+            },
+            positive_selection: {
+                hwc_ratios: positiveSelection.hwcRatios || [],
+                zone_ratios: positiveSelection.zoneRatios || [],
+                sum_ranges: positiveSelection.sumRanges || [],
+                span_ranges: positiveSelection.spanRanges || [],
+                odd_even_ratios: positiveSelection.oddEvenRatios || [],
+                primes_ratios: positiveSelection.primesRatios || [],
+                ac_values: positiveSelection.acValues || [],
+                consecutive_settings: {
+                    allow_2_consecutive: true,
+                    allow_3_consecutive: false
+                }
+            },
+            exclusion_conditions: exclusionConditions,
+            output_config: {
+                pairingMode: outputConfig.pairingMode,
+                batchSize: outputConfig.batchSize,
+                enableHitAnalysis: outputConfig.enableHitAnalysis,
+                autoExport: outputConfig.autoExport,
+                previewMode: outputConfig.previewMode,
+                includeExclusionDetails: outputConfig.includeExclusionDetails
+            }
+        };
+
+        console.log('🚀 创建热温冷正选批量预测任务:', requestData);
+
+        // 显示加载状态
+        btn.disabled = true;
+        btn.textContent = '创建中...';
+
+        // 7. 发送请求到新API
+        const response = await fetch(`${API_BASE_URL}/api/dlt/hwc-positive-tasks/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestData)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert(`✅ 任务创建成功！\n任务ID: ${result.data.task_id}\n任务将在后台执行，请稍后查看结果。`);
+
+            // 清空任务名称输入框
+            document.getElementById('hwc-task-name').value = '';
+
+            // 刷新任务列表
+            await loadHwcPosTaskList();
+
+            // 滚动到任务管理区域
+            const taskSection = document.querySelector('.task-management-section');
+            if (taskSection) {
+                taskSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        } else {
+            throw new Error(result.message || '创建任务失败');
+        }
+    } catch (error) {
+        console.error('创建任务失败:', error);
+        alert(`创建任务失败: ${error.message}`);
+    } finally {
+        // 恢复按钮状态
+        btn.disabled = false;
+        btn.textContent = '🚀 创建热温冷正选批量预测任务';
+
+        // 确保所有输入框恢复可编辑状态
+        const formInputs = [
+            'hwc-task-name',
+            'hwc-recent-count',
+            'hwc-custom-start',
+            'hwc-custom-end'
+        ];
+
+        formInputs.forEach(id => {
+            const input = document.getElementById(id);
+            if (input) {
+                input.disabled = false;
+            }
+        });
+    }
+}
+
+// ========================================
+// 热温冷正选批量预测任务管理功能
+// ========================================
+
+/**
+ * 热温冷正选任务管理状态
+ */
+const hwcPosTaskManagement = {
+    currentPage: 1,
+    pageSize: 12,
+    totalTasks: 0,
+    statusFilter: 'all',
+    selectedTaskIds: new Set()
+};
+
+/**
+ * 加载热温冷正选任务列表
+ */
+async function loadHwcPosTaskList() {
+    try {
+        const { currentPage, pageSize, statusFilter } = hwcPosTaskManagement;
+        const response = await fetch(
+            `${API_BASE_URL}/api/dlt/hwc-positive-tasks/list?page=${currentPage}&limit=${pageSize}&status=${statusFilter}`
+        );
+        const result = await response.json();
+
+        if (result.success) {
+            hwcPosTaskManagement.totalTasks = result.data.total;
+            renderHwcPosTaskCards(result.data.tasks);
+            updateHwcPosPagination();
+        } else {
+            console.error('加载热温冷正选任务列表失败:', result.message);
+        }
+    } catch (error) {
+        console.error('加载热温冷正选任务列表失败:', error);
+    }
+}
+
+/**
+ * 渲染热温冷正选任务卡片
+ */
+function renderHwcPosTaskCards(tasks) {
+    const container = document.getElementById('hwc-pos-task-cards-container');
+    if (!container) return;
+
+    // ✅ 方案2: 保存输入框焦点状态，防止渲染时丢失输入
+    const taskNameInput = document.getElementById('hwc-task-name');
+    const hadFocus = taskNameInput && document.activeElement === taskNameInput;
+    const savedValue = taskNameInput ? taskNameInput.value : '';
+    const savedCursorPos = taskNameInput ? taskNameInput.selectionStart : 0;
+
+    if (!tasks || tasks.length === 0) {
+        container.innerHTML = `
+            <div class="task-list-placeholder">
+                <div class="placeholder-content">
+                    <h3>🎯 暂无任务</h3>
+                    <p>请创建热温冷正选批量预测任务</p>
+                </div>
+            </div>
+        `;
+
+        // ✅ 恢复输入框焦点状态
+        if (hadFocus && taskNameInput) {
+            setTimeout(() => {
+                taskNameInput.value = savedValue;
+                taskNameInput.focus();
+                taskNameInput.setSelectionRange(savedCursorPos, savedCursorPos);
+            }, 0);
+        }
+        return;
+    }
+
+    container.innerHTML = '';
+    tasks.forEach(task => {
+        const card = createHwcPosTaskCard(task);
+        container.appendChild(card);
+    });
+
+    // ✅ 恢复输入框焦点状态
+    if (hadFocus && taskNameInput) {
+        setTimeout(() => {
+            taskNameInput.value = savedValue;
+            taskNameInput.focus();
+            taskNameInput.setSelectionRange(savedCursorPos, savedCursorPos);
+        }, 0);
+    }
+}
+
+/**
+ * 创建热温冷正选任务卡片
+ */
+function createHwcPosTaskCard(task) {
+    const card = document.createElement('div');
+    card.className = 'task-card has-checkbox';
+    card.dataset.taskId = task.task_id;
+
+    const createdAt = new Date(task.created_at).toLocaleString('zh-CN');
+
+    const statusText = {
+        'pending': '等待中',
+        'running': '进行中',
+        'completed': '已完成',
+        'failed': '失败'
+    };
+
+    const stats = task.statistics || {};
+    const combinationCount = stats.total_combinations || 0;
+    const hitRate = stats.avg_hit_rate || 0;
+    const firstPrize = stats.first_prize_count || 0;
+    const secondPrize = stats.second_prize_count || 0;
+    const thirdPrize = stats.third_prize_count || 0;
+    const totalPrize = stats.total_prize_amount || 0;
+
+    const isSelected = hwcPosTaskManagement.selectedTaskIds.has(task.task_id);
+    if (isSelected) {
+        card.classList.add('selected');
+    }
+
+    // 处理期号范围显示
+    const predictedCount = task.period_range.predicted_count || 0;
+    let periodRangeText = `${task.period_range.start} - ${task.period_range.end}`;
+    if (predictedCount > 0) {
+        periodRangeText += ` (${task.period_range.total}期, 含${predictedCount}期推算)`;
+    } else {
+        periodRangeText += ` (${task.period_range.total}期)`;
+    }
+
+    // ⭐ 新增：生成正选条件摘要（完整版本）
+    let positiveHtml = '';
+    const positiveSel = task.positive_selection || {};
+
+    // 热温冷比
+    if (positiveSel.hwc_ratios && positiveSel.hwc_ratios.length > 0) {
+        positiveHtml += `<p style="margin: 2px 0;"><strong>🌡️ 热温冷比:</strong> ${positiveSel.hwc_ratios.join(', ')}</p>`;
+    }
+
+    // 区间比
+    if (positiveSel.zone_ratios && positiveSel.zone_ratios.length > 0) {
+        positiveHtml += `<p style="margin: 2px 0;"><strong>🎯 区间比:</strong> ${positiveSel.zone_ratios.join(', ')}</p>`;
+    }
+
+    // 和值范围
+    if (positiveSel.sum_ranges && positiveSel.sum_ranges.length > 0) {
+        const sumRangesText = positiveSel.sum_ranges.map(r => `${r.min}-${r.max}`).join(', ');
+        positiveHtml += `<p style="margin: 2px 0;"><strong>➕ 和值范围:</strong> ${sumRangesText}</p>`;
+    }
+
+    // 跨度范围
+    if (positiveSel.span_ranges && positiveSel.span_ranges.length > 0) {
+        const spanRangesText = positiveSel.span_ranges.map(r => `${r.min}-${r.max}`).join(', ');
+        positiveHtml += `<p style="margin: 2px 0;"><strong>📏 跨度范围:</strong> ${spanRangesText}</p>`;
+    }
+
+    // 奇偶比
+    if (positiveSel.odd_even_ratios && positiveSel.odd_even_ratios.length > 0) {
+        positiveHtml += `<p style="margin: 2px 0;"><strong>⚖️ 奇偶比:</strong> ${positiveSel.odd_even_ratios.join(', ')}</p>`;
+    }
+
+    // AC值
+    if (positiveSel.ac_values && positiveSel.ac_values.length > 0) {
+        positiveHtml += `<p style="margin: 2px 0;"><strong>🔢 AC值:</strong> ${positiveSel.ac_values.join(', ')}</p>`;
+    }
+
+    // 质合比（如果有）
+    if (positiveSel.primes_ratios && positiveSel.primes_ratios.length > 0) {
+        positiveHtml += `<p style="margin: 2px 0;"><strong>🔬 质合比:</strong> ${positiveSel.primes_ratios.join(', ')}</p>`;
+    }
+
+    // ⭐ 新增：生成排除条件摘要（完整版本）
+    const exclusionConds = task.exclusion_conditions || {};
+    let exclusionSummary = [];
+    if (exclusionConds.sum?.historical?.enabled) exclusionSummary.push('历史和值');
+    if (exclusionConds.span?.historical?.enabled) exclusionSummary.push('历史跨度');
+    if (exclusionConds.hwc?.historical?.enabled) exclusionSummary.push('历史热温冷比');
+    if (exclusionConds.zone?.historical?.enabled) exclusionSummary.push('历史区间比');
+    if (exclusionConds.conflictPairs?.enabled) exclusionSummary.push('相克对');
+    if (exclusionConds.coOccurrence?.enabled) exclusionSummary.push('同现比');
+    if (exclusionConds.consecutiveGroups?.enabled) exclusionSummary.push('连号组数');
+    if (exclusionConds.maxConsecutiveLength?.enabled) exclusionSummary.push('最长连号');
+
+    const exclusionHtml = exclusionSummary.length > 0
+        ? `<p style="margin: 2px 0;"><strong>🚫 排除条件:</strong> ${exclusionSummary.join(', ')}</p>`
+        : `<p style="margin: 2px 0; color: #999;"><strong>🚫 排除条件:</strong> 无</p>`;
+
+    card.innerHTML = `
+        <input type="checkbox" class="task-checkbox" ${isSelected ? 'checked' : ''}
+               onclick="toggleHwcPosTaskSelection('${task.task_id}')">
+        <div class="task-card-header">
+            <h4>${task.task_name}</h4>
+            <span class="task-status ${task.status}">${statusText[task.status]}</span>
+        </div>
+        <div class="task-card-body">
+            <div class="task-info-row">
+                <span>📅 期号范围: ${periodRangeText}</span>
+            </div>
+            ${positiveHtml ? `
+                <div style="margin: 8px 0; padding: 8px; background: #f0f9ff; border-radius: 4px; font-size: 13px;">
+                    ${positiveHtml}
+                </div>
+            ` : ''}
+            <div style="margin: 8px 0; padding: 8px; background: #fef3c7; border-radius: 4px; font-size: 13px;">
+                ${exclusionHtml}
+            </div>
+            ${task.status === 'running' ? `
+                <div class="task-info-row">
+                    <span>⏳ 进度: ${task.progress.current}/${task.progress.total} (${task.progress.percentage}%)</span>
+                </div>
+            ` : ''}
+            ${task.status === 'completed' ? `
+                <div class="task-info-row">
+                    <span>🎯 组合数: ${combinationCount.toLocaleString()}</span>
+                    <span>✅ 命中率: ${hitRate.toFixed(2)}%</span>
+                </div>
+                <div class="task-info-row">
+                    <span>🏆 一等奖: ${firstPrize}次</span>
+                    <span>🥈 二等奖: ${secondPrize}次</span>
+                    <span>🥉 三等奖: ${thirdPrize}次</span>
+                </div>
+                <div class="task-info-row">
+                    <span>💰 总奖金: ¥${totalPrize.toLocaleString()}</span>
+                </div>
+            ` : ''}
+            <div class="task-info-row">
+                <span class="text-muted">🕒 创建时间: ${createdAt}</span>
+            </div>
+        </div>
+        <div class="task-card-footer">
+            ${task.status === 'completed' ? `
+                <button class="btn-primary" onclick="viewHwcPosTaskDetail('${task.task_id}')">📊 查看详情</button>
+            ` : task.status === 'running' ? `
+                <button class="btn-secondary" onclick="viewHwcPosTaskDetail('${task.task_id}')">⏳ 查看进度</button>
+            ` : `
+                <button class="btn-secondary" disabled>等待处理</button>
+            `}
+            <button class="btn-danger" onclick="deleteHwcPosTask('${task.task_id}')">🗑️ 删除</button>
+        </div>
+    `;
+
+    return card;
+}
+
+/**
+ * 更新热温冷正选分页控件
+ */
+function updateHwcPosPagination() {
+    const totalPages = Math.ceil(hwcPosTaskManagement.totalTasks / hwcPosTaskManagement.pageSize);
+
+    const currentPageSpan = document.getElementById('hwc-pos-current-page');
+    const totalPagesSpan = document.getElementById('hwc-pos-total-pages');
+    const pagination = document.getElementById('hwc-pos-task-pagination');
+    const prevBtn = document.getElementById('hwc-pos-prev-page');
+    const nextBtn = document.getElementById('hwc-pos-next-page');
+
+    if (currentPageSpan) currentPageSpan.textContent = hwcPosTaskManagement.currentPage;
+    if (totalPagesSpan) totalPagesSpan.textContent = totalPages;
+
+    if (pagination) {
+        pagination.style.display = totalPages > 1 ? 'flex' : 'none';
+    }
+
+    if (prevBtn) {
+        prevBtn.disabled = hwcPosTaskManagement.currentPage <= 1;
+    }
+
+    if (nextBtn) {
+        nextBtn.disabled = hwcPosTaskManagement.currentPage >= totalPages;
+    }
+}
+
+/**
+ * 刷新热温冷正选任务列表
+ */
+async function refreshHwcPosTasks() {
+    console.log('🔄 刷新热温冷正选任务列表');
+    await loadHwcPosTaskList();
+}
+
+/**
+ * 筛选热温冷正选任务
+ */
+function filterHwcPosTasks(status) {
+    hwcPosTaskManagement.statusFilter = status;
+    hwcPosTaskManagement.currentPage = 1;
+
+    // 更新筛选按钮样式
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.status === status) {
+            btn.classList.add('active');
+        }
+    });
+
+    loadHwcPosTaskList();
+}
+
+/**
+ * 切换热温冷正选任务选中状态
+ */
+function toggleHwcPosTaskSelection(taskId) {
+    if (hwcPosTaskManagement.selectedTaskIds.has(taskId)) {
+        hwcPosTaskManagement.selectedTaskIds.delete(taskId);
+    } else {
+        hwcPosTaskManagement.selectedTaskIds.add(taskId);
+    }
+
+    // 更新卡片样式
+    const card = document.querySelector(`.task-card[data-task-id="${taskId}"]`);
+    if (card) {
+        card.classList.toggle('selected');
+    }
+
+    // 更新批量操作工具栏
+    updateHwcPosBatchToolbar();
+}
+
+/**
+ * 更新热温冷正选批量操作工具栏
+ */
+function updateHwcPosBatchToolbar() {
+    const toolbar = document.getElementById('hwc-pos-batch-toolbar');
+    if (toolbar) {
+        toolbar.style.display = hwcPosTaskManagement.selectedTaskIds.size > 0 ? 'flex' : 'none';
+    }
+}
+
+/**
+ * 取消热温冷正选任务选择
+ */
+function cancelHwcPosSelection() {
+    hwcPosTaskManagement.selectedTaskIds.clear();
+    document.querySelectorAll('.task-card.selected').forEach(card => {
+        card.classList.remove('selected');
+        const checkbox = card.querySelector('.task-checkbox');
+        if (checkbox) checkbox.checked = false;
+    });
+    updateHwcPosBatchToolbar();
+}
+
+/**
+ * 删除选中的热温冷正选任务
+ */
+async function deleteSelectedHwcPosTasks() {
+    const taskIds = Array.from(hwcPosTaskManagement.selectedTaskIds);
+    if (taskIds.length === 0) {
+        alert('请先选择要删除的任务');
+        return;
+    }
+
+    if (!confirm(`确定要删除选中的 ${taskIds.length} 个任务吗？`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/dlt/hwc-positive-tasks/batch-delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_ids: taskIds })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert(`成功删除 ${result.data.deleted_count} 个任务`);
+            hwcPosTaskManagement.selectedTaskIds.clear();
+            await loadHwcPosTaskList();
+        } else {
+            alert(`删除失败: ${result.message}`);
+        }
+    } catch (error) {
+        console.error('删除任务失败:', error);
+        alert(`删除任务失败: ${error.message}`);
+    }
+}
+
+/**
+ * 删除单个热温冷正选任务
+ */
+async function deleteHwcPosTask(taskId) {
+    if (!confirm('确定要删除此任务吗？')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/dlt/hwc-positive-tasks/batch-delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_ids: [taskId] })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert('任务删除成功');
+            await loadHwcPosTaskList();
+        } else {
+            alert(`删除失败: ${result.message}`);
+        }
+    } catch (error) {
+        console.error('删除任务失败:', error);
+        alert(`删除任务失败: ${error.message}`);
+    }
+}
+
+/**
+ * 查看热温冷正选任务详情
+ */
+async function viewHwcPosTaskDetail(taskId) {
+    try {
+        console.log(`📊 查看热温冷正选任务详情: ${taskId}`);
+
+        const response = await fetch(`${API_BASE_URL}/api/dlt/hwc-positive-tasks/${taskId}`);
+        const result = await response.json();
+
+        if (result.success) {
+            renderHwcPosTaskDetail(result.data);
+
+            // 显示弹窗
+            const modal = document.getElementById('hwc-pos-task-detail-modal');
+            if (modal) {
+                modal.style.display = 'flex';
+            }
+        } else {
+            alert('加载任务详情失败: ' + result.message);
+        }
+    } catch (error) {
+        console.error('加载任务详情失败:', error);
+        alert(`加载任务详情失败: ${error.message}`);
+    }
+}
+
+/**
+ * 渲染热温冷正选任务详情
+ */
+function renderHwcPosTaskDetail(data) {
+    const { task, period_results } = data;
+
+    // 任务名称
+    document.getElementById('hwc-pos-modal-task-name').textContent = task.task_name;
+
+    // 基本信息
+    document.getElementById('hwc-pos-modal-task-id').textContent = task.task_id;
+    document.getElementById('hwc-pos-modal-task-status').textContent = {
+        'pending': '等待中',
+        'running': '进行中',
+        'completed': '已完成',
+        'failed': '失败'
+    }[task.status] || task.status;
+
+    const periodRange = task.period_range;
+    const predictedCount = periodRange.predicted_count || 0;
+    let rangeText = `${periodRange.start} - ${periodRange.end} (${periodRange.total}期)`;
+    if (predictedCount > 0) {
+        rangeText += ` 含${predictedCount}期推算`;
+    }
+    document.getElementById('hwc-pos-modal-period-range').textContent = rangeText;
+    document.getElementById('hwc-pos-modal-created-at').textContent = new Date(task.created_at).toLocaleString('zh-CN');
+
+    // 正选条件（完整版本）
+    const positiveConditions = task.positive_selection || {};
+    let positiveHtml = '<div style="padding: 10px; background: #f8f9fa; border-radius: 6px;">';
+
+    // 热温冷比
+    if (positiveConditions.hwc_ratios && positiveConditions.hwc_ratios.length > 0) {
+        positiveHtml += `<p><strong>🌡️ 热温冷比:</strong> ${positiveConditions.hwc_ratios.join(', ')}</p>`;
+    }
+
+    // 区间比
+    if (positiveConditions.zone_ratios && positiveConditions.zone_ratios.length > 0) {
+        positiveHtml += `<p><strong>🎯 区间比:</strong> ${positiveConditions.zone_ratios.join(', ')}</p>`;
+    }
+
+    // 和值范围
+    if (positiveConditions.sum_ranges && positiveConditions.sum_ranges.length > 0) {
+        const sumRangesText = positiveConditions.sum_ranges.map(r => `${r.min}-${r.max}`).join(', ');
+        positiveHtml += `<p><strong>➕ 和值范围:</strong> ${sumRangesText}</p>`;
+    }
+
+    // 跨度范围
+    if (positiveConditions.span_ranges && positiveConditions.span_ranges.length > 0) {
+        const spanRangesText = positiveConditions.span_ranges.map(r => `${r.min}-${r.max}`).join(', ');
+        positiveHtml += `<p><strong>📏 跨度范围:</strong> ${spanRangesText}</p>`;
+    }
+
+    // 奇偶比
+    if (positiveConditions.odd_even_ratios && positiveConditions.odd_even_ratios.length > 0) {
+        positiveHtml += `<p><strong>⚖️ 奇偶比:</strong> ${positiveConditions.odd_even_ratios.join(', ')}</p>`;
+    }
+
+    // AC值
+    if (positiveConditions.ac_values && positiveConditions.ac_values.length > 0) {
+        positiveHtml += `<p><strong>🔢 AC值:</strong> ${positiveConditions.ac_values.join(', ')}</p>`;
+    }
+
+    // 质合比
+    if (positiveConditions.primes_ratios && positiveConditions.primes_ratios.length > 0) {
+        positiveHtml += `<p><strong>🔬 质合比:</strong> ${positiveConditions.primes_ratios.join(', ')}</p>`;
+    }
+
+    positiveHtml += '</div>';
+    document.getElementById('hwc-pos-modal-positive-conditions').innerHTML = positiveHtml;
+
+    // 排除条件 - 添加防御性编程
+    const exclusionConditions = task.exclusion_conditions || {};
+    let exclusionHtml = '<div style="padding: 10px; background: #f8f9fa; border-radius: 6px;">';
+    let conditionCount = 0;
+
+    // 检查每个子对象是否存在并且enabled为true
+
+    // 1. 和值排除（历史）
+    if (exclusionConditions.sum?.historical?.enabled) {
+        exclusionHtml += `<p><strong>🔢 历史和值排除:</strong> 最近${exclusionConditions.sum.historical.count}期</p>`;
+        conditionCount++;
+    }
+
+    // 2. 跨度排除（历史）
+    if (exclusionConditions.span?.historical?.enabled) {
+        exclusionHtml += `<p><strong>📏 历史跨度排除:</strong> 最近${exclusionConditions.span.historical.count}期</p>`;
+        conditionCount++;
+    }
+
+    // 3. 热温冷比排除（历史）
+    if (exclusionConditions.hwc?.historical?.enabled) {
+        exclusionHtml += `<p><strong>🌡️ 历史热温冷比排除:</strong> 最近${exclusionConditions.hwc.historical.count}期</p>`;
+        conditionCount++;
+    }
+
+    // 4. 相克对排除
+    if (exclusionConditions.conflictPairs?.enabled) {
+        let conflictDetails = [];
+        if (exclusionConditions.conflictPairs.globalTop?.enabled) {
+            conflictDetails.push(`全局Top${exclusionConditions.conflictPairs.globalTop.top}`);
+        }
+        if (exclusionConditions.conflictPairs.perBallTop?.enabled) {
+            conflictDetails.push(`每号Top${exclusionConditions.conflictPairs.perBallTop.top}`);
+        }
+        if (conflictDetails.length > 0) {
+            exclusionHtml += `<p><strong>⚔️ 相克对排除:</strong> ${conflictDetails.join(', ')}</p>`;
+            conditionCount++;
+        }
+    }
+
+    // 5. 同现比排除
+    if (exclusionConditions.coOccurrence?.enabled) {
+        let cooccurDetails = [];
+        if (exclusionConditions.coOccurrence.threshold?.enabled) {
+            cooccurDetails.push(`阈值过滤`);
+        }
+        if (exclusionConditions.coOccurrence.historical?.enabled) {
+            const hist = exclusionConditions.coOccurrence.historical;
+            const combos = [];
+            if (hist.combo2) combos.push('2球');
+            if (hist.combo3) combos.push('3球');
+            if (hist.combo4) combos.push('4球');
+            if (combos.length > 0) {
+                cooccurDetails.push(`历史排除(${combos.join('+')}, ${hist.period}期)`);
+            }
+        }
+        if (cooccurDetails.length > 0) {
+            exclusionHtml += `<p><strong>🔗 同现比排除:</strong> ${cooccurDetails.join(', ')}</p>`;
+            conditionCount++;
+        }
+    }
+
+    // 6. 区间比排除（历史）
+    if (exclusionConditions.zone?.historical?.enabled) {
+        exclusionHtml += `<p><strong>📍 历史区间比排除:</strong> 最近${exclusionConditions.zone.historical.count}期</p>`;
+        conditionCount++;
+    }
+
+    // 7. 连号组数排除
+    if (exclusionConditions.consecutiveGroups?.enabled && exclusionConditions.consecutiveGroups.groups?.length > 0) {
+        const groups = exclusionConditions.consecutiveGroups.groups.sort((a, b) => a - b);
+        exclusionHtml += `<p><strong>🔢 连号组数排除:</strong> 排除 ${groups.join(', ')}组</p>`;
+        conditionCount++;
+    }
+
+    // 8. 最长连号长度排除
+    if (exclusionConditions.maxConsecutiveLength?.enabled && exclusionConditions.maxConsecutiveLength.lengths?.length > 0) {
+        const lengths = exclusionConditions.maxConsecutiveLength.lengths.sort((a, b) => a - b);
+        const displayText = lengths.map(len => {
+            if (len === 0) return '无连号';
+            return `${len}连号`;
+        }).join('、');
+        exclusionHtml += `<p><strong>📏 最长连号排除:</strong> 排除 ${displayText}</p>`;
+        conditionCount++;
+    }
+
+    // 检查是否所有条件都未启用
+    if (conditionCount === 0) {
+        exclusionHtml += `<p style="color: #999;">无排除条件</p>`;
+    }
+
+    exclusionHtml += '</div>';
+    document.getElementById('hwc-pos-modal-exclusion-conditions').innerHTML = exclusionHtml;
+
+    // 各期结果 - 添加操作按钮
+    const resultsBody = document.getElementById('hwc-pos-modal-results-tbody');
+    if (resultsBody) {
+        if (period_results && period_results.length > 0) {
+            resultsBody.innerHTML = period_results.map(result => {
+                // 安全访问所有嵌套属性
+                const hit = result.hit_analysis || {};
+                const prizeStats = hit.prize_stats || {};
+                const isPredicted = result.is_predicted || false;
+
+                // ⭐ 修复：计算真实的组合数量（处理旧格式数据）
+                let displayCount = result.combination_count || 0;
+
+                // 如果是旧格式数据（没有paired_combinations），需要重新计算真实组合数
+                if ((!result.paired_combinations || result.paired_combinations.length === 0) &&
+                    result.red_combinations && result.blue_combinations) {
+
+                    const redCount = result.red_combinations.length || 0;
+                    const blueCount = result.blue_combinations.length || 66;
+                    const pairingMode = result.pairing_mode || task.pairing_mode || 'default';
+
+                    // 调试日志
+                    if (result.period === 25074 || result.period === 25116) {
+                        console.log(`🔧 修复期号${result.period}的显示:`, {
+                            原始值: result.combination_count,
+                            红球数: redCount,
+                            蓝球数: blueCount,
+                            配对模式: pairingMode
+                        });
+                    }
+
+                    if (pairingMode === 'truly-unlimited') {
+                        // 真正无限制：红球数 × 蓝球数（笛卡尔积）
+                        displayCount = redCount * blueCount;
+                    } else {
+                        // default 或 unlimited：红球数（1:1循环匹配）
+                        displayCount = redCount;
+                    }
+
+                    // 调试日志
+                    if (result.period === 25074 || result.period === 25116) {
+                        console.log(`  → 修正后显示: ${displayCount}`);
+                    }
+                }
+
+                return `
+                    <tr>
+                        <td>${result.period || '-'}${isPredicted ? ' (推算)' : ''}</td>
+                        <td>${displayCount.toLocaleString()}</td>
+                        <td>${hit.max_red_hit || 0}/5</td>
+                        <td>${hit.max_blue_hit || 0}/2</td>
+                        <td>${prizeStats.first_prize?.count || 0}</td>
+                        <td>${prizeStats.second_prize?.count || 0}</td>
+                        <td>${prizeStats.third_prize?.count || 0}</td>
+                        <td>${(hit.hit_rate || 0).toFixed(2)}%</td>
+                        <td>¥${(hit.total_prize || 0).toLocaleString()}</td>
+                        <td>
+                            <button class="btn-secondary" style="margin: 2px; font-size: 12px; padding: 4px 8px;"
+                                    onclick="showPeriodExclusionDetails('${task.task_id}', '${result.period}')">
+                                📋 排除明细
+                            </button>
+                            <button class="btn-primary" style="margin: 2px; font-size: 12px; padding: 4px 8px;"
+                                    onclick="exportPeriodExcel('${task.task_id}', '${result.period}', '${task.task_name}')">
+                                📥 导出
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        } else {
+            resultsBody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #999;">暂无结果数据</td></tr>';
+        }
+    }
+}
+
+/**
+ * 关闭热温冷正选任务详情弹窗
+ */
+function closeHwcPosTaskDetailModal() {
+    const modal = document.getElementById('hwc-pos-task-detail-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+/**
+ * 热温冷正选上一页
+ */
+function hwcPosPrevPage() {
+    if (hwcPosTaskManagement.currentPage > 1) {
+        hwcPosTaskManagement.currentPage--;
+        loadHwcPosTaskList();
+    }
+}
+
+/**
+ * 热温冷正选下一页
+ */
+function hwcPosNextPage() {
+    const totalPages = Math.ceil(hwcPosTaskManagement.totalTasks / hwcPosTaskManagement.pageSize);
+    if (hwcPosTaskManagement.currentPage < totalPages) {
+        hwcPosTaskManagement.currentPage++;
+        loadHwcPosTaskList();
+    }
+}
+
+/**
+ * 初始化热温冷正选任务管理（当切换到该面板时调用）
+ */
+function initHwcPosTaskManagement() {
+    console.log('🌡️ 初始化热温冷正选任务管理');
+    loadHwcPosTaskList();
+}
+
+// ========== 热温冷正选批量预测任务管理功能结束 ==========
+
 // 安全的延迟初始化批量预测模块
 if (typeof window !== 'undefined') {
     // 确保在页面完全加载后初始化
@@ -15746,6 +17597,8 @@ if (typeof window !== 'undefined') {
                 console.log('Initializing DLT Batch Prediction module...');
                 initDLTBatchPrediction();
                 initTaskManagement(); // 初始化任务管理
+                initHwcPositivePrediction(); // 初始化热温冷正选模块
+                initHwcPosTaskManagement(); // 初始化热温冷正选任务管理
             }, 100); // 短暂延迟确保其他模块先初始化
         });
     } else {
@@ -15754,6 +17607,511 @@ if (typeof window !== 'undefined') {
             console.log('Initializing DLT Batch Prediction module...');
             initDLTBatchPrediction();
             initTaskManagement(); // 初始化任务管理
+            initHwcPositivePrediction(); // 初始化热温冷正选模块
+            initHwcPosTaskManagement(); // 初始化热温冷正选任务管理
         }, 100);
     }
+}
+
+// ========== 热温冷正选任务 - 期号排除明细和导出功能 ==========
+
+/**
+ * 显示期号排除明细
+ */
+async function showPeriodExclusionDetails(taskId, period) {
+    try {
+        console.log(`📋 查看第 ${period} 期排除明细`);
+
+        // 获取任务结果数据
+        const response = await fetch(`${API_BASE_URL}/api/dlt/hwc-positive-tasks/${taskId}`);
+        const data = await response.json();
+
+        if (!data.success) {
+            alert('获取排除明细失败');
+            return;
+        }
+
+        // 找到对应期号的结果
+        const periodResult = data.data.period_results.find(r => r.period === parseInt(period));
+        if (!periodResult || !periodResult.exclusion_summary) {
+            alert('该期没有排除统计数据');
+            return;
+        }
+
+        const summary = periodResult.exclusion_summary;
+
+        // 构建排除详情HTML
+        let detailsHTML = `
+            <div style="padding: 20px; max-width: 600px;">
+                <h3 style="margin-top: 0;">📊 第 ${period} 期排除统计</h3>
+
+                <div style="background: #e8f5e9; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                    <h4 style="margin-top: 0;">✅ 正选筛选后</h4>
+                    <p style="font-size: 18px; margin: 5px 0;"><strong>${(summary.positive_selection_count || 0).toLocaleString()}</strong> 个组合</p>
+                </div>
+
+                <div style="background: #fff3e0; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                    <h4 style="margin-top: 0;">🚫 排除详情</h4>
+        `;
+
+        // 添加各项排除统计
+        const exclusions = [
+            { label: '历史和值排除', count: summary.sum_exclude_count, color: '#ff9800' },
+            { label: '历史跨度排除', count: summary.span_exclude_count, color: '#ff5722' },
+            { label: '历史热温冷比排除', count: summary.hwc_exclude_count, color: '#f44336' },
+            { label: '历史区间比排除', count: summary.zone_exclude_count, color: '#e91e63' },
+            { label: '相克对排除', count: summary.conflict_exclude_count, color: '#9c27b0' },
+            { label: '同现比排除', count: summary.cooccurrence_exclude_count, color: '#673ab7' }
+        ];
+
+        exclusions.forEach(excl => {
+            if (excl.count && excl.count > 0) {
+                const percentage = summary.positive_selection_count > 0
+                    ? ((excl.count / summary.positive_selection_count) * 100).toFixed(2)
+                    : 0;
+                detailsHTML += `
+                    <div style="padding: 8px; margin: 5px 0; border-left: 4px solid ${excl.color};">
+                        <strong>${excl.label}:</strong>
+                        ${excl.count.toLocaleString()} 个组合
+                        <span style="color: #666;">(${percentage}%)</span>
+                    </div>
+                `;
+            }
+        });
+
+        detailsHTML += `</div>`;
+
+        // 最终保留数量
+        const finalCount = summary.final_count || periodResult.combination_count || 0;
+        const retentionRate = summary.positive_selection_count > 0
+            ? ((finalCount / summary.positive_selection_count) * 100).toFixed(2)
+            : 0;
+
+        detailsHTML += `
+            <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                <h4 style="margin-top: 0;">📌 最终保留</h4>
+                <p style="font-size: 20px; margin: 5px 0; color: #1976d2;">
+                    <strong>${finalCount.toLocaleString()}</strong> 个组合
+                </p>
+                <p style="color: #666; margin: 5px 0;">保留率: ${retentionRate}%</p>
+            </div>
+
+            <div style="margin-top: 20px; text-align: right;">
+                <button class="btn-secondary" onclick="closeExclusionDetailsModal()">关闭</button>
+            </div>
+        </div>
+        `;
+
+        // 创建并显示模态框
+        let modal = document.getElementById('period-exclusion-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'period-exclusion-modal';
+            modal.className = 'modal';
+            modal.style.cssText = 'display: flex; position: fixed; z-index: 1001; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); align-items: center; justify-content: center;';
+            document.body.appendChild(modal);
+        }
+
+        modal.innerHTML = `
+            <div class="modal-content" style="background-color: #fefefe; margin: auto; padding: 0; border: 1px solid #888; width: 90%; max-width: 700px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                ${detailsHTML}
+            </div>
+        `;
+
+        modal.style.display = 'flex';
+
+    } catch (error) {
+        console.error('显示排除明细失败:', error);
+        alert('显示排除明细失败: ' + error.message);
+    }
+}
+
+/**
+ * 关闭排除明细模态框
+ */
+function closeExclusionDetailsModal() {
+    const modal = document.getElementById('period-exclusion-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+/**
+ * 导出期号Excel
+ */
+async function exportPeriodExcel(taskId, period, taskName) {
+    try {
+        console.log(`📥 导出第 ${period} 期Excel`);
+
+        // 创建加载提示模态框
+        let loadingModal = document.getElementById('export-loading-modal');
+        if (!loadingModal) {
+            loadingModal = document.createElement('div');
+            loadingModal.id = 'export-loading-modal';
+            loadingModal.className = 'modal';
+            loadingModal.style.cssText = 'display: none; position: fixed; z-index: 1002; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); align-items: center; justify-content: center;';
+
+            loadingModal.innerHTML = `
+                <div class="modal-content" style="background-color: #fefefe; margin: auto; padding: 40px; border: 1px solid #888; width: 90%; max-width: 400px; border-radius: 8px; text-align: center;">
+                    <h3 style="margin-top: 0;">正在生成 Excel 文件</h3>
+                    <p style="margin: 20px 0; color: #666;">大数据量可能需要较长时间，请稍候...</p>
+                    <div style="margin: 20px auto; width: 50px; height: 50px; border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                    <style>
+                        @keyframes spin {
+                            0% { transform: rotate(0deg); }
+                            100% { transform: rotate(360deg); }
+                        }
+                    </style>
+                </div>
+            `;
+
+            document.body.appendChild(loadingModal);
+        }
+
+        loadingModal.style.display = 'flex';
+
+        // 请求导出
+        const response = await fetch(
+            `${API_BASE_URL}/api/dlt/hwc-positive-tasks/${taskId}/period/${period}/export`,
+            { method: 'GET' }
+        );
+
+        if (!response.ok) {
+            throw new Error(`导出失败: ${response.statusText}`);
+        }
+
+        // 获取文件名（优先解析RFC 5987的filename*格式）
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = `${taskName}_第${period}期.xlsx`;
+
+        if (contentDisposition) {
+            // 优先尝试提取 filename*=UTF-8''... 格式（RFC 5987）
+            const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;\s]+)/i);
+            if (utf8Match) {
+                filename = decodeURIComponent(utf8Match[1]);
+            } else {
+                // fallback: 提取普通 filename="..." 格式
+                const asciiMatch = contentDisposition.match(/filename=["']?([^"';]+)["']?/i);
+                if (asciiMatch) {
+                    filename = decodeURIComponent(asciiMatch[1]);
+                }
+            }
+        }
+
+        // 下载文件
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        // 关闭加载提示
+        loadingModal.style.display = 'none';
+
+        alert(`✅ Excel 文件导出成功！\n文件名: ${filename}`);
+
+    } catch (error) {
+        console.error('导出Excel失败:', error);
+        const loadingModal = document.getElementById('export-loading-modal');
+        if (loadingModal) {
+            loadingModal.style.display = 'none';
+        }
+        alert('导出Excel失败: ' + error.message);
+    }
+}
+
+// ===== 大乐透统计关系分析模块 =====
+
+/**
+ * 初始化统计关系分析模块
+ */
+function initDLTStatsRelation() {
+    console.log('初始化统计关系分析模块...');
+
+    // 自定义期号范围切换逻辑
+    const rangeRadios = document.querySelectorAll('input[name="stats-range"]');
+    const customRangeInputs = document.querySelector('.custom-range-inputs');
+
+    rangeRadios.forEach(radio => {
+        radio.addEventListener('change', () => {
+            if (radio.value === 'custom') {
+                customRangeInputs.style.display = 'flex';
+            } else {
+                customRangeInputs.style.display = 'none';
+            }
+        });
+    });
+
+    // 快速选择按钮
+    const quickSelectButtons = document.querySelectorAll('.quick-select-btn');
+    quickSelectButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const type = btn.dataset.type;
+            selectHWCByType(type);
+        });
+    });
+
+    // 清空选择按钮
+    const clearBtn = document.querySelector('.clear-select-btn');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            document.querySelectorAll('.hwc-ratio-checkbox').forEach(cb => {
+                cb.checked = false;
+            });
+        });
+    }
+
+    // 开始分析按钮
+    const startAnalyzeBtn = document.getElementById('start-stats-analyze');
+    if (startAnalyzeBtn) {
+        startAnalyzeBtn.addEventListener('click', analyzeStatisticalRelations);
+    }
+
+    // 重置条件按钮
+    const resetBtn = document.getElementById('reset-stats-condition');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', resetStatsCondition);
+    }
+}
+
+/**
+ * 根据类型快速选择热温冷比
+ */
+function selectHWCByType(type) {
+    const checkboxes = document.querySelectorAll('.hwc-ratio-checkbox');
+
+    // 先全部取消选中
+    checkboxes.forEach(cb => cb.checked = false);
+
+    // 根据类型选中对应的比例
+    const hotPatterns = ['5:0:0', '4:1:0', '4:0:1', '3:2:0', '3:1:1'];
+    const warmPatterns = ['0:5:0', '1:4:0', '2:3:0'];
+    const coldPatterns = ['0:0:5', '0:1:4', '0:2:3', '1:0:4'];
+    const balancedPatterns = ['3:1:1', '2:2:1', '2:1:2', '1:2:2'];
+
+    let patterns = [];
+    if (type === 'hot') patterns = hotPatterns;
+    else if (type === 'warm') patterns = warmPatterns;
+    else if (type === 'cold') patterns = coldPatterns;
+    else if (type === 'balanced') patterns = balancedPatterns;
+
+    checkboxes.forEach(cb => {
+        if (patterns.includes(cb.value)) {
+            cb.checked = true;
+        }
+    });
+}
+
+/**
+ * 开始统计关系分析
+ */
+async function analyzeStatisticalRelations() {
+    try {
+        // 1. 获取选中的热温冷比
+        const checkedRatios = Array.from(document.querySelectorAll('.hwc-ratio-checkbox:checked'))
+            .map(cb => cb.value);
+
+        if (checkedRatios.length === 0) {
+            alert('请至少选择一个热温冷比');
+            return;
+        }
+
+        // 2. 获取分析范围
+        const rangeType = document.querySelector('input[name="stats-range"]:checked').value;
+        let queryParams = new URLSearchParams();
+        queryParams.append('hwcRatios', checkedRatios.join(','));
+
+        console.log('🔍 调试信息 - rangeType:', rangeType);
+
+        if (rangeType === 'recent') {
+            // 最近XX期
+            const recentCount = document.getElementById('stats-recent-count').value;
+            console.log('🔍 调试信息 - recentCount value:', recentCount);
+
+            // 验证期数是否为有效数字
+            const periodsNum = parseInt(recentCount);
+            if (isNaN(periodsNum) || periodsNum <= 0) {
+                alert('请输入有效的期数（大于0的数字）');
+                return;
+            }
+
+            queryParams.append('periods', periodsNum.toString());
+            console.log('🔍 调试信息 - 添加 periods 参数:', periodsNum.toString());
+        } else if (rangeType === 'custom') {
+            // 自定义期号
+            const startIssue = document.getElementById('stats-start-issue').value.trim();
+            const endIssue = document.getElementById('stats-end-issue').value.trim();
+
+            if (!startIssue || !endIssue) {
+                alert('请输入起始和结束期号');
+                return;
+            }
+
+            queryParams.append('startIssue', startIssue);
+            queryParams.append('endIssue', endIssue);
+        } else {
+            // 未知的范围类型
+            alert('请选择分析范围类型');
+            return;
+        }
+
+        // 3. 调用API
+        const url = `http://localhost:3003/api/dlt/stats-relation?${queryParams}`;
+        console.log('📊 发起统计关系分析请求...');
+        console.log('   - rangeType:', rangeType);
+        console.log('   - periods:', rangeType === 'recent' ? document.getElementById('stats-recent-count').value : 'N/A');
+        console.log('   - URL:', url);
+        console.log('   - queryParams:', queryParams.toString());
+
+        const response = await fetch(url);
+        const result = await response.json();
+
+        if (!result.success) {
+            throw new Error(result.error || '分析失败');
+        }
+
+        // 4. 显示结果
+        displayStatsRelationResult(result);
+
+    } catch (error) {
+        console.error('统计关系分析失败:', error);
+        alert('分析失败: ' + error.message);
+    }
+}
+
+/**
+ * 显示统计关系分析结果
+ */
+function displayStatsRelationResult(result) {
+    const resultPanel = document.getElementById('stats-result-panel');
+
+    const html = `
+        <div class="stats-result-summary">
+            <h3>📊 分析结果概要</h3>
+            <div class="summary-cards">
+                <div class="summary-card">
+                    <div class="card-label">分析范围</div>
+                    <div class="card-value">${result.totalRecords} 期</div>
+                </div>
+                <div class="summary-card">
+                    <div class="card-label">匹配期数</div>
+                    <div class="card-value">${result.matchedRecords} 期</div>
+                </div>
+                <div class="summary-card">
+                    <div class="card-label">匹配率</div>
+                    <div class="card-value">${result.matchRate}%</div>
+                </div>
+                <div class="summary-card">
+                    <div class="card-label">数据来源</div>
+                    <div class="card-value">${result.dataSource}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-result-detail">
+            <h3>🎯 高频统计组合 (TOP 3)</h3>
+
+            <div class="stat-section">
+                <h4>前区和值</h4>
+                <div class="stat-list">
+                    ${result.topStats.frontSum.map(item => `
+                        <div class="stat-item">
+                            <span class="stat-value">${item.value}</span>
+                            <span class="stat-count">${item.count}次 (${item.percentage}%)</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <div class="stat-section">
+                <h4>前区跨度</h4>
+                <div class="stat-list">
+                    ${result.topStats.frontSpan.map(item => `
+                        <div class="stat-item">
+                            <span class="stat-value">${item.value}</span>
+                            <span class="stat-count">${item.count}次 (${item.percentage}%)</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <div class="stat-section">
+                <h4>区间比</h4>
+                <div class="stat-list">
+                    ${result.topStats.zoneRatio.map(item => `
+                        <div class="stat-item">
+                            <span class="stat-value">${item.value}</span>
+                            <span class="stat-count">${item.count}次 (${item.percentage}%)</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <div class="stat-section">
+                <h4>AC值</h4>
+                <div class="stat-list">
+                    ${result.topStats.acValue.map(item => `
+                        <div class="stat-item">
+                            <span class="stat-value">${item.value}</span>
+                            <span class="stat-count">${item.count}次 (${item.percentage}%)</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <div class="stat-section">
+                <h4>奇偶比</h4>
+                <div class="stat-list">
+                    ${result.topStats.oddEvenRatio.map(item => `
+                        <div class="stat-item">
+                            <span class="stat-value">${item.value}</span>
+                            <span class="stat-count">${item.count}次 (${item.percentage}%)</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+    `;
+
+    resultPanel.innerHTML = html;
+    resultPanel.style.display = 'block';
+
+    console.log('✅ 统计关系分析结果已显示');
+}
+
+/**
+ * 重置统计条件
+ */
+function resetStatsCondition() {
+    // 清空所有复选框
+    document.querySelectorAll('.hwc-ratio-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+
+    // 重置为最近100期
+    document.querySelector('input[name="stats-range"][value="recent"]').checked = true;
+    document.getElementById('stats-recent-count').value = 100;
+
+    // 隐藏自定义期号输入框
+    document.querySelector('.custom-range-inputs').style.display = 'none';
+
+    // 清空自定义期号
+    document.getElementById('stats-start-issue').value = '';
+    document.getElementById('stats-end-issue').value = '';
+
+    // 隐藏结果面板
+    document.getElementById('stats-result-panel').style.display = 'none';
+
+    console.log('✅ 统计条件已重置');
+}
+
+// 确保全局可用
+if (typeof window !== 'undefined') {
+    window.showPeriodExclusionDetails = showPeriodExclusionDetails;
+    window.closeExclusionDetailsModal = closeExclusionDetailsModal;
+    window.exportPeriodExcel = exportPeriodExcel;
 }

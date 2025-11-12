@@ -343,7 +343,7 @@ function initSubNavigation() {
                         }
                     } else if (contentType === 'dlt-combination') {
                         console.log('🎯 用户切换到DLT组合预测面板');
-                        
+
                         // 当用户点击组合预测时，确保期号数据已加载
                         if (window.loadLatestIssues) {
                             console.log('🔄 加载期号数据...');
@@ -351,7 +351,7 @@ function initSubNavigation() {
                         } else {
                             console.log('⚠️ loadLatestIssues函数不存在');
                         }
-                        
+
                         // 初始化DLT组合预测模块（包括数据生成管理）- 总是执行
                         console.log('🔧 开始初始化DLT组合预测模块...');
                         if (typeof initDLTCombinationModule === 'function') {
@@ -362,6 +362,19 @@ function initSubNavigation() {
                             }, 300);
                         } else {
                             console.error('❌ initDLTCombinationModule函数不存在！');
+                        }
+                    } else if (contentType === 'dlt-hwc-positive-prediction') {
+                        console.log('🌡️ 用户切换到热温冷正选批量预测面板');
+
+                        // 初始化热温冷正选批量预测模块
+                        if (typeof initHwcPositivePrediction === 'function') {
+                            console.log('✅ 找到initHwcPositivePrediction函数，开始执行...');
+                            setTimeout(() => {
+                                console.log('⚡ 执行initHwcPositivePrediction()...');
+                                initHwcPositivePrediction();
+                            }, 300);
+                        } else {
+                            console.error('❌ initHwcPositivePrediction函数不存在！');
                         }
                     }
                 } else {

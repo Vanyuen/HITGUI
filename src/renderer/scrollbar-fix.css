@@ -4,9 +4,9 @@
  */
 
 /* ===== 主滚动条策略 ===== */
-/* 只在主内容区域保留滚动条 */
+/* 让body成为滚动容器，使导航sticky生效 */
 .main-content {
-    overflow: auto !important;
+    overflow: visible !important;  /* 改为visible，让滚动在body级别处理 */
     min-height: calc(100vh - 60px) !important;
 }
 

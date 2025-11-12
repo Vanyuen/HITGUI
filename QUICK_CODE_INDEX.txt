@@ -1,0 +1,151 @@
+热温冷正选任务导出功能 - 代码位置快速索引
+=================================================
+
+【主导出API】
+  E:\HITGUI\src\server\server.js:20001-20422
+  GET /api/dlt/hwc-positive-tasks/:task_id/period/:period/export
+
+【排除详情保存】
+  E:\HITGUI\src\server\server.js:20642-20687
+  函数: saveExclusionDetails(task_id, result_id, period, step, condition, excludedIds)
+
+【任务处理主函数】
+  E:\HITGUI\src\server\server.js:20692+
+  函数: processHwcPositivePredictionTask(task_id, issues, positive_selection, exclusion_conditions)
+  
+  └─ Step 1-6正选筛选: 20770-20945
+  └─ 排除条件处理: 20947-21024
+  └─ 配对逻辑: 21026-21052
+  └─ 排除详情异步保存: 21246-21260
+
+【排除详情查询API】
+  1. 获取任务的所有排除详情
+     E:\HITGUI\src\server\server.js:16735-16785
+     GET /api/dlt/exclusion-details/:taskId?period=xxx&step=xxx&condition=xxx
+  
+  2. 查询组合被哪些条件排除
+     E:\HITGUI\src\server\server.js:16791-16815
+     GET /api/dlt/exclusion-details/combination/:combinationId
+  
+  3. 查询排除分析
+     E:\HITGUI\src\server\server.js:16824-16870
+     GET /api/dlt/exclusion-details/analysis/:taskId
+  
+  4. 查询组合排除路径
+     E:\HITGUI\src\server\server.js:20428-20500
+     GET /api/dlt/hwc-positive-tasks/:task_id/period/:period/combination/:combo_id/exclusion-path
+
+【数据库Schema定义】
+  1. HwcPositivePredictionTask (任务表)
+     E:\HITGUI\src\server\server.js:1048-1240
+  
+  2. HwcPositivePredictionTaskResult (结果表)
+     E:\HITGUI\src\server\server.js:1247-1346
+  
+  3. DLTExclusionDetails (排除详情表)
+     E:\HITGUI\src\server\server.js:1017-1045
+
+【中奖计算】
+  judgePrize函数（判断等级）
+    导出API中: E:\HITGUI\src\server\server.js:20140-20155
+    任务处理中: E:\HITGUI\src\server\server.js:20716-20734
+  
+  getPrizeAmount函数（获取奖金）
+    E:\HITGUI\src\server\server.js:20157-20172
+
+【Excel工作表生成】
+  Sheet 1 - 预测组合表 (已实现)
+    E:\HITGUI\src\server\server.js:20178-20272
+  
+  Sheet 2 - 红球排除详情表 (待实现)
+    E:\HITGUI\src\server\server.js:20274-20319
+    TODO: 需要查询DLTExclusionDetails并填充被排除的组合
+  
+  Sheet 3 - 排除统计表 (已实现)
+    E:\HITGUI\src\server\server.js:20321-20401
+
+【数据一致性验证】
+  E:\HITGUI\src\server\server.js:20127-20137
+
+【文件名编码处理】
+  RFC 5987标准编码（支持中文文件名）
+  E:\HITGUI\src\server\server.js:20403-20411
+
+【排除条件类型编码】
+  正选步骤:
+    step=2, condition='positive_step2_zone_ratio'      → 区间比
+    step=3, condition='positive_step3_sum_range'       → 和值范围
+    step=4, condition='positive_step4_span_range'      → 跨度范围
+    step=5, condition='positive_step5_odd_even_ratio'  → 奇偶比
+    step=6, condition='positive_step6_ac_value'        → AC值
+  
+  排除条件:
+    condition='consecutive_groups'        → 连号组数排除
+    condition='max_consecutive_length'    → 最长连号长度排除
+    condition='conflict_pairs'            → 相克对排除（待实现）
+    condition='cooccurrence'              → 同现比排除（待实现）
+    condition='sum_historical'            → 历史和值排除（待实现）
+    condition='span_historical'           → 历史跨度排除（待实现）
+    condition='hwc_historical'            → 历史热温冷比排除（待实现）
+    condition='zone_historical'           → 历史区间比排除（待实现）
+
+【关键函数】
+  analyzeConsecutive()          连号特征分析
+  getLatestIssue()              获取最新期号
+  DLTRedCombinations.find()     查询红球组合
+  DLTBlueCombinations.find()    查询蓝球组合
+  DLTExclusionDetails.find()    查询排除详情
+
+【性能优化】
+  分片存储（每片50000条ID）
+    E:\HITGUI\src\server\server.js:20647-20680
+  
+  分片合并（自动合并分片数据）
+    E:\HITGUI\src\server\server.js:16749-16768
+  
+  异步后台保存（不阻塞主任务）
+    E:\HITGUI\src\server\server.js:21246-21260
+
+【配对模式实现】
+  Default/Unlimited (1:1循环匹配)
+    旧格式: E:\HITGUI\src\server\server.js:20075-20098
+    新格式: E:\HITGUI\src\server\server.js:21032-21039
+  
+  Truly-Unlimited (笛卡尔积)
+    旧格式: E:\HITGUI\src\server\server.js:20056-20074
+    新格式: E:\HITGUI\src\server\server.js:21041-21052
+
+【待实现功能】
+  高优先级:
+    1. Sheet 2排除详情表的数据填充
+    2. 历史排除条件执行逻辑（sum/span/hwc/zone）
+    3. 相克对排除实现（globalTop/perBallTop/threshold）
+    4. 同现比排除实现（threshold和historical）
+
+【相关Schema字段】
+  HwcPositivePredictionTaskResult中的排除统计:
+    exclusion_summary: {
+      positive_selection_count        正选后组合数
+      sum_exclude_count               历史和值排除数
+      span_exclude_count              历史跨度排除数
+      hwc_exclude_count               历史热温冷比排除数
+      zone_exclude_count              历史区间比排除数
+      conflict_exclude_count          相克对排除数
+      cooccurrence_exclude_count      同现比排除数
+      consecutive_groups_exclude_count    连号组数排除数
+      max_consecutive_length_exclude_count 最长连号长度排除数
+      final_count                     最终保留数
+    }
+
+  HwcPositivePredictionTaskResult中的正选追踪:
+    positive_selection_details: {
+      step1_base_combination_ids      Step 1基准集合
+      step1_count                     Step 1数量
+      step2_retained_count            Step 2保留数
+      step3_retained_count            Step 3保留数
+      step4_retained_count            Step 4保留数
+      step5_retained_count            Step 5保留数
+      step6_retained_count            Step 6保留数
+      final_retained_count            最终保留数
+    }
+

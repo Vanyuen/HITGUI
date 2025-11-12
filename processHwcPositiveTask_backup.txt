@@ -1,0 +1,386 @@
+async function processHwcPositiveTask(taskId) {
+    try {
+        log(`🔄 开始处理任务: ${taskId}`);
+
+        // 更新任务状态为processing
+        await PredictionTask.updateOne(
+            { task_id: taskId },
+            {
+                status: 'processing',
+                started_at: new Date()
+            }
+        );
+
+        // 获取任务详情
+        const task = await PredictionTask.findOne({ task_id: taskId }).lean();
+        const { issue_range, positive_selection, exclusion_conditions, output_config } = task;
+
+        // 处理每个期号对（相邻配对）
+        // 方案A：包含推算期 - 每期与下一期配对
+        for (let i = 0; i < issue_range.length - 1; i++) {
+            const baseIssue = issue_range[i];
+            const targetIssue = issue_range[i + 1]; // 与下一期配对
+
+            try {
+                // 1. 正选筛选
+                const positiveResult = await fetch('http://localhost:3003/api/dlt/positive-selection/get-combo-ids', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        positiveSelection: positive_selection,
+                        baseIssue,
+                        targetIssue
+                    })
+                });
+
+                const positiveData = await positiveResult.json();
+                let comboIds = positiveData.data.comboIds;
+                log(`  ✅ 正选筛选完成: ${comboIds.length}个组合`);
+
+                // 2. 应用排除条件
+                if (exclusion_conditions) {
+                    const beforeCount = comboIds.length;
+
+                    // 2.4 相克对排除（三个独立策略）
+                    if (exclusion_conditions.conflictPairs && exclusion_conditions.conflictPairs.enabled) {
+                        const conflictConfig = exclusion_conditions.conflictPairs;
+
+                        // 2.4.1 全局排除Top
+                        if (conflictConfig.globalTop && conflictConfig.globalTop.enabled) {
+                            const { period, top } = conflictConfig.globalTop;
+                            log(`  🔥 应用相克全局Top排除: 分析${period}期, 排除前${top}对`);
+
+                            // 获取基准期ID（目标期-1）
+                            const basePeriodRecord = await DLT.findOne({ Issue: parseInt(baseIssue) });
+                            if (basePeriodRecord) {
+                                // 获取热号保护列表（如果启用）
+                                let protectedHotNumbers = [];
+                                if (conflictConfig.globalTop.hotProtect && conflictConfig.globalTop.hotProtect.enabled) {
+                                    const hotTop = conflictConfig.globalTop.hotProtect.top;
+                                    log(`  🔥 启用热号保护: 保护前${hotTop}名热号`);
+                                    protectedHotNumbers = await getTopHotNumbers(basePeriodRecord.ID, period, hotTop);
+                                    log(`  🔥 热号保护列表: ${protectedHotNumbers.join(', ')}`);
+                                }
+
+                                // 获取全局Top相克对
+                                const topConflictPairs = await getGlobalConflictTopPairs(basePeriodRecord.ID, period, top, protectedHotNumbers);
+                                log(`  🔥 全局Top相克对: ${topConflictPairs.length}对`);
+
+                                // 过滤组合
+                                const beforeGlobalCount = comboIds.length;
+                                comboIds = await filterComboIdsByConflictPairs(comboIds, topConflictPairs);
+                                const excludedCount = beforeGlobalCount - comboIds.length;
+                                log(`  🔥 全局Top排除后: ${comboIds.length}个组合 (排除${excludedCount}个)`);
+                            } else {
+                                log(`  ⚠️ 基准期${baseIssue}不存在，跳过全局Top排除`);
+                            }
+                        }
+
+                        // 2.4.2 每个号码排除Top
+                        if (conflictConfig.perBallTop && conflictConfig.perBallTop.enabled) {
+                            const { period, top } = conflictConfig.perBallTop;
+                            log(`  🔥 应用相克每号Top排除: 分析${period}期, 每号排除前${top}个`);
+
+                            const basePeriodRecord = await DLT.findOne({ Issue: parseInt(baseIssue) });
+                            if (basePeriodRecord) {
+                                // 获取热号保护列表（如果启用）
+                                let protectedHotNumbers = [];
+                                if (conflictConfig.perBallTop.hotProtect && conflictConfig.perBallTop.hotProtect.enabled) {
+                                    const hotTop = conflictConfig.perBallTop.hotProtect.top;
+                                    log(`  🔥 启用热号保护: 保护前${hotTop}名热号`);
+                                    protectedHotNumbers = await getTopHotNumbers(basePeriodRecord.ID, period, hotTop);
+                                    log(`  🔥 热号保护列表: ${protectedHotNumbers.join(', ')}`);
+                                }
+
+                                // 获取每号Top相克号码
+                                const perBallConflictPairs = await getPerBallConflictTopPairs(basePeriodRecord.ID, period, top, protectedHotNumbers);
+                                log(`  🔥 每号Top相克对: 总计${perBallConflictPairs.length}对`);
+
+                                // 过滤组合
+                                const beforePerBallCount = comboIds.length;
+                                comboIds = await filterComboIdsByConflictPairs(comboIds, perBallConflictPairs);
+                                const excludedCount = beforePerBallCount - comboIds.length;
+                                log(`  🔥 每号Top排除后: ${comboIds.length}个组合 (排除${excludedCount}个)`);
+                            } else {
+                                log(`  ⚠️ 基准期${baseIssue}不存在，跳过每号Top排除`);
+                            }
+                        }
+
+                        // 2.4.3 相克次数阈值（向后兼容）
+                        if (conflictConfig.threshold && conflictConfig.threshold.enabled) {
+                            const thresholdValue = conflictConfig.threshold.value;
+                            log(`  🔥 应用相克次数阈值排除: ≥${thresholdValue}次`);
+
+                            // TODO: 实现阈值过滤逻辑
+                            log(`  ⚠️ 相克次数阈值排除功能待实现`);
+                        }
+                    }
+
+                    // 2.5 同现比排除（阈值过滤 + 历史排除）
+                    if (exclusion_conditions.coOccurrence && exclusion_conditions.coOccurrence.enabled) {
+                        const coOccurConfig = exclusion_conditions.coOccurrence;
+
+                        // 2.5.1 阈值过滤（追热策略）
+                        if (coOccurConfig.threshold && coOccurConfig.threshold.enabled) {
+                            const { type, threshold, period } = coOccurConfig.threshold;
+                            log(`  🔗 应用同现比阈值排除: ${type}, 阈值${threshold}%, 统计${period}期`);
+
+                            // TODO: 实现阈值过滤逻辑
+                            // 这里需要根据历史period期的同现频率数据进行过滤
+                            // 目前先记录日志，等待后续实现具体过滤函数
+                            log(`  ⚠️ 同现比阈值过滤功能待实现`);
+                        }
+
+                        // 2.5.2 历史排除（避重策略）
+                        if (coOccurConfig.historical && coOccurConfig.historical.enabled) {
+                            const { period, combo2, combo3, combo4 } = coOccurConfig.historical;
+
+                            // 只有在至少勾选了一个子选项时才执行
+                            if (combo2 || combo3 || combo4) {
+                                log(`  🔗 应用同现比历史排除: 倒推${period}期`);
+
+                                // 获取基准期ID（目标期-1）
+                                const basePeriodRecord = await DLT.findOne({ Issue: parseInt(baseIssue) });
+                                if (basePeriodRecord) {
+                                    // 提取历史同出组合
+                                    const historicalCombos = await getHistoricalCoOccurrenceCombos(
+                                        period,
+                                        basePeriodRecord.ID,
+                                        { combo2, combo3, combo4 }
+                                    );
+
+                                    // 过滤comboIds，排除包含历史组合的
+                                    const beforeHistCount = comboIds.length;
+                                    comboIds = await filterComboIdsByHistoricalCoOccurrence(
+                                        comboIds,
+                                        historicalCombos
+                                    );
+                                    const excludedCount = beforeHistCount - comboIds.length;
+                                    log(`  🔗 同现比历史排除后: ${comboIds.length}个组合 (排除${excludedCount}个)`);
+                                } else {
+                                    log(`  ⚠️ 基准期${baseIssue}不存在，跳过历史排除`);
+                                }
+                            } else {
+                                log(`  ℹ️ 未勾选任何同出组合子选项（2码/3码/4码），跳过历史同出排除`);
+                            }
+                        }
+
+                        // 2.5.3 按红球历史同出排除（避开每球历史配对）
+                        if (coOccurConfig.perBall && coOccurConfig.perBall.enabled) {
+                            const { periods, combo2, combo3, combo4 } = coOccurConfig.perBall;
+
+                            log(`  🔗 应用按红球历史同出排除: 每个红球最近${periods}次出现`);
+
+                            // 确定排除模式
+                            let mode = 'all';  // 默认：排除所有同出号码组合
+                            if (combo2 || combo3 || combo4) {
+                                mode = 'selective';  // 选择性排除
+                                log(`  🔗 排除模式: 选择性（2码:${combo2}, 3码:${combo3}, 4码:${combo4}）`);
+                            } else {
+                                log(`  🔗 排除模式: 全部（未勾选任何子选项，排除所有同出组合）`);
+                            }
+
+                            try {
+                                // 查询当前候选组合的详细数据
+                                const combinations = await DLTRedCombination.find({
+                                    combination_id: { $in: comboIds }
+                                }).lean();
+
+                                // 获取待排除的同出特征（按红球分析）
+                                const excludeFeatures = await this.getExcludeComboFeaturesPerBallForPositiveMode(
+                                    baseIssue,
+                                    periods,
+                                    { combo2, combo3, combo4 }
+                                );
+
+                                if (excludeFeatures.combo_2.size > 0 || excludeFeatures.combo_3.size > 0 || excludeFeatures.combo_4.size > 0) {
+                                    log(`  🔗 待排除特征(按红球) - 2码:${excludeFeatures.combo_2.size}个, 3码:${excludeFeatures.combo_3.size}个, 4码:${excludeFeatures.combo_4.size}个`);
+
+                                    const beforePerBall = comboIds.length;
+
+                                    // 特征匹配过滤
+                                    const filteredCombinations = combinations.filter(combo => {
+                                        // 动态计算组合特征
+                                        let combo_2, combo_3, combo_4;
+
+                                        if (combo.combo_2 && combo.combo_3 && combo.combo_4) {
+                                            combo_2 = combo.combo_2;
+                                            combo_3 = combo.combo_3;
+                                            combo_4 = combo.combo_4;
+                                        } else {
+                                            const features = this.calculateComboFeatures(combo);
+                                            combo_2 = features.combo_2;
+                                            combo_3 = features.combo_3;
+                                            combo_4 = features.combo_4;
+                                        }
+
+                                        // 优先检查4码特征（早期退出优化）
+                                        if (excludeFeatures.combo_4.size > 0) {
+                                            for (const feature of combo_4) {
+                                                if (excludeFeatures.combo_4.has(feature)) {
+                                                    return false;
+                                                }
+                                            }
+                                        }
+
+                                        // 检查3码特征
+                                        if (excludeFeatures.combo_3.size > 0) {
+                                            for (const feature of combo_3) {
+                                                if (excludeFeatures.combo_3.has(feature)) {
+                                                    return false;
+                                                }
+                                            }
+                                        }
+
+                                        // 检查2码特征
+                                        if (excludeFeatures.combo_2.size > 0) {
+                                            for (const feature of combo_2) {
+                                                if (excludeFeatures.combo_2.has(feature)) {
+                                                    return false;
+                                                }
+                                            }
+                                        }
+
+                                        return true;  // 保留该组合
+                                    });
+
+                                    comboIds = filteredCombinations.map(c => c.combination_id);
+                                    const excludedCount = beforePerBall - comboIds.length;
+                                    log(`  🔗 按红球历史同出排除后: ${comboIds.length}个组合 (排除${excludedCount}个)`);
+                                } else {
+                                    log(`  ⚠️ 未找到待排除的按红球同出特征`);
+                                }
+                            } catch (perBallError) {
+                                log(`  ❌ 按红球历史同出排除失败: ${perBallError.message}`);
+                            }
+                        }
+                    }
+
+                    // 2.6 连号组数排除
+                    if (exclusion_conditions.consecutiveGroups && exclusion_conditions.consecutiveGroups.enabled) {
+                        const { groups } = exclusion_conditions.consecutiveGroups;
+
+                        if (groups && groups.length > 0) {
+                            log(`  🔢 应用连号组数排除: 排除 ${groups.join(', ')} 组`);
+
+                            const beforeConsecutiveGroups = comboIds.length;
+
+                            // 查询候选组合数据
+                            const combinations = await DLTRedCombination.find({
+                                combination_id: { $in: comboIds }
+                            }).lean();
+
+                            // 过滤: 排除指定连号组数的组合
+                            const filteredCombinations = combinations.filter(combo => {
+                                // 动态计算连号特征 (如果数据库中没有预存)
+                                let consecutiveGroups;
+                                if (combo.consecutive_groups !== undefined && combo.consecutive_groups !== null) {
+                                    consecutiveGroups = combo.consecutive_groups;
+                                } else {
+                                    const analysis = analyzeConsecutive(combo.balls);
+                                    consecutiveGroups = analysis.consecutiveGroups;
+                                }
+
+                                // 保留: 连号组数不在排除列表中
+                                return !groups.includes(consecutiveGroups);
+                            });
+
+                            // 更新组合ID列表
+                            comboIds = filteredCombinations.map(c => c.combination_id);
+
+                            const excludedCount = beforeConsecutiveGroups - comboIds.length;
+                            log(`  🔢 连号组数排除后: ${comboIds.length}个组合 (排除${excludedCount}个)`);
+                        }
+                    }
+
+                    // 2.7 最长连号长度排除
+                    if (exclusion_conditions.maxConsecutiveLength && exclusion_conditions.maxConsecutiveLength.enabled) {
+                        const { lengths } = exclusion_conditions.maxConsecutiveLength;
+
+                        if (lengths && lengths.length > 0) {
+                            log(`  📏 应用最长连号长度排除: 排除 ${lengths.join(', ')}`);
+
+                            const beforeMaxConsecutive = comboIds.length;
+
+                            // 查询候选组合数据
+                            const combinations = await DLTRedCombination.find({
+                                combination_id: { $in: comboIds }
+                            }).lean();
+
+                            // 过滤: 排除指定最长连号长度的组合
+                            const filteredCombinations = combinations.filter(combo => {
+                                // 动态计算连号特征 (如果数据库中没有预存)
+                                let maxConsecutiveLength;
+                                if (combo.max_consecutive_length !== undefined && combo.max_consecutive_length !== null) {
+                                    maxConsecutiveLength = combo.max_consecutive_length;
+                                } else {
+                                    const analysis = analyzeConsecutive(combo.balls);
+                                    maxConsecutiveLength = analysis.maxConsecutiveLength;
+                                }
+
+                                // 保留: 最长连号长度不在排除列表中
+                                return !lengths.includes(maxConsecutiveLength);
+                            });
+
+                            // 更新组合ID列表
+                            comboIds = filteredCombinations.map(c => c.combination_id);
+
+                            const excludedCount = beforeMaxConsecutive - comboIds.length;
+                            log(`  📏 最长连号长度排除后: ${comboIds.length}个组合 (排除${excludedCount}个)`);
+                        }
+                    }
+
+                    const afterCount = comboIds.length;
+                    const totalExcluded = beforeCount - afterCount;
+                    log(`  ✅ 排除条件处理完成: 保留${afterCount}个组合 (共排除${totalExcluded}个)`);
+                }
+
+                // 3. 保存结果
+                await PredictionTaskResult.create({
+                    task_id: taskId,
+                    period: targetIssue,
+                    base_period: baseIssue,
+                    retained_count: comboIds.length,
+                    retained_combo_ids: comboIds,
+                    created_at: new Date()
+                });
+
+                // 更新进度
+                await PredictionTask.updateOne(
+                    { task_id: taskId },
+                    {
+                        processed_periods: i + 1,
+                        progress: Math.round(((i + 1) / issue_range.length) * 100)
+                    }
+                );
+
+            } catch (error) {
+                log(`⚠️  处理期号 ${baseIssue}->${targetIssue} 失败: ${error.message}`);
+            }
+        }
+
+        // 任务完成
+        await PredictionTask.updateOne(
+            { task_id: taskId },
+            {
+                status: 'completed',
+                completed_at: new Date(),
+                progress: 100
+            }
+        );
+
+        log(`✅ 任务完成: ${taskId}`);
+
+    } catch (error) {
+        log(`❌ 任务处理失败: ${taskId}, ${error.message}`);
+
+        await PredictionTask.updateOne(
+            { task_id: taskId },
+            {
+                status: 'failed',
+                error_message: error.message,
+                completed_at: new Date()
+            }
+        );
+    }
+}

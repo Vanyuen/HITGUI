@@ -186,6 +186,15 @@ async function startInternalServer() {
       // 首先初始化数据库
       await dbManager.initialize(app.getPath('userData'));
 
+      // 🔥 清除server.js的require缓存（始终执行，确保加载最新代码）
+      const serverPath = path.resolve(__dirname, 'src/server/server.js');
+      if (require.cache[serverPath]) {
+        console.log('🧹 清除server.js的require缓存...');
+        delete require.cache[serverPath];
+      } else {
+        console.log('ℹ️  server.js首次加载，无需清除缓存');
+      }
+
       // 导入服务器代码
       const serverModule = require('./src/server/server.js');
 

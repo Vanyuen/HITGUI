@@ -1,0 +1,274 @@
+{
+  "timestamp": "2025-11-05T03:14:07.074Z",
+  "tests": [
+    {
+      "name": "大乐透历史数据",
+      "status": "PASS",
+      "message": "2792 期历史数据"
+    },
+    {
+      "name": "最新期号",
+      "status": "PASS",
+      "message": "第 undefined 期"
+    },
+    {
+      "name": "红球组合预计算表",
+      "status": "PASS",
+      "message": "324,632 条 (预期 324,632)"
+    },
+    {
+      "name": "蓝球组合预计算表",
+      "status": "PASS",
+      "message": "66 条 (预期 66)"
+    },
+    {
+      "name": "热温冷优化表",
+      "status": "PASS",
+      "message": "2,791 条优化记录"
+    },
+    {
+      "name": "热温冷优化表字段完整性",
+      "status": "FAIL",
+      "data": {
+        "base_issue": "7001"
+      }
+    },
+    {
+      "name": "任务总数",
+      "status": "PASS",
+      "message": "9 个任务"
+    },
+    {
+      "name": "任务状态分布",
+      "status": "PASS",
+      "data": {
+        "pending": 0,
+        "processing": 0,
+        "completed": 9,
+        "failed": 0
+      }
+    },
+    {
+      "name": "任务: 热温冷正选_2025-11-05",
+      "status": "PASS",
+      "data": {
+        "ID": "690abb16",
+        "状态": "completed",
+        "进度": "[object Object]%",
+        "保留组合": 0
+      }
+    },
+    {
+      "name": "任务: 热温冷正选_2025-11-05",
+      "status": "PASS",
+      "data": {
+        "ID": "690ab6b4",
+        "状态": "completed",
+        "进度": "[object Object]%",
+        "保留组合": 0
+      }
+    },
+    {
+      "name": "任务: 热温冷正选_2025-11-05",
+      "status": "PASS",
+      "data": {
+        "ID": "690ab319",
+        "状态": "completed",
+        "进度": "[object Object]%",
+        "保留组合": 0
+      }
+    },
+    {
+      "name": "配对模式使用情况",
+      "status": "PASS",
+      "data": {
+        "default": 0,
+        "unlimited": 0,
+        "truly-unlimited": 0
+      }
+    },
+    {
+      "name": "排除详情记录总数",
+      "status": "PASS",
+      "message": "9,835 条排除记录"
+    },
+    {
+      "name": "排除类型分布",
+      "status": "PASS",
+      "data": {
+        "和值": 0,
+        "跨度": 0,
+        "区间比": 0,
+        "奇偶比": 0,
+        "热温冷比": 0,
+        "相克": 0,
+        "共现": 0
+      }
+    },
+    {
+      "name": "排除详情字段完整性",
+      "status": "FAIL",
+      "data": {
+        "task_id": "task_176"
+      }
+    },
+    {
+      "name": "任务结果总数",
+      "status": "PASS",
+      "message": "379 条保留组合"
+    },
+    {
+      "name": "有命中的组合",
+      "status": "WARN",
+      "message": "0 个组合有命中"
+    },
+    {
+      "name": "前5个任务的结果统计",
+      "status": "PASS",
+      "data": [
+        {
+          "task_id": "hwc-pos-",
+          "保留组合": 117,
+          "总命中": 0
+        },
+        {
+          "task_id": "hwc-pos-",
+          "保留组合": 52,
+          "总命中": 0
+        },
+        {
+          "task_id": "hwc-pos-",
+          "保留组合": 52,
+          "总命中": 0
+        },
+        {
+          "task_id": "hwc-pos-",
+          "保留组合": 50,
+          "总命中": 0
+        },
+        {
+          "task_id": "hwc-pos-",
+          "保留组合": 50,
+          "总命中": 0
+        }
+      ]
+    },
+    {
+      "name": "红球组合表 索引",
+      "status": "PASS",
+      "message": "19 个索引",
+      "data": [
+        "_id_",
+        "combination_id_1",
+        "sum_value_1",
+        "span_value_1",
+        "sumRange_1",
+        "zone_ratio_1",
+        "zoneRatio_1",
+        "odd_even_ratio_1",
+        "evenOddRatio_1",
+        "combo_2_1",
+        "consecutiveCount_1",
+        "combo_3_1",
+        "acValue_1",
+        "combo_4_1",
+        "consecutive_groups_1",
+        "max_consecutive_length_1",
+        "id_1",
+        "sum_1",
+        "ac_value_1"
+      ]
+    },
+    {
+      "name": "热温冷优化表 索引",
+      "status": "PASS",
+      "message": "4 个索引",
+      "data": [
+        "_id_",
+        "base_issue_1",
+        "target_issue_1",
+        "base_issue_1_target_issue_1"
+      ]
+    },
+    {
+      "name": "任务表 索引",
+      "status": "PASS",
+      "message": "5 个索引",
+      "data": [
+        "_id_",
+        "task_id_1",
+        "status_1",
+        "created_at_-1",
+        "period_range.start_1_period_range.end_1"
+      ]
+    },
+    {
+      "name": "结果表 索引",
+      "status": "PASS",
+      "message": "6 个索引",
+      "data": [
+        "_id_",
+        "result_id_1",
+        "task_id_1",
+        "period_1",
+        "task_id_1_period_1",
+        "created_at_-1"
+      ]
+    },
+    {
+      "name": "数据库大小",
+      "status": "PASS",
+      "message": "13.44 GB"
+    },
+    {
+      "name": "任务结果一致性: 热温冷正选_2025-11-02",
+      "status": "WARN",
+      "data": {
+        "实际结果": 0,
+        "匹配": "✗"
+      }
+    },
+    {
+      "name": "任务结果一致性: 热温冷正选_2025-11-04",
+      "status": "WARN",
+      "data": {
+        "实际结果": 0,
+        "匹配": "✗"
+      }
+    },
+    {
+      "name": "任务结果一致性: 热温冷正选_2025-11-04",
+      "status": "WARN",
+      "data": {
+        "实际结果": 0,
+        "匹配": "✗"
+      }
+    },
+    {
+      "name": "任务结果一致性: 热温冷正选_2025-11-04",
+      "status": "WARN",
+      "data": {
+        "实际结果": 0,
+        "匹配": "✗"
+      }
+    },
+    {
+      "name": "任务结果一致性: 热温冷正选_2025-11-04",
+      "status": "WARN",
+      "data": {
+        "实际结果": 0,
+        "匹配": "✗"
+      }
+    },
+    {
+      "name": "最新期号的HWC优化数据 (undefined)",
+      "status": "WARN",
+      "message": "无优化数据，需运行 update-hwc-optimized.js"
+    }
+  ],
+  "summary": {
+    "passed": 20,
+    "failed": 2,
+    "warnings": 7
+  }
+}

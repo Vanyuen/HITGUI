@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>输入框问题测试</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            padding: 30px;
+            background: #f5f5f5;
+        }
+
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .test-section h2 {
+            margin-top: 0;
+            color: #333;
+        }
+
+        /* 问题场景：label内嵌套label */
+        .batch-historical-exclude {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+        }
+
+        .batch-checkbox-wrapper {
+            display: inline-flex;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .batch-radio-option {
+            display: inline-flex;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        input[type="number"] {
+            width: 100px;
+            padding: 6px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        input[type="number"]:disabled {
+            background: #e9ecef;
+            opacity: 0.6;
+        }
+
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            background: #e3f2fd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 输入框无法输入问题诊断</h1>
+
+    <!-- 场景1：当前的HTML结构（可能有问题） -->
+    <div class="test-section">
+        <h2>❌ 场景1：label嵌套结构（问题场景）</h2>
+        <p>这是当前代码的结构 - <strong>input在label内，但label外还包了一层label</strong></p>
+
+        <div class="batch-historical-exclude">
+            <label class="batch-checkbox-wrapper">
+                <input type="checkbox" id="test1-enabled">
+                <span>排除和值范围1:</span>
+            </label>
+            <input type="number" id="test1-min" placeholder="最小值" min="15" max="175">
+            <span>-</span>
+            <input type="number" id="test1-max" placeholder="最大值" min="15" max="175">
+        </div>
+
+        <div class="status">
+            <strong>测试结果：</strong><span id="result1">待测试</span>
+        </div>
+    </div>
+
+    <!-- 场景2：正常结构 -->
+    <div class="test-section">
+        <h2>✅ 场景2：正常div结构（对照组）</h2>
+        <p>使用div替代label外层</p>
+
+        <div class="batch-historical-exclude">
+            <div class="batch-checkbox-wrapper">
+                <input type="checkbox" id="test2-enabled">
+                <span>排除和值范围1:</span>
+            </div>
+            <input type="number" id="test2-min" placeholder="最小值" min="15" max="175">
+            <span>-</span>
+            <input type="number" id="test2-max" placeholder="最大值" min="15" max="175">
+        </div>
+
+        <div class="status">
+            <strong>测试结果：</strong><span id="result2">待测试</span>
+        </div>
+    </div>
+
+    <!-- 场景3：label嵌套label（更极端的情况） -->
+    <div class="test-section">
+        <h2>⚠️ 场景3：label完全嵌套（最坏情况）</h2>
+        <p>外层label包含所有内容</p>
+
+        <label class="batch-historical-exclude">
+            <label class="batch-checkbox-wrapper">
+                <input type="checkbox" id="test3-enabled">
+                <span>排除和值范围1:</span>
+            </label>
+            <input type="number" id="test3-min" placeholder="最小值" min="15" max="175">
+            <span>-</span>
+            <input type="number" id="test3-max" placeholder="最大值" min="15" max="175">
+        </label>
+
+        <div class="status">
+            <strong>测试结果：</strong><span id="result3">待测试</span>
+        </div>
+    </div>
+
+    <!-- 场景4：禁用状态测试 -->
+    <div class="test-section">
+        <h2>🔒 场景4：禁用状态测试</h2>
+        <p>勾选复选框后输入框会启用</p>
+
+        <div class="batch-historical-exclude">
+            <div class="batch-checkbox-wrapper">
+                <input type="checkbox" id="test4-enabled">
+                <span>排除和值范围1:</span>
+            </div>
+            <input type="number" id="test4-min" placeholder="最小值" min="15" max="175" disabled>
+            <span>-</span>
+            <input type="number" id="test4-max" placeholder="最大值" min="15" max="175" disabled>
+        </div>
+
+        <div class="status">
+            <strong>状态：</strong><span id="result4">输入框已禁用，勾选复选框启用</span>
+        </div>
+    </div>
+
+    <script>
+        // 监听输入事件
+        document.getElementById('test1-min').addEventListener('input', (e) => {
+            document.getElementById('result1').textContent = '✅ 可以输入！值=' + e.target.value;
+            document.getElementById('result1').style.color = 'green';
+        });
+
+        document.getElementById('test2-min').addEventListener('input', (e) => {
+            document.getElementById('result2').textContent = '✅ 可以输入！值=' + e.target.value;
+            document.getElementById('result2').style.color = 'green';
+        });
+
+        document.getElementById('test3-min').addEventListener('input', (e) => {
+            document.getElementById('result3').textContent = '✅ 可以输入！值=' + e.target.value;
+            document.getElementById('result3').style.color = 'green';
+        });
+
+        // 监听点击事件
+        ['test1-min', 'test2-min', 'test3-min'].forEach(id => {
+            document.getElementById(id).addEventListener('click', function(e) {
+                console.log(`${id} clicked, focus available:`, document.activeElement === this);
+            });
+
+            document.getElementById(id).addEventListener('focus', function() {
+                console.log(`${id} focused successfully`);
+            });
+        });
+
+        // 场景4：启用/禁用控制
+        document.getElementById('test4-enabled').addEventListener('change', function() {
+            const minInput = document.getElementById('test4-min');
+            const maxInput = document.getElementById('test4-max');
+            minInput.disabled = !this.checked;
+            maxInput.disabled = !this.checked;
+
+            document.getElementById('result4').textContent = this.checked ?
+                '✅ 输入框已启用' : '🔒 输入框已禁用';
+        });
+
+        // 测试焦点获取
+        setTimeout(() => {
+            console.log('=== 3秒后自动焦点测试 ===');
+            const inputs = ['test1-min', 'test2-min', 'test3-min'];
+            inputs.forEach((id, index) => {
+                setTimeout(() => {
+                    const input = document.getElementById(id);
+                    input.focus();
+                    console.log(`尝试聚焦 ${id}, 当前焦点:`, document.activeElement.id);
+                }, index * 1000);
+            });
+        }, 3000);
+    </script>
+</body>
+</html>

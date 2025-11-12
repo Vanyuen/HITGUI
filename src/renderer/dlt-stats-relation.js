@@ -171,8 +171,8 @@ async function executeStatsAnalysis() {
             return;
         }
 
-        if (!/^\d{7}$/.test(startIssue) || !/^\d{7}$/.test(endIssue)) {
-            alert('期号格式不正确，应为7位数字（如：2024001）');
+        if (!/^\d{5}$/.test(startIssue) || !/^\d{5}$/.test(endIssue)) {
+            alert('期号格式不正确，应为5位数字（如：25001）');
             return;
         }
 
@@ -183,7 +183,16 @@ async function executeStatsAnalysis() {
 
         apiUrl += `startIssue=${startIssue}&endIssue=${endIssue}`;
     } else {
-        apiUrl += `periods=${rangeValue}`;
+        // 最近XX期 - 从输入框读取期数
+        const recentCount = document.getElementById('stats-recent-count').value;
+        const periodsNum = parseInt(recentCount);
+
+        if (isNaN(periodsNum) || periodsNum <= 0) {
+            alert('请输入有效的期数（大于0的数字）');
+            return;
+        }
+
+        apiUrl += `periods=${periodsNum}`;
     }
 
     apiUrl += `&hwcRatios=${selectedRatios.join(',')}`;
@@ -304,6 +313,7 @@ function displayStatsResult(data) {
             ${generateTop3Card('热温冷比', topStats.hwcRatio)}
             ${generateTop3Card('区间比', topStats.zoneRatio)}
             ${generateTop3Card('AC值', topStats.acValue)}
+            ${generateTop3Card('前区奇偶比', topStats.oddEvenRatio)}
         </div>
 
         <div class="stats-detail-section">
@@ -367,6 +377,7 @@ function generateDetailTable(records) {
             <td><strong>${record.hwcRatio || '-'}</strong></td>
             <td>${record.zoneRatio || '-'}</td>
             <td>${record.acValue !== undefined ? record.acValue : '-'}</td>
+            <td>${record.oddEvenRatio || '-'}</td>
         </tr>
     `).join('');
 
@@ -382,6 +393,7 @@ function generateDetailTable(records) {
                         <th>热温冷比</th>
                         <th>区间比</th>
                         <th>AC值</th>
+                        <th>前区奇偶比</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -405,12 +417,12 @@ function exportStatsToCSV() {
 
     // CSV表头
     let csvContent = '\uFEFF'; // UTF-8 BOM
-    csvContent += '期号,前区号码,和值,跨度,热温冷比,区间比,AC值\n';
+    csvContent += '期号,前区号码,和值,跨度,热温冷比,区间比,AC值,前区奇偶比\n';
 
     // CSV数据行
     records.forEach(record => {
         const frontBalls = record.frontBalls ? record.frontBalls.map(n => String(n).padStart(2, '0')).join(' ') : '';
-        csvContent += `${record.issue},"${frontBalls}",${record.frontSum},${record.frontSpan},"${record.hwcRatio}","${record.zoneRatio}",${record.acValue}\n`;
+        csvContent += `${record.issue},"${frontBalls}",${record.frontSum},${record.frontSpan},"${record.hwcRatio}","${record.zoneRatio}",${record.acValue},"${record.oddEvenRatio}"\n`;
     });
 
     // 创建下载链接

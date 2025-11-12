@@ -44,13 +44,20 @@ function toggleImportMethod() {
     const method = document.getElementById('importMethod').value;
     const manualImport = document.getElementById('manualImport');
     const jsonImport = document.getElementById('jsonImport');
+    const batchImport = document.getElementById('batchImport');
 
     if (method === 'manual') {
         manualImport.classList.remove('hidden');
         jsonImport.classList.add('hidden');
-    } else {
+        batchImport.classList.add('hidden');
+    } else if (method === 'json') {
         manualImport.classList.add('hidden');
         jsonImport.classList.remove('hidden');
+        batchImport.classList.add('hidden');
+    } else if (method === 'batch') {
+        manualImport.classList.add('hidden');
+        jsonImport.classList.add('hidden');
+        batchImport.classList.remove('hidden');
     }
 }
 
@@ -497,3 +504,366 @@ window.addEventListener('beforeunload', () => {
         progressEventSource.close();
     }
 });
+
+// ========== 批量导入功能 ==========
+
+// 全局变量用于存储待导入数据和重复期号
+window.pendingImportRecords = null;
+window.duplicateIssues = null;
+
+// 解析批量数据
+function parseBatchData(text) {
+    const lines = text.trim().split('\n');
+    const records = [];
+    const errors = [];
+
+    lines.forEach((line, index) => {
+        const lineNum = index + 1;
+
+        // 跳过第一行（表头）
+        if (index === 0 && line.includes('Issue') && line.includes('DrawDate')) {
+            return;
+        }
+
+        // 按制表符或多空格分隔
+        const fields = line.trim().split(/\s+/);
+
+        // 新格式需要16个字段
+        if (fields.length < 16) {
+            errors.push(`第${lineNum}行: 字段不足（需要16个字段，实际${fields.length}个）`);
+            return;
+        }
+
+        try {
+            // 日期格式转换: MM/DD/YYYY → YYYY-MM-DD
+            let formattedDate;
+            if (fields[15].includes('/')) {
+                const dateParts = fields[15].split('/');
+                formattedDate = `${dateParts[2]}-${dateParts[0].padStart(2, '0')}-${dateParts[1].padStart(2, '0')}`;
+            } else {
+                formattedDate = fields[15]; // 如果已经是 YYYY-MM-DD 格式
+            }
+
+            const record = {
+                ID: parseInt(fields[0]),                 // 位置1
+                Issue: fields[1],                        // 位置2
+                Red1: parseInt(fields[2]),              // 位置3
+                Red2: parseInt(fields[3]),              // 位置4
+                Red3: parseInt(fields[4]),              // 位置5
+                Red4: parseInt(fields[5]),              // 位置6
+                Red5: parseInt(fields[6]),              // 位置7
+                Blue1: parseInt(fields[7]),             // 位置8
+                Blue2: parseInt(fields[8]),             // 位置9
+                PoolPrize: fields[9].replace(/,/g, ''),  // 位置10
+                FirstPrizeCount: parseInt(fields[10]),   // 位置11
+                FirstPrizeAmount: fields[11].replace(/,/g, ''), // 位置12
+                SecondPrizeCount: parseInt(fields[12]),  // 位置13
+                SecondPrizeAmount: fields[13].replace(/,/g, ''), // 位置14
+                TotalSales: fields[14].replace(/,/g, ''), // 位置15
+                DrawDate: formattedDate                  // 位置16
+            };
+
+            // 验证期号
+            if (!/^\d{5}$/.test(record.Issue)) {
+                errors.push(`第${lineNum}行: 期号格式错误 (${record.Issue})`);
+                return;
+            }
+
+            const redBalls = [record.Red1, record.Red2, record.Red3, record.Red4, record.Red5];
+            const blueBalls = [record.Blue1, record.Blue2];
+
+            // 验证红球
+            for (const r of redBalls) {
+                const num = parseInt(r);
+                if (num < 1 || num > 35) {
+                    errors.push(`第${lineNum}行: 红球超出范围 (${r})`);
+                    return;
+                }
+            }
+            if (new Set(redBalls).size !== 5) {
+                errors.push(`第${lineNum}行: 红球有重复`);
+                return;
+            }
+
+            // 验证蓝球
+            for (const b of blueBalls) {
+                const num = parseInt(b);
+                if (num < 1 || num > 12) {
+                    errors.push(`第${lineNum}行: 蓝球超出范围 (${b})`);
+                    return;
+                }
+            }
+            if (new Set(blueBalls).size !== 2) {
+                errors.push(`第${lineNum}行: 蓝球有重复`);
+                return;
+            }
+
+            // 验证日期
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(record.DrawDate)) {
+                errors.push(`第${lineNum}行: 日期格式错误 (${record.DrawDate})`);
+                return;
+            }
+
+            records.push(record);
+        } catch (err) {
+            errors.push(`第${lineNum}行: 解析错误 (${err.message})`);
+        }
+    });
+
+    return { records, errors };
+}
+
+// 验证批量数据
+async function validateBatchData() {
+    const text = document.getElementById('batch-data-input').value;
+    if (!text.trim()) {
+        showAlert('请先粘贴数据', 'error');
+        return;
+    }
+
+    addLog('正在验证批量数据...', 'info');
+
+    // 解析数据
+    const { records, errors } = parseBatchData(text);
+
+    // 显示解析结果
+    const resultDiv = document.getElementById('validation-result');
+    resultDiv.classList.remove('hidden');
+
+    if (errors.length > 0) {
+        resultDiv.innerHTML = `
+            <h4 style="color: red;">❌ 验证失败</h4>
+            <p>发现 ${errors.length} 个错误：</p>
+            <ul>${errors.map(e => `<li>${e}</li>`).join('')}</ul>
+        `;
+        document.getElementById('import-batch-btn').disabled = true;
+        addLog(`验证失败: 发现 ${errors.length} 个错误`, 'error');
+        return;
+    }
+
+    addLog(`数据解析成功，共 ${records.length} 条记录，正在检查重复期号...`, 'info');
+
+    // 检查重复期号
+    try {
+        const issues = records.map(r => r.Issue);
+        const response = await fetch(`${API_BASE_URL}/api/dlt/check-duplicates`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ issues })
+        });
+
+        const result = await response.json();
+
+        if (!result.success) {
+            showAlert(`检查重复期号失败: ${result.message}`, 'error');
+            return;
+        }
+
+        const duplicates = result.duplicates || [];
+
+        if (duplicates.length > 0) {
+            addLog(`检测到 ${duplicates.length} 个重复期号，请选择处理方式`, 'info');
+            showDuplicateModal(records, duplicates);
+        } else {
+            resultDiv.innerHTML = `
+                <h4 style="color: green;">✅ 验证通过</h4>
+                <p>共 ${records.length} 条记录，无重复期号，可以导入</p>
+            `;
+            document.getElementById('import-batch-btn').disabled = false;
+            window.pendingImportRecords = records;
+            addLog(`验证通过，共 ${records.length} 条记录可以导入`, 'success');
+        }
+    } catch (error) {
+        addLog(`网络错误: ${error.message}`, 'error');
+        showAlert('检查重复期号失败: 网络错误', 'error');
+    }
+}
+
+// 显示重复期号对比弹窗
+function showDuplicateModal(newRecords, existingRecords) {
+    const modal = document.getElementById('duplicate-modal');
+    const comparison = document.getElementById('duplicate-comparison');
+
+    let html = '<table><thead><tr><th>期号</th><th>字段</th><th>数据库现有值</th><th>导入新值</th></tr></thead><tbody>';
+
+    existingRecords.forEach(existing => {
+        const newRecord = newRecords.find(r => r.Issue === existing.Issue);
+
+        const existingRed = `${existing.Red1 || ''} ${existing.Red2 || ''} ${existing.Red3 || ''} ${existing.Red4 || ''} ${existing.Red5 || ''}`.trim();
+        const newRed = `${newRecord.Red1} ${newRecord.Red2} ${newRecord.Red3} ${newRecord.Red4} ${newRecord.Red5}`;
+
+        const existingBlue = `${existing.Blue1 || ''} ${existing.Blue2 || ''}`.trim();
+        const newBlue = `${newRecord.Blue1} ${newRecord.Blue2}`;
+
+        const redChanged = existingRed !== newRed;
+        const blueChanged = existingBlue !== newBlue;
+        const salesChanged = (existing.TotalSales || '') !== newRecord.TotalSales;
+        const dateChanged = (existing.DrawDate || '') !== newRecord.DrawDate;
+
+        html += `
+            <tr>
+                <td rowspan="4" style="vertical-align: middle; font-weight: bold;">${existing.Issue}</td>
+                <td>红球</td>
+                <td class="${redChanged ? 'highlight' : ''}">${existingRed || '-'}</td>
+                <td class="${redChanged ? 'highlight' : ''}">${newRed}</td>
+            </tr>
+            <tr>
+                <td>蓝球</td>
+                <td class="${blueChanged ? 'highlight' : ''}">${existingBlue || '-'}</td>
+                <td class="${blueChanged ? 'highlight' : ''}">${newBlue}</td>
+            </tr>
+            <tr>
+                <td>销售额</td>
+                <td class="${salesChanged ? 'highlight' : ''}">${existing.TotalSales || '-'}</td>
+                <td class="${salesChanged ? 'highlight' : ''}">${newRecord.TotalSales}</td>
+            </tr>
+            <tr>
+                <td>开奖日期</td>
+                <td class="${dateChanged ? 'highlight' : ''}">${existing.DrawDate || '-'}</td>
+                <td class="${dateChanged ? 'highlight' : ''}">${newRecord.DrawDate}</td>
+            </tr>
+        `;
+    });
+    html += '</tbody></table>';
+
+    comparison.innerHTML = html;
+    modal.classList.remove('hidden');
+
+    // 保存数据供后续使用
+    window.pendingImportRecords = newRecords;
+    window.duplicateIssues = existingRecords.map(r => r.Issue);
+}
+
+// 执行批量导入（无重复期号时调用，使用overwrite模式确保数据写入）
+async function executeBatchImport() {
+    const records = window.pendingImportRecords;
+
+    if (!records || records.length === 0) {
+        showAlert('没有待导入的数据', 'error');
+        return;
+    }
+
+    addLog(`正在导入 ${records.length} 条记录...`, 'info');
+
+    try {
+        // 使用 overwrite 模式确保数据一定会被写入
+        const response = await fetch(`${API_BASE_URL}/api/dlt/batch-import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ records, action: 'overwrite' })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            addLog(`✅ 导入成功！新增 ${result.inserted} 条，更新 ${result.updated} 条`, 'success');
+            showAlert(`导入成功！新增 ${result.inserted} 条，更新 ${result.updated} 条`, 'success');
+            clearBatchInput();
+            setTimeout(() => refreshStatus(), 1000);
+        } else {
+            addLog(`❌ 导入失败: ${result.message}`, 'error');
+            showAlert(`导入失败: ${result.message}`, 'error');
+        }
+    } catch (error) {
+        addLog(`❌ 网络错误: ${error.message}`, 'error');
+        showAlert('导入失败: 网络错误', 'error');
+    }
+}
+
+// 覆盖更新
+async function handleOverwrite() {
+    const records = window.pendingImportRecords;
+
+    if (!records || records.length === 0) {
+        showAlert('没有待导入的数据', 'error');
+        return;
+    }
+
+    addLog(`正在执行覆盖更新，共 ${records.length} 条记录...`, 'info');
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/dlt/batch-import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ records, action: 'overwrite' })
+        });
+
+        const result = await response.json();
+
+        document.getElementById('duplicate-modal').classList.add('hidden');
+
+        if (result.success) {
+            addLog(`✅ 导入成功！新增 ${result.inserted} 条，更新 ${result.updated} 条`, 'success');
+            showAlert(`导入成功！新增 ${result.inserted} 条，更新 ${result.updated} 条`, 'success');
+            clearBatchInput();
+            setTimeout(() => refreshStatus(), 1000);
+        } else {
+            addLog(`❌ 导入失败: ${result.message}`, 'error');
+            showAlert(`导入失败: ${result.message}`, 'error');
+        }
+    } catch (error) {
+        addLog(`❌ 网络错误: ${error.message}`, 'error');
+        showAlert('导入失败: 网络错误', 'error');
+    }
+}
+
+// 跳过重复期号
+async function handleSkip() {
+    const records = window.pendingImportRecords;
+    const duplicateIssues = window.duplicateIssues;
+
+    if (!records || records.length === 0) {
+        showAlert('没有待导入的数据', 'error');
+        return;
+    }
+
+    const filteredRecords = records.filter(r => !duplicateIssues.includes(r.Issue));
+
+    if (filteredRecords.length === 0) {
+        showAlert('跳过重复期号后没有可导入的数据', 'warning');
+        document.getElementById('duplicate-modal').classList.add('hidden');
+        return;
+    }
+
+    addLog(`跳过 ${duplicateIssues.length} 个重复期号，正在导入剩余 ${filteredRecords.length} 条记录...`, 'info');
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/dlt/batch-import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ records: filteredRecords, action: 'insert' })
+        });
+
+        const result = await response.json();
+
+        document.getElementById('duplicate-modal').classList.add('hidden');
+
+        if (result.success) {
+            addLog(`✅ 导入成功！共导入 ${result.imported} 条（跳过 ${duplicateIssues.length} 条重复）`, 'success');
+            showAlert(`导入成功！共导入 ${result.imported} 条（跳过 ${duplicateIssues.length} 条重复）`, 'success');
+            clearBatchInput();
+            setTimeout(() => refreshStatus(), 1000);
+        } else {
+            addLog(`❌ 导入失败: ${result.message}`, 'error');
+            showAlert(`导入失败: ${result.message}`, 'error');
+        }
+    } catch (error) {
+        addLog(`❌ 网络错误: ${error.message}`, 'error');
+        showAlert('导入失败: 网络错误', 'error');
+    }
+}
+
+// 取消导入
+function handleCancelImport() {
+    document.getElementById('duplicate-modal').classList.add('hidden');
+    addLog('已取消导入操作', 'info');
+}
+
+// 清空输入
+function clearBatchInput() {
+    document.getElementById('batch-data-input').value = '';
+    document.getElementById('validation-result').classList.add('hidden');
+    document.getElementById('import-batch-btn').disabled = true;
+    window.pendingImportRecords = null;
+    window.duplicateIssues = null;
+}
