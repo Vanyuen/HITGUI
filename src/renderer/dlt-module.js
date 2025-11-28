@@ -23,6 +23,9 @@ let dltLastBackBallMissing = [];
 // 当前预测结果数据（用于导出功能）
 let currentPredictionData = null;
 
+// ⭐ 2025-11-15: Socket.IO客户端全局变量
+let dltSocket = null;
+
 // ===== 辅助计算函数 =====
 
 /**
@@ -84,7 +87,7 @@ function calculateACValueSimple(numbers) {
  * 初始化大乐透系统
  */
 function initDLTSystem() {
-    console.log('Initializing DLT System...');
+    console.log('Initializing hit_dlts System...');
 
     // 初始化各个子模块
     initDLTNavigation();
@@ -95,7 +98,188 @@ function initDLTSystem() {
     initDLTExpertModule();
     initDLTCombinationModule();
 
-    console.log('DLT System initialized successfully');
+    // ⭐ 2025-11-15: 初始化Socket.IO实时推送
+    initSocketIO();
+
+    console.log('hit_dlts System initialized successfully');
+}
+
+// ⭐ 2025-11-15: Socket.IO实时推送初始化
+/**
+ * 初始化Socket.IO客户端连接
+ */
+function initSocketIO() {
+    try {
+        // ⭐ 检查Socket.IO客户端库是否加载
+        if (typeof io === 'undefined') {
+            console.error('❌ Socket.IO客户端库未加载,请检查CDN链接');
+            return;
+        }
+
+        // 连接到后端Socket.IO服务器
+        dltSocket = io('http://localhost:3003', {
+            transports: ['websocket', 'polling'], // 优先使用WebSocket
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionAttempts: 5
+        });
+
+        // 连接成功
+        dltSocket.on('connect', () => {
+            console.log('✅ Socket.IO连接成功，Socket ID:', dltSocket.id);
+        });
+
+        // 连接错误
+        dltSocket.on('connect_error', (error) => {
+            console.error('❌ Socket.IO连接失败:', error.message);
+        });
+
+        // 断开连接
+        dltSocket.on('disconnect', (reason) => {
+            console.log('🔌 Socket.IO连接断开:', reason);
+        });
+
+        // ===== 热温冷正选任务事件监听 =====
+
+        // 1. 任务开始
+        dltSocket.on('hwc-task-started', (data) => {
+            console.log('📢 任务开始:', data);
+            handleHwcTaskStarted(data);
+        });
+
+        // 2. 进度更新
+        dltSocket.on('hwc-task-progress', (data) => {
+            console.log('📊 进度更新:', data);
+            handleHwcTaskProgress(data);
+        });
+
+        // 3. 任务完成
+        dltSocket.on('hwc-task-completed', (data) => {
+            console.log('✅ 任务完成:', data);
+            handleHwcTaskCompleted(data);
+        });
+
+        // 4. 任务失败
+        dltSocket.on('hwc-task-error', (data) => {
+            console.error('❌ 任务失败:', data);
+            handleHwcTaskError(data);
+        });
+
+        console.log('✅ Socket.IO事件监听已设置');
+
+    } catch (error) {
+        console.error('❌ Socket.IO初始化失败:', error.message);
+    }
+}
+
+// ⭐ 2025-11-15: Socket.IO事件处理函数
+
+/**
+ * 处理任务开始事件
+ */
+function handleHwcTaskStarted(data) {
+    const { task_id, status, message } = data;
+    console.log(`🎯 任务 ${task_id} 开始处理: ${message}`);
+
+    // 刷新任务列表以显示最新状态
+    refreshHwcPosTasks();
+}
+
+/**
+ * 处理进度更新事件
+ */
+function handleHwcTaskProgress(data) {
+    const { task_id, current, total, percentage, message } = data;
+    console.log(`📈 任务 ${task_id} 进度: ${current}/${total} (${percentage.toFixed(1)}%)`);
+
+    // ⭐ 实时更新任务卡片中的进度显示
+    const taskCard = document.querySelector(`[data-task-id="${task_id}"]`);
+    if (taskCard) {
+        // 查找进度显示区域 - 使用JavaScript遍历而不是CSS选择器
+        const taskInfoRows = taskCard.querySelectorAll('.task-info-row');
+        let progressRow = null;
+        for (const row of taskInfoRows) {
+            const span = row.querySelector('span');
+            if (span && span.textContent.includes('⏳')) {
+                progressRow = row;
+                break;
+            }
+        }
+
+        if (progressRow) {
+            // 更新进度文本
+            progressRow.querySelector('span').textContent =
+                `⏳ 进度: ${current}/${total} (${percentage.toFixed(1)}%)`;
+        } else {
+            // 如果还没有进度行，添加一个
+            const taskBody = taskCard.querySelector('.task-card-body');
+            if (taskBody) {
+                const progressDiv = document.createElement('div');
+                progressDiv.className = 'task-info-row';
+                progressDiv.innerHTML = `<span>⏳ 进度: ${current}/${total} (${percentage.toFixed(1)}%)</span>`;
+
+                // 插入到任务信息后面
+                const periodRow = taskBody.querySelector('.task-info-row');
+                if (periodRow) {
+                    periodRow.insertAdjacentElement('afterend', progressDiv);
+                } else {
+                    taskBody.appendChild(progressDiv);
+                }
+            }
+        }
+
+        // 更新状态标签为"运行中"
+        const statusSpan = taskCard.querySelector('.task-status');
+        if (statusSpan) {
+            statusSpan.textContent = '进行中';
+            statusSpan.className = 'task-status running';
+        }
+    }
+}
+
+/**
+ * 处理任务完成事件
+ */
+function handleHwcTaskCompleted(data) {
+    const { task_id, total_periods, total_combinations, message } = data;
+    console.log(`🎉 任务 ${task_id} 完成: ${message}`);
+
+    // ⭐ 2025-11-15修复: 延迟刷新，让用户看到进度完成到100%
+    // 避免进度条立即消失，造成"有进度时无数据"的问题
+    setTimeout(() => {
+        refreshHwcPosTasks();
+    }, 500);
+}
+
+/**
+ * 处理任务错误事件
+ */
+function handleHwcTaskError(data) {
+    const { task_id, error, message } = data;
+    console.error(`💥 任务 ${task_id} 失败: ${message}`);
+
+    // 更新任务卡片显示错误状态
+    const taskCard = document.querySelector(`[data-task-id="${task_id}"]`);
+    if (taskCard) {
+        const statusSpan = taskCard.querySelector('.task-status');
+        if (statusSpan) {
+            statusSpan.textContent = '失败';
+            statusSpan.className = 'task-status failed';
+        }
+
+        // 添加错误信息显示
+        const taskBody = taskCard.querySelector('.task-card-body');
+        if (taskBody) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'task-info-row';
+            errorDiv.style.color = '#ef4444';
+            errorDiv.innerHTML = `<span>❌ 错误: ${error}</span>`;
+            taskBody.appendChild(errorDiv);
+        }
+    }
+
+    // 刷新任务列表
+    refreshHwcPosTasks();
 }
 
 // ===== 大乐透批量预测命中对比分析模块 =====
@@ -813,11 +997,11 @@ function createComprehensiveAnalysisInterface() {
 function initDLTNavigation() {
     const dltPanel = document.getElementById('dlt-panel');
     if (!dltPanel) {
-        console.warn('DLT panel not found');
+        console.warn('hit_dlts panel not found');
         return;
     }
     
-    console.log('DLT navigation initialized (managed by main app.js)');
+    console.log('hit_dlts navigation initialized (managed by main app.js)');
     
     // 大乐透导航事件现在由主app.js的initSubNavigation()统一处理
     // 这里只做一些大乐透特有的初始化工作
@@ -846,7 +1030,7 @@ function switchDLTContentPanel(contentType) {
  * 加载大乐透内容
  */
 function loadDLTContent(contentType) {
-    console.log(`Loading DLT content: ${contentType}`);
+    console.log(`Loading hit_dlts content: ${contentType}`);
     
     switch (contentType) {
         case 'dlt-history':
@@ -860,10 +1044,10 @@ function loadDLTContent(contentType) {
             break;
         case 'dlt-combination':
             // 组合预测面板不需要预加载数据，只需要初始化界面
-            console.log('DLT combination panel activated');
+            console.log('hit_dlts combination panel activated');
             break;
         default:
-            console.warn(`Unknown DLT content type: ${contentType}`);
+            console.warn(`Unknown hit_dlts content type: ${contentType}`);
     }
 }
 
@@ -873,7 +1057,7 @@ function loadDLTContent(contentType) {
  * 初始化大乐透历史开奖模块
  */
 function initDLTHistoryModule() {
-    console.log('Initializing DLT History Module...');
+    console.log('Initializing hit_dlts History Module...');
     
     // 初始化分页事件
     initDLTHistoryPagination();
@@ -895,16 +1079,16 @@ let dltHistoryLoadingTimer = null;
 async function loadDLTHistoryData(page = 1, forceRefresh = false) {
     // 防止重复加载
     if (dltHistoryLoading && !forceRefresh) {
-        console.log('DLT history data is already loading, skipping...');
+        console.log('hit_dlts history data is already loading, skipping...');
         return;
     }
     
-    console.log(`Loading DLT history data for page ${page}${forceRefresh ? ' (force refresh)' : ''}`);
+    console.log(`Loading hit_dlts history data for page ${page}${forceRefresh ? ' (force refresh)' : ''}`);
     
     try {
         const tbody = document.querySelector('#dlt-history tbody');
         if (!tbody) {
-            console.error('DLT history table body not found');
+            console.error('hit_dlts history table body not found');
             return;
         }
         
@@ -913,7 +1097,7 @@ async function loadDLTHistoryData(page = 1, forceRefresh = false) {
         if (!forceRefresh && dltHistoryCache.has(cacheKey)) {
             const cachedData = dltHistoryCache.get(cacheKey);
             displayDLTHistoryData(cachedData.data, cachedData.pagination);
-            console.log(`DLT history data loaded from cache for page ${page}`);
+            console.log(`hit_dlts history data loaded from cache for page ${page}`);
             return;
         }
         
@@ -945,10 +1129,10 @@ async function loadDLTHistoryData(page = 1, forceRefresh = false) {
         displayDLTHistoryData(result.data, result.pagination);
         
         const endTime = performance.now();
-        console.log(`DLT history data loaded in ${Math.round(endTime - startTime)}ms`);
+        console.log(`hit_dlts history data loaded in ${Math.round(endTime - startTime)}ms`);
         
     } catch (error) {
-        console.error('Error loading DLT history data:', error);
+        console.error('Error loading hit_dlts history data:', error);
         const tbody = document.querySelector('#dlt-history tbody');
         if (tbody) {
             tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; padding: 20px; color: #e74c3c;">加载失败: ${error.message}</td></tr>`;
@@ -1019,7 +1203,7 @@ function displayDLTHistoryData(data, pagination) {
     updateDLTHistoryPagination(pagination);
     
     const endTime = performance.now();
-    console.log(`DLT history display rendered in ${Math.round(endTime - startTime)}ms for ${data.length} records`);
+    console.log(`hit_dlts history display rendered in ${Math.round(endTime - startTime)}ms for ${data.length} records`);
 }
 
 /**
@@ -1045,7 +1229,7 @@ function initDLTHistoryPagination() {
         });
     }
     
-    console.log('DLT history pagination initialized');
+    console.log('hit_dlts history pagination initialized');
 }
 
 /**
@@ -1082,7 +1266,7 @@ function initDLTHistoryRefresh() {
     const refreshBtns = document.querySelectorAll('#dlt-history .refresh-btn');
     refreshBtns.forEach(btn => {
         btn.addEventListener('click', () => {
-            console.log('Refreshing DLT history data...');
+            console.log('Refreshing hit_dlts history data...');
 
             // 刷新时清除缓存，确保获取最新数据
             dltHistoryCache.clear();
@@ -1190,7 +1374,7 @@ async function showDataStatusDialog() {
  * 初始化大乐透走势图模块
  */
 function initDLTTrendModule() {
-    console.log('Initializing DLT Trend Module...');
+    console.log('Initializing hit_dlts Trend Module...');
 
     // 初始化期数按钮选择器（与双色球保持一致）
     initDLTPeriodButtons();
@@ -1216,7 +1400,7 @@ function initDLTZoomControls() {
     const zoomWrapper = dltPanel.querySelector('.trend-zoom-wrapper');
 
     if (!zoomWrapper) {
-        console.warn('DLT Zoom wrapper not found');
+        console.warn('hit_dlts Zoom wrapper not found');
         return;
     }
 
@@ -1422,15 +1606,15 @@ function initDLTCustomRangeSelector() {
  * 加载大乐透走势图数据
  */
 async function loadDLTTrendData(startIssue = null, endIssue = null) {
-    console.log('Loading DLT trend data...', {startIssue, endIssue, dltCurrentPeriods});
+    console.log('Loading hit_dlts trend data...', {startIssue, endIssue, dltCurrentPeriods});
     
     try {
         const container = document.querySelector('#dlt-trend .trend-table-container');
         if (!container) {
-            console.error('DLT trend table container not found');
+            console.error('hit_dlts trend table container not found');
             return;
         }
-        console.log('Found DLT trend container:', container);
+        console.log('Found hit_dlts trend container:', container);
         
         // 显示加载状态
         showDLTTrendLoading(container);
@@ -1454,7 +1638,7 @@ async function loadDLTTrendData(startIssue = null, endIssue = null) {
         displayDLTTrendData(result.data, frequencyResult.data);
         
     } catch (error) {
-        console.error('Error loading DLT trend data:', error);
+        console.error('Error loading hit_dlts trend data:', error);
         const container = document.querySelector('#dlt-trend .trend-table-container');
         if (container) {
             container.innerHTML = `<div class="error-message" style="text-align: center; padding: 20px; color: #e74c3c;">加载数据失败: ${error.message}</div>`;
@@ -1553,7 +1737,7 @@ function showDLTTrendLoading(container) {
  * 显示大乐透走势图数据
  */
 function displayDLTTrendData(data, frequencyData) {
-    console.log('Displaying DLT trend data:', data?.length, 'records');
+    console.log('Displaying hit_dlts trend data:', data?.length, 'records');
 
     // 🐛 Debug: Check if statistics data is present
     if (data && data.length > 0) {
@@ -1734,7 +1918,7 @@ function displayDLTTrendData(data, frequencyData) {
     }).join('');
     
     tbody.innerHTML = rows;
-    console.log('DLT tbody updated with', rows.length, 'characters of HTML');
+    console.log('hit_dlts tbody updated with', rows.length, 'characters of HTML');
     
     // 移除加载状态
     const container = document.querySelector('#dlt-trend .trend-table-container');
@@ -1757,28 +1941,28 @@ function displayDLTTrendData(data, frequencyData) {
     // 初始化预选功能
     try {
         initDLTPreSelectRows();
-        console.log('DLT pre-select rows initialized');
+        console.log('hit_dlts pre-select rows initialized');
     } catch (error) {
-        console.error('Error initializing DLT pre-select rows:', error);
+        console.error('Error initializing hit_dlts pre-select rows:', error);
     }
     
     // 应用频率突显效果
     try {
         applyDLTFrequencyHighlight(data);
-        console.log('DLT frequency highlighting applied');
+        console.log('hit_dlts frequency highlighting applied');
     } catch (error) {
-        console.error('Error applying DLT frequency highlighting:', error);
+        console.error('Error applying hit_dlts frequency highlighting:', error);
     }
 
     // 更新统计面板
     try {
         updateDLTStatisticsPanel(data);
-        console.log('DLT statistics panel updated');
+        console.log('hit_dlts statistics panel updated');
     } catch (error) {
-        console.error('Error updating DLT statistics panel:', error);
+        console.error('Error updating hit_dlts statistics panel:', error);
     }
 
-    console.log(`DLT trend data displayed: ${data.length} records`);
+    console.log(`hit_dlts trend data displayed: ${data.length} records`);
 }
 
 /**
@@ -1958,7 +2142,7 @@ function applyDLTFrequencyHighlight(data) {
         }
     });
     
-    console.log('DLT frequency highlighting applied:', frequencyStats);
+    console.log('hit_dlts frequency highlighting applied:', frequencyStats);
     
     // 在浏览器控制台显示频率统计信息
     if (Object.keys(frequencyStats).length > 0) {
@@ -1983,11 +2167,11 @@ function applyDLTFrequencyHighlight(data) {
 function initDLTPreSelectRows() {
     const preSelectRows = document.getElementById('dltPreSelectRows');
     if (!preSelectRows) {
-        console.warn('DLT pre-select rows not found');
+        console.warn('hit_dlts pre-select rows not found');
         return;
     }
     
-    console.log('Initializing DLT pre-select rows...');
+    console.log('Initializing hit_dlts pre-select rows...');
     
     preSelectRows.addEventListener('click', (e) => {
         const cell = e.target.closest('.selectable-cell');
@@ -1997,7 +2181,7 @@ function initDLTPreSelectRows() {
         updateDLTRowSelections(cell.closest('.pre-select-row'));
     });
     
-    console.log('DLT pre-select rows initialized successfully');
+    console.log('hit_dlts pre-select rows initialized successfully');
 }
 
 /**
@@ -2063,7 +2247,7 @@ function updateDLTRowSelections(row) {
  * 初始化大乐透数据分析模块
  */
 function initDLTAnalysisModule() {
-    console.log('Initializing DLT Analysis Module...');
+    console.log('Initializing hit_dlts Analysis Module...');
     // 预留给同出数据、相克数据等分析功能
 }
 
@@ -2092,7 +2276,7 @@ function initDLTAnalysisButtons() {
  * 处理大乐透同出数据请求
  */
 async function handleDLTCooccurrenceData() {
-    console.log('DLT co-occurrence data requested');
+    console.log('hit_dlts co-occurrence data requested');
     
     try {
         // 显示加载状态
@@ -2113,7 +2297,7 @@ async function handleDLTCooccurrenceData() {
         displayDLTCooccurrenceData(result.data);
         
     } catch (error) {
-        console.error('Error loading DLT co-occurrence data:', error);
+        console.error('Error loading hit_dlts co-occurrence data:', error);
         showDLTAnalysisError('同出数据加载失败: ' + error.message);
     }
 }
@@ -2122,7 +2306,7 @@ async function handleDLTCooccurrenceData() {
  * 处理大乐透相克数据请求
  */
 async function handleDLTConflictData() {
-    console.log('DLT conflict data requested');
+    console.log('hit_dlts conflict data requested');
     
     try {
         // 显示加载状态
@@ -2143,7 +2327,7 @@ async function handleDLTConflictData() {
         displayDLTConflictData(result.data);
         
     } catch (error) {
-        console.error('Error loading DLT conflict data:', error);
+        console.error('Error loading hit_dlts conflict data:', error);
         showDLTAnalysisError('相克数据加载失败: ' + error.message);
     }
 }
@@ -2154,7 +2338,7 @@ async function handleDLTConflictData() {
  * 初始化大乐透专家推荐模块
  */
 function initDLTExpertModule() {
-    console.log('Initializing DLT Expert Module...');
+    console.log('Initializing hit_dlts Expert Module...');
     
     // 初始化专家和值预测按钮事件
     const predictBtn = document.getElementById('dlt-sum-predict-btn');
@@ -2484,7 +2668,7 @@ function getDLTCurrentAnalysisParams() {
  * 加载大乐透专家推荐数据
  */
 function loadDLTExpertData() {
-    console.log('Loading DLT expert data...');
+    console.log('Loading hit_dlts expert data...');
     // 显示初始界面，等待用户选择参数后手动触发预测
     const expertContent = document.querySelector('#dlt-expert .content-body');
     if (expertContent && !expertContent.querySelector('.dlt-sum-placeholder')) {
@@ -2543,11 +2727,11 @@ async function loadDLTSumPrediction() {
         const periodGroup = getDLTCurrentGroupPeriods();
         const analysisParams = getDLTCurrentAnalysisParams();
         
-        console.log(`Loading DLT sum prediction with periodGroup: ${periodGroup}`, analysisParams);
+        console.log(`Loading hit_dlts sum prediction with periodGroup: ${periodGroup}`, analysisParams);
         
         const contentContainer = document.getElementById('dlt-sum-content');
         if (!contentContainer) {
-            console.error('DLT sum content container not found');
+            console.error('hit_dlts sum content container not found');
             return;
         }
         
@@ -2577,7 +2761,7 @@ async function loadDLTSumPrediction() {
         displayDLTCombinedResults(predictionResult.data, validationResult.data);
         
     } catch (error) {
-        console.error('Error loading DLT sum prediction:', error);
+        console.error('Error loading hit_dlts sum prediction:', error);
         const contentContainer = document.getElementById('dlt-sum-content');
         if (contentContainer) {
             contentContainer.innerHTML = `
@@ -3582,7 +3766,7 @@ async function exportDLTCooccurrenceData() {
         downloadDLTExcelFile(result.data.excelData, result.data.filename);
         
     } catch (error) {
-        console.error('Error exporting DLT co-occurrence data:', error);
+        console.error('Error exporting hit_dlts co-occurrence data:', error);
         alert('导出失败: ' + error.message);
     }
 }
@@ -3604,7 +3788,7 @@ async function exportDLTConflictData() {
         downloadDLTExcelFile(result.data.excelData, result.data.filename);
         
     } catch (error) {
-        console.error('Error exporting DLT conflict data:', error);
+        console.error('Error exporting hit_dlts conflict data:', error);
         alert('导出失败: ' + error.message);
     }
 }
@@ -3804,7 +3988,7 @@ function showDLTConflictTable() {
  * 加载大乐透预测验证
  */
 async function loadDLTValidation() {
-    console.log('Loading DLT validation...');
+    console.log('Loading hit_dlts validation...');
     
     const contentElement = document.getElementById('dlt-sum-content');
     if (!contentElement) return;
@@ -3833,7 +4017,7 @@ async function loadDLTValidation() {
             throw new Error(data.message || '验证请求失败');
         }
     } catch (error) {
-        console.error('DLT validation error:', error);
+        console.error('hit_dlts validation error:', error);
         contentElement.innerHTML = `
             <div class="error-message">
                 <h3>验证失败</h3>
@@ -3990,7 +4174,7 @@ function showValidationView(viewType) {
  * 初始化大乐透组合预测模块
  */
 function initDLTCombinationModule() {
-    console.log('Initializing New DLT Combination module...');
+    console.log('Initializing New hit_dlts Combination module...');
     
     // 初始化新的组合预测按钮事件
     const newCombinationBtn = document.getElementById('new-dlt-combination-predict-btn');
@@ -4025,7 +4209,7 @@ function initDLTCombinationModule() {
         debugInputBoxes();
     }, 1000);
 
-    console.log('New DLT Combination module initialized');
+    console.log('New hit_dlts Combination module initialized');
 }
 
 /**
@@ -7733,8 +7917,8 @@ async function loadDLTCombinationPrediction() {
             btn.textContent = '生成中...';
         }
         
-        console.log('=== 开始加载DLT组合预测 ===');
-        console.log('Loading DLT combination prediction...');
+        console.log('=== 开始加载hit_dlts组合预测 ===');
+        console.log('Loading hit_dlts combination prediction...');
         
         // 获取目标期号
         const targetIssue = document.getElementById('dlt-target-issue').value;
@@ -7848,7 +8032,7 @@ async function loadDLTCombinationPrediction() {
         }
 
     } catch (error) {
-        console.error('Error loading DLT combination prediction:', error);
+        console.error('Error loading hit_dlts combination prediction:', error);
         const container = document.getElementById('dlt-combination-content');
         if (container) {
             container.innerHTML = `
@@ -9547,7 +9731,7 @@ function showV2GeneratingInterface(targetIssue, estimatedTime) {
 }
 
 /**
- * 显示DLT组合预测结果（v2版本）
+ * 显示hit_dlts组合预测结果（v2版本）
  */
 function displayDLTCombinationResultsV2(data) {
     console.log('📊 v2版本 displayDLTCombinationResults 被调用，数据:', data);
@@ -9659,7 +9843,7 @@ function displayDLTCombinationResultsV2(data) {
 }
 
 /**
- * 更新DLT预测统计信息（v2版本）
+ * 更新hit_dlts预测统计信息（v2版本）
  */
 function updatePredictionStatisticsV2(data) {
     console.log('📈 v2版本 updatePredictionStatistics 被调用');
@@ -9824,7 +10008,7 @@ function showV3GeneratingInterface(targetIssue, estimatedTime) {
 }
 
 /**
- * 显示DLT组合预测结果（v3版本）
+ * 显示hit_dlts组合预测结果（v3版本）
  */
 function displayDLTCombinationResultsV3(data, warnings = [], suggestions = [], message = '组合预测查询完成') {
     console.log('📊 v3版本 displayDLTCombinationResults 被调用，数据:', data);
@@ -10063,7 +10247,7 @@ function displayFilteringWarningsAndSuggestions(warnings = [], suggestions = [],
 }
 
 /**
- * 更新DLT预测统计信息（v3版本）
+ * 更新hit_dlts预测统计信息（v3版本）
  */
 function updatePredictionStatisticsV3(data) {
     console.log('📈 v3版本 updatePredictionStatistics 被调用');
@@ -10151,7 +10335,7 @@ window.deleteHistoryItem = deleteHistoryItem;
 window.loadLatestIssues = loadLatestIssues;
 window.loadHistoricalIssues = loadHistoricalIssues;
 
-console.log('DLT Module loaded successfully');
+console.log('hit_dlts Module loaded successfully');
 
 // ===== 批量预测功能模块 =====
 
@@ -10159,7 +10343,7 @@ console.log('DLT Module loaded successfully');
  * 批量预测功能初始化
  */
 function initDLTBatchPrediction() {
-    console.log('🚀 Initializing DLT Batch Prediction...');
+    console.log('🚀 Initializing hit_dlts Batch Prediction...');
     console.log('📊 Current page location:', window.location.pathname);
     console.log('📋 Document ready state:', document.readyState);
     
@@ -13225,7 +13409,7 @@ window.exportBlueCombinations = exportBlueCombinations;
 window.exportHitAnalysis = exportHitAnalysis;
 window.exportCompleteReport = exportCompleteReport;
 
-console.log('DLT Module loaded successfully');
+console.log('hit_dlts Module loaded successfully');
 
 // 暴露关键函数到全局作用域
 if (typeof window !== 'undefined') {
@@ -13233,7 +13417,7 @@ if (typeof window !== 'undefined') {
     window.initDLTCombinationModule = initDLTCombinationModule;
     window.initDataGenerationManagement = initDataGenerationManagement;
     window.refreshGenerationProgress = refreshGenerationProgress;
-    console.log('✅ DLT关键函数已暴露到全局作用域');
+    console.log('✅ hit_dlts关键函数已暴露到全局作用域');
 }
 
 /**
@@ -14509,8 +14693,9 @@ async function loadTaskList() {
 
         // 添加时间戳避免浏览器缓存
         const timestamp = new Date().getTime();
+        // ⚠️ 2025-11-15修复: 修改为调用热温冷正选任务API
         const response = await fetch(
-            `${API_BASE_URL}/api/dlt/prediction-tasks/list?page=${taskManagement.currentPage}&limit=${taskManagement.pageSize}&status=${taskManagement.currentStatus}&_t=${timestamp}`
+            `${API_BASE_URL}/api/dlt/hwc-positive-tasks/list?page=${taskManagement.currentPage}&limit=${taskManagement.pageSize}&status=${taskManagement.currentStatus}&_t=${timestamp}`
         );
 
         const result = await response.json();
@@ -14630,6 +14815,9 @@ function createTaskCard(task) {
                 </div>
             ` : ''}
             ${task.status === 'completed' ? `
+                <div class="task-info-row">
+                    <span>✅ 完成进度: ${task.progress.current}/${task.progress.total} (${task.progress.percentage}%)</span>
+                </div>
                 <div class="task-info-row">
                     <span>🎯 组合数: ${combinationCount.toLocaleString()}</span>
                     <span>✅ 命中率: ${hitRate.toFixed(2)}%</span>
@@ -14755,7 +14943,10 @@ function renderTaskDetail(data) {
     if (results.length === 0) {
         tbody.innerHTML = '<tr><td colspan="10">暂无结果数据</td></tr>';
     } else {
-        results.forEach(result => {
+        // 🔄 2025-11-17：按期号降序排序（最新期在前）
+        const sortedResults = results.sort((a, b) => b.period - a.period);
+
+        sortedResults.forEach(result => {
             const row = document.createElement('tr');
             const hitAnalysis = result.hit_analysis || {};
             const prizeStats = hitAnalysis.prize_stats || {};
@@ -16549,7 +16740,11 @@ async function createHwcPositiveTask() {
 
         // 2. 收集6步正选条件
         const positiveSelection = {
-            hwcRatios: Array.from(document.querySelectorAll('.hwc-pos-cb:checked')).map(cb => cb.value),
+            // ⭐ 2025-11-14修复: 将字符串"3:2:0"转换为对象{hot:3, warm:2, cold:0}
+            hwcRatios: Array.from(document.querySelectorAll('.hwc-pos-cb:checked')).map(cb => {
+                const [hot, warm, cold] = cb.value.split(':').map(Number);
+                return { hot, warm, cold };
+            }),
             zoneRatios: Array.from(document.querySelectorAll('.zone-pos-cb:checked')).map(cb => cb.value),
             sumRanges: [],
             spanRanges: [],
@@ -16797,7 +16992,8 @@ async function createHwcPositiveTask() {
                        undefined
             },
             positive_selection: {
-                hwc_ratios: positiveSelection.hwcRatios || [],
+                // ⭐ 2025-11-14修复: 字段名从hwc_ratios改为red_hot_warm_cold_ratios
+                red_hot_warm_cold_ratios: positiveSelection.hwcRatios || [],
                 zone_ratios: positiveSelection.zoneRatios || [],
                 sum_ranges: positiveSelection.sumRanges || [],
                 span_ranges: positiveSelection.spanRanges || [],
@@ -16816,7 +17012,10 @@ async function createHwcPositiveTask() {
                 enableHitAnalysis: outputConfig.enableHitAnalysis,
                 autoExport: outputConfig.autoExport,
                 previewMode: outputConfig.previewMode,
-                includeExclusionDetails: outputConfig.includeExclusionDetails
+                includeExclusionDetails: outputConfig.includeExclusionDetails,
+                // 排除明细存储优化配置
+                saveExclusionLimited: document.getElementById('hwc-save-exclusion-limited')?.checked ?? true,
+                exclusionSavePeriods: parseInt(document.getElementById('hwc-exclusion-save-periods')?.value) || 2
             }
         };
 
@@ -16963,6 +17162,9 @@ function renderHwcPosTaskCards(tasks) {
             taskNameInput.setSelectionRange(savedCursorPos, savedCursorPos);
         }, 0);
     }
+
+    // 更新选择UI状态
+    updateHwcPosSelectionUI();
 }
 
 /**
@@ -17009,8 +17211,13 @@ function createHwcPosTaskCard(task) {
     const positiveSel = task.positive_selection || {};
 
     // 热温冷比
-    if (positiveSel.hwc_ratios && positiveSel.hwc_ratios.length > 0) {
-        positiveHtml += `<p style="margin: 2px 0;"><strong>🌡️ 热温冷比:</strong> ${positiveSel.hwc_ratios.join(', ')}</p>`;
+    // ⭐ 2025-11-20修复: 字段名从hwc_ratios改为red_hot_warm_cold_ratios，并转换格式
+    if (positiveSel.red_hot_warm_cold_ratios && positiveSel.red_hot_warm_cold_ratios.length > 0) {
+        // 将对象数组转换为字符串数组: [{hot:4,warm:1,cold:0}] → ["4:1:0"]
+        const hwcRatiosText = positiveSel.red_hot_warm_cold_ratios
+            .map(r => `${r.hot}:${r.warm}:${r.cold}`)
+            .join(', ');
+        positiveHtml += `<p style="margin: 2px 0;"><strong>🌡️ 热温冷比:</strong> ${hwcRatiosText}</p>`;
     }
 
     // 区间比
@@ -17086,6 +17293,9 @@ function createHwcPosTaskCard(task) {
                 </div>
             ` : ''}
             ${task.status === 'completed' ? `
+                <div class="task-info-row">
+                    <span>✅ 完成进度: ${task.progress.current}/${task.progress.total} (${task.progress.percentage}%)</span>
+                </div>
                 <div class="task-info-row">
                     <span>🎯 组合数: ${combinationCount.toLocaleString()}</span>
                     <span>✅ 命中率: ${hitRate.toFixed(2)}%</span>
@@ -17193,13 +17403,92 @@ function toggleHwcPosTaskSelection(taskId) {
 }
 
 /**
- * 更新热温冷正选批量操作工具栏
+ * 全选/取消全选当前页（热温冷正选）
+ */
+function toggleHwcPosSelectAll() {
+    // 获取当前页所有任务的ID列表
+    const currentPageTaskIds = [];
+    const taskCards = document.querySelectorAll('#hwc-pos-task-cards-container .task-card[data-task-id]');
+    taskCards.forEach(card => {
+        const taskId = card.dataset.taskId;
+        if (taskId) {
+            currentPageTaskIds.push(taskId);
+        }
+    });
+
+    if (currentPageTaskIds.length === 0) {
+        return;
+    }
+
+    // 判断是否当前页全部选中
+    const allSelected = currentPageTaskIds.every(id =>
+        hwcPosTaskManagement.selectedTaskIds.has(id)
+    );
+
+    if (allSelected) {
+        // 取消全选当前页
+        currentPageTaskIds.forEach(id => {
+            hwcPosTaskManagement.selectedTaskIds.delete(id);
+        });
+    } else {
+        // 全选当前页
+        currentPageTaskIds.forEach(id => {
+            hwcPosTaskManagement.selectedTaskIds.add(id);
+        });
+    }
+
+    // 重新加载任务列表，更新checkbox状态
+    loadHwcPosTaskList();
+}
+
+/**
+ * 更新热温冷正选选择UI状态
+ */
+function updateHwcPosSelectionUI() {
+    const selectedCount = hwcPosTaskManagement.selectedTaskIds.size;
+
+    // 获取当前页所有任务ID
+    const currentPageTaskIds = [];
+    const taskCards = document.querySelectorAll('#hwc-pos-task-cards-container .task-card[data-task-id]');
+    taskCards.forEach(card => {
+        const taskId = card.dataset.taskId;
+        if (taskId) {
+            currentPageTaskIds.push(taskId);
+        }
+    });
+    const currentPageTaskCount = currentPageTaskIds.length;
+
+    // 更新已选择数量显示
+    const selectedCountEl = document.getElementById('hwc-pos-selected-count');
+    if (selectedCountEl) {
+        selectedCountEl.textContent = `已选择 ${selectedCount} 个任务`;
+    }
+
+    // 更新批量删除按钮状态
+    const batchDeleteBtn = document.getElementById('hwc-pos-batch-delete-btn');
+    if (batchDeleteBtn) {
+        batchDeleteBtn.disabled = selectedCount === 0;
+    }
+
+    // 更新全选checkbox状态
+    const selectAllCheckbox = document.getElementById('hwc-pos-select-all-checkbox');
+    if (selectAllCheckbox && currentPageTaskCount > 0) {
+        const currentPageSelectedCount = currentPageTaskIds.filter(id =>
+            hwcPosTaskManagement.selectedTaskIds.has(id)
+        ).length;
+
+        selectAllCheckbox.checked = currentPageSelectedCount === currentPageTaskCount;
+        selectAllCheckbox.indeterminate = currentPageSelectedCount > 0 &&
+                                          currentPageSelectedCount < currentPageTaskCount;
+    }
+}
+
+/**
+ * 更新热温冷正选批量操作工具栏（已废弃，保留兼容性）
  */
 function updateHwcPosBatchToolbar() {
-    const toolbar = document.getElementById('hwc-pos-batch-toolbar');
-    if (toolbar) {
-        toolbar.style.display = hwcPosTaskManagement.selectedTaskIds.size > 0 ? 'flex' : 'none';
-    }
+    // 现在直接调用新的updateHwcPosSelectionUI
+    updateHwcPosSelectionUI();
 }
 
 /**
@@ -17212,7 +17501,7 @@ function cancelHwcPosSelection() {
         const checkbox = card.querySelector('.task-checkbox');
         if (checkbox) checkbox.checked = false;
     });
-    updateHwcPosBatchToolbar();
+    updateHwcPosSelectionUI();
 }
 
 /**
@@ -17339,8 +17628,13 @@ function renderHwcPosTaskDetail(data) {
     let positiveHtml = '<div style="padding: 10px; background: #f8f9fa; border-radius: 6px;">';
 
     // 热温冷比
-    if (positiveConditions.hwc_ratios && positiveConditions.hwc_ratios.length > 0) {
-        positiveHtml += `<p><strong>🌡️ 热温冷比:</strong> ${positiveConditions.hwc_ratios.join(', ')}</p>`;
+    // ⭐ 2025-11-20修复: 字段名从hwc_ratios改为red_hot_warm_cold_ratios，并转换格式
+    if (positiveConditions.red_hot_warm_cold_ratios && positiveConditions.red_hot_warm_cold_ratios.length > 0) {
+        // 将对象数组转换为字符串数组: [{hot:4,warm:1,cold:0}] → ["4:1:0"]
+        const hwcRatiosText = positiveConditions.red_hot_warm_cold_ratios
+            .map(r => `${r.hot}:${r.warm}:${r.cold}`)
+            .join(', ');
+        positiveHtml += `<p><strong>🌡️ 热温冷比:</strong> ${hwcRatiosText}</p>`;
     }
 
     // 区间比
@@ -17583,6 +17877,34 @@ function hwcPosNextPage() {
  */
 function initHwcPosTaskManagement() {
     console.log('🌡️ 初始化热温冷正选任务管理');
+
+    // 绑定全选checkbox事件
+    const selectAllCheckbox = document.getElementById('hwc-pos-select-all-checkbox');
+    if (selectAllCheckbox) {
+        // 先移除旧的事件监听器（如果有）
+        selectAllCheckbox.removeEventListener('change', toggleHwcPosSelectAll);
+        // 添加新的事件监听器
+        selectAllCheckbox.addEventListener('change', toggleHwcPosSelectAll);
+        console.log('✅ 热温冷正选全选checkbox已绑定');
+    }
+
+    // 绑定批量删除按钮事件
+    const batchDeleteBtn = document.getElementById('hwc-pos-batch-delete-btn');
+    if (batchDeleteBtn) {
+        batchDeleteBtn.removeEventListener('click', deleteSelectedHwcPosTasks);
+        batchDeleteBtn.addEventListener('click', deleteSelectedHwcPosTasks);
+        console.log('✅ 热温冷正选批量删除按钮已绑定');
+    }
+
+    // 绑定取消选择按钮事件
+    const cancelSelectionBtn = document.getElementById('hwc-pos-cancel-selection-btn');
+    if (cancelSelectionBtn) {
+        cancelSelectionBtn.removeEventListener('click', cancelHwcPosSelection);
+        cancelSelectionBtn.addEventListener('click', cancelHwcPosSelection);
+        console.log('✅ 热温冷正选取消选择按钮已绑定');
+    }
+
+    // 加载任务列表
     loadHwcPosTaskList();
 }
 
@@ -17594,7 +17916,7 @@ if (typeof window !== 'undefined') {
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
             setTimeout(() => {
-                console.log('Initializing DLT Batch Prediction module...');
+                console.log('Initializing hit_dlts Batch Prediction module...');
                 initDLTBatchPrediction();
                 initTaskManagement(); // 初始化任务管理
                 initHwcPositivePrediction(); // 初始化热温冷正选模块
@@ -17604,7 +17926,7 @@ if (typeof window !== 'undefined') {
     } else {
         // 页面已经加载完成
         setTimeout(() => {
-            console.log('Initializing DLT Batch Prediction module...');
+            console.log('Initializing hit_dlts Batch Prediction module...');
             initDLTBatchPrediction();
             initTaskManagement(); // 初始化任务管理
             initHwcPositivePrediction(); // 初始化热温冷正选模块
@@ -17826,11 +18148,133 @@ async function exportPeriodExcel(taskId, period, taskName) {
 
 // ===== 大乐透统计关系分析模块 =====
 
+// 标记是否已初始化子导航
+let statsSubNavInitialized = false;
+
 /**
  * 初始化统计关系分析模块
  */
 function initDLTStatsRelation() {
-    console.log('初始化统计关系分析模块...');
+    console.log('🔧 初始化统计关系分析模块...');
+
+    // 延迟初始化子导航，确保面板已显示
+    setupStatsSubNavLazy();
+}
+
+/**
+ * 延迟初始化统计关系子导航
+ */
+function setupStatsSubNavLazy() {
+    // 使用MutationObserver监听统计关系面板的显示
+    const statsRelationPanel = document.getElementById('dlt-stats-relation');
+    if (!statsRelationPanel) {
+        console.error('❌ 未找到统计关系面板！');
+        return;
+    }
+
+    // 创建观察器
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                // 检查面板是否变为active
+                if (statsRelationPanel.classList.contains('active') && !statsSubNavInitialized) {
+                    console.log('📍 统计关系面板已激活，开始初始化子导航');
+                    initStatsSubNav();
+                    statsSubNavInitialized = true;
+                    observer.disconnect(); // 初始化完成后断开观察
+                }
+            }
+        });
+    });
+
+    // 开始观察
+    observer.observe(statsRelationPanel, {
+        attributes: true,
+        attributeFilter: ['class']
+    });
+
+    // 如果面板已经是active状态，立即初始化
+    if (statsRelationPanel.classList.contains('active') && !statsSubNavInitialized) {
+        console.log('📍 统计关系面板已是激活状态，立即初始化子导航');
+        initStatsSubNav();
+        statsSubNavInitialized = true;
+        observer.disconnect();
+    }
+}
+
+/**
+ * 实际初始化子导航的函数
+ */
+function initStatsSubNav() {
+    console.log('🔧 开始初始化子导航...');
+
+    // ===== 子导航切换逻辑 =====
+    const subNavButtons = document.querySelectorAll('.stats-sub-nav-btn');
+    const hwcPanel = document.getElementById('hwc-analysis-panel');
+    const zonePanel = document.getElementById('zone-analysis-panel');
+
+    console.log('📍 子导航元素检测:');
+    console.log('  - 找到按钮数量:', subNavButtons.length);
+    console.log('  - 热温冷比面板:', hwcPanel ? '✅ 找到' : '❌ 未找到');
+    console.log('  - 区间比面板:', zonePanel ? '✅ 找到' : '❌ 未找到');
+
+    if (subNavButtons.length === 0) {
+        console.error('❌ 未找到子导航按钮！');
+        return;
+    }
+
+    if (!hwcPanel || !zonePanel) {
+        console.error('❌ 未找到分析面板！');
+        return;
+    }
+
+    subNavButtons.forEach((btn, index) => {
+        console.log(`  - 按钮${index + 1}: data-panel="${btn.dataset.panel}"`);
+        console.log(`    classList:`, btn.classList);
+        console.log(`    style.pointerEvents:`, btn.style.pointerEvents);
+        console.log(`    disabled:`, btn.disabled);
+    });
+
+    // 使用事件委托的方式绑定点击事件（更可靠）
+    const statsSubNav = document.querySelector('.stats-sub-nav');
+    if (statsSubNav) {
+        console.log('✅ 使用事件委托方式绑定点击事件');
+        statsSubNav.addEventListener('click', (e) => {
+            console.log('🖱️ stats-sub-nav 容器被点击');
+            console.log('  - 点击目标:', e.target);
+            console.log('  - 目标类名:', e.target.className);
+
+            const btn = e.target.closest('.stats-sub-nav-btn');
+            if (btn) {
+                console.log(`🎯 点击了按钮: ${btn.dataset.panel}`);
+
+                // 移除所有按钮的active状态
+                subNavButtons.forEach(b => b.classList.remove('active'));
+                // 添加当前按钮的active状态
+                btn.classList.add('active');
+
+                // 切换面板显示（使用CSS类而不是直接操作style）
+                const panelType = btn.dataset.panel;
+                if (panelType === 'hwc-analysis') {
+                    console.log('  → 显示热温冷比分析面板');
+                    hwcPanel.classList.add('active');
+                    zonePanel.classList.remove('active');
+                } else if (panelType === 'zone-analysis') {
+                    console.log('  → 显示区间比分析面板');
+                    hwcPanel.classList.remove('active');
+                    zonePanel.classList.add('active');
+                }
+            } else {
+                console.log('❌ 点击的不是按钮元素');
+            }
+        });
+    } else {
+        console.error('❌ 未找到 stats-sub-nav 容器！');
+    }
+
+    console.log('✅ 子导航切换逻辑已初始化');
+
+    // ===== 热温冷比分析面板 =====
 
     // 自定义期号范围切换逻辑
     const rangeRadios = document.querySelectorAll('input[name="stats-range"]');
@@ -17855,8 +18299,18 @@ function initDLTStatsRelation() {
         });
     });
 
-    // 清空选择按钮
-    const clearBtn = document.querySelector('.clear-select-btn');
+    // 全选按钮 - 热温冷比
+    const selectAllBtn = document.querySelector('#hwc-analysis-panel .select-all-btn');
+    if (selectAllBtn) {
+        selectAllBtn.addEventListener('click', () => {
+            document.querySelectorAll('.hwc-ratio-checkbox').forEach(cb => {
+                cb.checked = true;
+            });
+        });
+    }
+
+    // 清空选择按钮 - 热温冷比
+    const clearBtn = document.querySelector('#hwc-analysis-panel .clear-select-btn');
     if (clearBtn) {
         clearBtn.addEventListener('click', () => {
             document.querySelectorAll('.hwc-ratio-checkbox').forEach(cb => {
@@ -17875,6 +18329,63 @@ function initDLTStatsRelation() {
     const resetBtn = document.getElementById('reset-stats-condition');
     if (resetBtn) {
         resetBtn.addEventListener('click', resetStatsCondition);
+    }
+
+    // ===== 区间比分析面板 =====
+
+    // 自定义期号范围切换逻辑 - 区间比
+    const zoneRangeRadios = document.querySelectorAll('input[name="zone-stats-range"]');
+    const zoneCustomRangeInputs = document.querySelector('.zone-custom-range-inputs');
+
+    zoneRangeRadios.forEach(radio => {
+        radio.addEventListener('change', () => {
+            if (radio.value === 'custom') {
+                zoneCustomRangeInputs.style.display = 'flex';
+            } else {
+                zoneCustomRangeInputs.style.display = 'none';
+            }
+        });
+    });
+
+    // 快速选择按钮 - 区间比
+    const zoneQuickSelectButtons = document.querySelectorAll('.zone-quick-btn');
+    zoneQuickSelectButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const type = btn.dataset.type;
+            selectZoneRatioByType(type);
+        });
+    });
+
+    // 全选按钮 - 区间比
+    const zoneSelectAllBtn = document.querySelector('.zone-select-all-btn');
+    if (zoneSelectAllBtn) {
+        zoneSelectAllBtn.addEventListener('click', () => {
+            document.querySelectorAll('.zone-ratio-checkbox').forEach(cb => {
+                cb.checked = true;
+            });
+        });
+    }
+
+    // 清空选择按钮 - 区间比
+    const zoneClearBtn = document.querySelector('.zone-clear-btn');
+    if (zoneClearBtn) {
+        zoneClearBtn.addEventListener('click', () => {
+            document.querySelectorAll('.zone-ratio-checkbox').forEach(cb => {
+                cb.checked = false;
+            });
+        });
+    }
+
+    // 开始分析按钮 - 区间比
+    const startZoneAnalyzeBtn = document.getElementById('start-zone-stats-analyze');
+    if (startZoneAnalyzeBtn) {
+        startZoneAnalyzeBtn.addEventListener('click', analyzeZoneRatioRelations);
+    }
+
+    // 重置条件按钮 - 区间比
+    const resetZoneBtn = document.getElementById('reset-zone-stats-condition');
+    if (resetZoneBtn) {
+        resetZoneBtn.addEventListener('click', resetZoneStatsCondition);
     }
 }
 
@@ -18107,6 +18618,228 @@ function resetStatsCondition() {
     document.getElementById('stats-result-panel').style.display = 'none';
 
     console.log('✅ 统计条件已重置');
+}
+
+// ===== 区间比分析相关函数 =====
+
+/**
+ * 根据类型快速选择区间比
+ */
+function selectZoneRatioByType(type) {
+    const checkboxes = document.querySelectorAll('.zone-ratio-checkbox');
+
+    // 先全部取消选中
+    checkboxes.forEach(cb => cb.checked = false);
+
+    // 根据类型选中对应的比例
+    const frontPatterns = ['5:0:0', '4:1:0', '4:0:1', '3:2:0', '3:1:1'];
+    const middlePatterns = ['0:5:0', '1:4:0', '0:4:1'];
+    const backPatterns = ['0:0:5', '0:1:4', '1:0:4'];
+    const balancedPatterns = ['2:2:1', '2:1:2', '1:2:2', '1:1:3'];
+
+    let patterns = [];
+    if (type === 'front') patterns = frontPatterns;
+    else if (type === 'middle') patterns = middlePatterns;
+    else if (type === 'back') patterns = backPatterns;
+    else if (type === 'balanced') patterns = balancedPatterns;
+
+    checkboxes.forEach(cb => {
+        if (patterns.includes(cb.value)) {
+            cb.checked = true;
+        }
+    });
+}
+
+/**
+ * 开始区间比统计关系分析
+ */
+async function analyzeZoneRatioRelations() {
+    try {
+        // 1. 获取选中的区间比
+        const checkedRatios = Array.from(document.querySelectorAll('.zone-ratio-checkbox:checked'))
+            .map(cb => cb.value);
+
+        if (checkedRatios.length === 0) {
+            alert('请至少选择一个区间比');
+            return;
+        }
+
+        // 2. 获取分析范围
+        const rangeType = document.querySelector('input[name="zone-stats-range"]:checked').value;
+        let queryParams = new URLSearchParams();
+        queryParams.append('zoneRatios', checkedRatios.join(','));
+
+        console.log('🔍 区间比分析 - rangeType:', rangeType);
+
+        if (rangeType === 'recent') {
+            // 最近XX期
+            const recentCount = document.getElementById('zone-stats-recent-count').value;
+            console.log('🔍 区间比分析 - recentCount:', recentCount);
+
+            // 验证期数是否为有效数字
+            const periodsNum = parseInt(recentCount);
+            if (isNaN(periodsNum) || periodsNum <= 0) {
+                alert('请输入有效的期数（大于0的数字）');
+                return;
+            }
+
+            queryParams.append('periods', periodsNum.toString());
+        } else if (rangeType === 'custom') {
+            // 自定义期号
+            const startIssue = document.getElementById('zone-stats-start-issue').value.trim();
+            const endIssue = document.getElementById('zone-stats-end-issue').value.trim();
+
+            if (!startIssue || !endIssue) {
+                alert('请输入起始期号和结束期号');
+                return;
+            }
+
+            queryParams.append('startIssue', startIssue);
+            queryParams.append('endIssue', endIssue);
+        }
+
+        // 3. 调用API
+        const url = `http://localhost:3003/api/dlt/zone-ratio-stats-relation?${queryParams}`;
+        console.log('📊 发起区间比统计分析请求...');
+        console.log('   - URL:', url);
+
+        const response = await fetch(url);
+        const result = await response.json();
+
+        if (!result.success) {
+            throw new Error(result.message || '分析失败');
+        }
+
+        // 4. 显示结果
+        displayZoneStatsRelationResult(result);
+
+    } catch (error) {
+        console.error('区间比统计分析失败:', error);
+        alert('分析失败: ' + error.message);
+    }
+}
+
+/**
+ * 显示区间比统计关系分析结果
+ */
+function displayZoneStatsRelationResult(result) {
+    const resultPanel = document.getElementById('zone-stats-result-panel');
+
+    const html = `
+        <h3>📊 区间比统计结果</h3>
+        <div class="stats-summary">
+            <div class="summary-item">
+                <span class="summary-label">分析范围:</span>
+                <span class="summary-value">${result.issueRange}</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">期数统计:</span>
+                <span class="summary-value">${result.totalPeriods}期</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">选中区间比:</span>
+                <span class="summary-value">${result.selectedRatios.join(', ')}</span>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <!-- 热温冷比统计 -->
+            <div class="stats-card">
+                <h4>🔥 热温冷比分布 (Top 10)</h4>
+                <div class="stats-list">
+                    ${result.topStats.hwcRatio.map(item => `
+                        <div class="stat-item">
+                            <span class="stat-value">${item.value}</span>
+                            <span class="stat-count">${item.count}次 (${item.percentage}%)</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <!-- 前区和值统计 -->
+            <div class="stats-card">
+                <h4>➕ 前区和值分布 (Top 10)</h4>
+                <div class="stats-list">
+                    ${result.topStats.sum.map(item => `
+                        <div class="stat-item">
+                            <span class="stat-value">${item.value}</span>
+                            <span class="stat-count">${item.count}次 (${item.percentage}%)</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <!-- 跨度统计 -->
+            <div class="stats-card">
+                <h4>📏 跨度分布 (Top 10)</h4>
+                <div class="stats-list">
+                    ${result.topStats.span.map(item => `
+                        <div class="stat-item">
+                            <span class="stat-value">${item.value}</span>
+                            <span class="stat-count">${item.count}次 (${item.percentage}%)</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <!-- AC值统计 -->
+            <div class="stats-card">
+                <h4>🎯 AC值分布 (Top 10)</h4>
+                <div class="stats-list">
+                    ${result.topStats.acValue.map(item => `
+                        <div class="stat-item">
+                            <span class="stat-value">${item.value}</span>
+                            <span class="stat-count">${item.count}次 (${item.percentage}%)</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <!-- 前区奇偶统计 -->
+            <div class="stats-card">
+                <h4>⚖️ 前区奇偶比分布 (Top 10)</h4>
+                <div class="stats-list">
+                    ${result.topStats.oddEvenRatio.map(item => `
+                        <div class="stat-item">
+                            <span class="stat-value">${item.value}</span>
+                            <span class="stat-count">${item.count}次 (${item.percentage}%)</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+    `;
+
+    resultPanel.innerHTML = html;
+    resultPanel.style.display = 'block';
+
+    console.log('✅ 区间比统计分析结果已显示');
+}
+
+/**
+ * 重置区间比统计条件
+ */
+function resetZoneStatsCondition() {
+    // 清空所有复选框
+    document.querySelectorAll('.zone-ratio-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+
+    // 重置为最近100期
+    document.querySelector('input[name="zone-stats-range"][value="recent"]').checked = true;
+    document.getElementById('zone-stats-recent-count').value = 100;
+
+    // 隐藏自定义期号输入框
+    document.querySelector('.zone-custom-range-inputs').style.display = 'none';
+
+    // 清空自定义期号
+    document.getElementById('zone-stats-start-issue').value = '';
+    document.getElementById('zone-stats-end-issue').value = '';
+
+    // 隐藏结果面板
+    document.getElementById('zone-stats-result-panel').style.display = 'none';
+
+    console.log('✅ 区间比统计条件已重置');
 }
 
 // 确保全局可用

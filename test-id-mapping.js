@@ -1,8 +1,8 @@
 // 测试ID映射功能
 const mongoose = require('mongoose');
 
-const DLTSchema = new mongoose.Schema({}, { collection: 'HIT_DLT', strict: false });
-const DLT = mongoose.model('HIT_DLT_Test', DLTSchema);
+const DLTSchema = new mongoose.Schema({}, { collection: 'hit_dlts', strict: false });
+const hit_dlts = mongoose.model('HIT_DLT_Test', DLTSchema);
 
 async function testIDMapping() {
     try {
@@ -14,8 +14,8 @@ async function testIDMapping() {
 
         console.log('✅ 数据库连接成功');
 
-        console.log('📊 加载DLT数据...');
-        const records = await DLT.find({})
+        console.log('📊 加载hit_dlts数据...');
+        const records = await hit_dlts.find({})
             .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2')
             .limit(10)
             .lean();

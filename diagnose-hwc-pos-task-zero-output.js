@@ -25,9 +25,9 @@ const { MongoClient } = require('mongodb');
   console.log('前5期:', issues.slice(0, 5));
 
   console.log('\n=== 3. 检查开奖数据 ===');
-  const issue25074 = await db.collection('HIT_DLT').findOne({ Issue: '25074' });
-  const issue25075 = await db.collection('HIT_DLT').findOne({ Issue: '25075' });
-  const issue25076 = await db.collection('HIT_DLT').findOne({ Issue: '25076' });
+  const issue25074 = await db.collection('hit_dlts').findOne({ Issue: '25074' });
+  const issue25075 = await db.collection('hit_dlts').findOne({ Issue: '25075' });
+  const issue25076 = await db.collection('hit_dlts').findOne({ Issue: '25076' });
 
   console.log('期号25074:', issue25074 ?
     `存在 - 红球: ${issue25074.Red || issue25074.red}, 蓝球: ${issue25074.Blue || issue25074.blue}` :

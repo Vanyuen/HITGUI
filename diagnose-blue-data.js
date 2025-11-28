@@ -120,7 +120,7 @@ async function diagnose() {
         // 3. 检查 DLTBlueCombinations 表
         console.log('\n\n📊 === 检查 DLTBlueCombinations 表 ===\n');
 
-        const DLTBlueCombinations = mongoose.model('HIT_DLT_BlueCombinations', new mongoose.Schema({}, { strict: false, collection: 'HIT_DLT_BlueCombinations' }));
+        const DLTBlueCombinations = mongoose.model('hit_dlts', new mongoose.Schema({}, { strict: false, collection: 'hit_dlts' }));
 
         const totalBlue = await DLTBlueCombinations.countDocuments();
         console.log(`总记录数: ${totalBlue}\n`);

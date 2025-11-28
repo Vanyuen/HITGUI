@@ -49,7 +49,7 @@ async function testACValues() {
         console.log('🧪 AC值计算验证测试');
         console.log('========================================\n');
 
-        const DLTRedCombinations = mongoose.model('HIT_DLT_RedCombinations',
+        const DLTRedCombinations = mongoose.model('hit_dlts',
             new mongoose.Schema({}, { strict: false }));
 
         // 1. 统计基本信息

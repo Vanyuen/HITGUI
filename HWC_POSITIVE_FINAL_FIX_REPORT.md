@@ -45,7 +45,7 @@ const hit = result.hit_analysis || {};  // ← 期望 hit_analysis
 ### 2. 数据库集合命名混乱
 
 - 任务ID搜索错误：最初搜索 `hwc-pos-20251105-yw1`，实际是 `hwc-pos-20251105-2dq`
-- 集合名称大小写不一致：`HIT_DLT` vs `hit_dlts`
+- 集合名称大小写不一致：`hit_dlts` vs `hit_dlts`
 
 ### 3. Schema字段结构复杂
 

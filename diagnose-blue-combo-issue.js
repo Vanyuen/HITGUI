@@ -28,7 +28,7 @@ mongoose.connect(MONGO_URI, {
 const predictionTaskResultSchema = new mongoose.Schema({}, { strict: false, collection: 'HIT_DLT_PredictionTaskResults' });
 const PredictionTaskResult = mongoose.model('PredictionTaskResult_Diag', predictionTaskResultSchema);
 
-const dltBlueCombinationsSchema = new mongoose.Schema({}, { strict: false, collection: 'HIT_DLT_BlueCombinations' });
+const dltBlueCombinationsSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlts' });
 const DLTBlueCombinations = mongoose.model('DLTBlueCombinations_Diag', dltBlueCombinationsSchema);
 
 async function runDiagnosis() {
@@ -159,7 +159,7 @@ async function runDiagnosis() {
         if (allBlueCombos.length === 0 && blueComboIds.length > 0) {
             console.log('  ❌ 数据库中找不到蓝球组合数据！');
             console.log('     → 可能原因：');
-            console.log('       1. HIT_DLT_BlueCombinations 集合数据缺失');
+            console.log('       1. hit_dlts 集合数据缺失');
             console.log('       2. combination_id 字段不匹配');
         }
 

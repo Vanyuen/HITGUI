@@ -31,7 +31,7 @@ const dltBlueCombinationsSchema = new mongoose.Schema({
 dltBlueCombinationsSchema.index({ sum_value: 1 });
 dltBlueCombinationsSchema.index({ combination_id: 1 });
 
-const DLTBlueCombinations = mongoose.model('HIT_DLT_BlueCombinations', dltBlueCombinationsSchema);
+const DLTBlueCombinations = mongoose.model('hit_dlts', dltBlueCombinationsSchema);
 
 /**
  * 生成所有蓝球组合 C(12,2) = 66
@@ -61,7 +61,7 @@ function generateAllBlueCombinations() {
  */
 async function initBlueCombinations() {
     try {
-        console.log('🔍 检查 HIT_DLT_BlueCombinations 集合...');
+        console.log('🔍 检查 hit_dlts 集合...');
 
         // 检查集合是否已有数据
         const existingCount = await DLTBlueCombinations.countDocuments();
@@ -69,7 +69,7 @@ async function initBlueCombinations() {
 
         if (existingCount > 0) {
             console.log('⚠️  集合已有数据，是否清空重建？');
-            console.log('提示：如果要重建，请先运行: db.HIT_DLT_BlueCombinations.drop()');
+            console.log('提示：如果要重建，请先运行: db.hit_dlts.drop()');
 
             // 显示前5条记录
             const samples = await DLTBlueCombinations.find({}).limit(5).lean();

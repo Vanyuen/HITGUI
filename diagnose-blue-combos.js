@@ -29,7 +29,7 @@ async function diagnoseBlueCombos() {
         console.log(`   前10个蓝球ID: ${result.blue_combinations.slice(0, 10).join(', ')}\n`);
 
         // 2. 检查两个集合
-        const collections = ['hit_dlt_bluecombinations', 'HIT_DLT_BlueCombinations'];
+        const collections = ['hit_dlt_bluecombinations', 'hit_dlts'];
 
         for (const collName of collections) {
             console.log(`📦 检查集合: ${collName}`);

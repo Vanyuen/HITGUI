@@ -7,17 +7,17 @@ async function debugMapKeys() {
         const dltSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlts' });
         const redMissingSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlt_basictrendchart_redballmissing_histories' });
 
-        const DLT = mongoose.models.HIT_DLT || mongoose.model('HIT_DLT', dltSchema);
+        const hit_dlts = mongoose.models.hit_dlts || mongoose.model('hit_dlts', dltSchema);
         const DLTRedMissing = mongoose.models.HIT_DLT_Basictrendchart_redballmissing_history ||
                               mongoose.model('HIT_DLT_Basictrendchart_redballmissing_history', redMissingSchema);
 
-        // 获取前3条DLT记录
-        const dltRecords = await DLT.find({}).select('Issue').sort({ Issue: 1 }).limit(3).lean();
+        // 获取前3条hit_dlts记录
+        const dltRecords = await hit_dlts.find({}).select('Issue').sort({ Issue: 1 }).limit(3).lean();
 
         // 获取前5条遗漏值记录
         const missingRecords = await DLTRedMissing.find({}).sort({ ID: 1 }).limit(5).lean();
 
-        console.log('\n=== DLT表前3期 ===');
+        console.log('\n=== hit_dlts表前3期 ===');
         dltRecords.forEach(r => {
             console.log(`Issue: "${r.Issue}" (类型: ${typeof r.Issue})`);
         });

@@ -39,7 +39,7 @@ const predictionTaskResultSchema = new mongoose.Schema({
     hit_analysis: Object
 }, { collection: 'hit_dlt_predictiontaskresults' });
 
-const DLT = mongoose.model('DLT_Test', dltSchema);
+const hit_dlts = mongoose.model('DLT_Test', dltSchema);
 const PredictionTask = mongoose.model('PredictionTask_Test', predictionTaskSchema);
 const PredictionTaskResult = mongoose.model('PredictionTaskResult_Test', predictionTaskResultSchema);
 
@@ -52,7 +52,7 @@ async function main() {
         console.log('✅ 已连接到数据库\n');
 
         // 获取最新期号
-        const latestRecord = await DLT.findOne({}).sort({ Issue: -1 }).select('Issue').lean();
+        const latestRecord = await hit_dlts.findOne({}).sort({ Issue: -1 }).select('Issue').lean();
         const latestIssue = latestRecord.Issue;
         const nextIssue = latestIssue + 1;
 

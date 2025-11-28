@@ -41,7 +41,7 @@
     max-height: none !important;
 }
 
-/* DLT 表格容器 */
+/* hit_dlts 表格容器 */
 .dlt-trend-table-container {
     overflow: visible !important;
     min-height: calc(100vh - 300px) !important;

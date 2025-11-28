@@ -27,7 +27,7 @@ const dltSchema = new mongoose.Schema({
     Blue2: Number
 });
 
-const DLT = mongoose.model('HIT_DLT', dltSchema);
+const hit_dlts = mongoose.model('hit_dlts', dltSchema);
 
 async function verify() {
     try {
@@ -52,11 +52,11 @@ async function verify() {
         console.log(`\n🎯 winning_numbers 原始数据 (类型: ${typeof result.winning_numbers}):`);
         console.log(JSON.stringify(result.winning_numbers, null, 2));
 
-        // 查询DLT实际开奖数据
-        const actualIssue = await DLT.findOne({ Issue: parseInt(targetPeriod) }).lean();
+        // 查询hit_dlts实际开奖数据
+        const actualIssue = await hit_dlts.findOne({ Issue: parseInt(targetPeriod) }).lean();
 
         if (actualIssue) {
-            console.log(`\n✅ DLT实际开奖数据:`);
+            console.log(`\n✅ hit_dlts实际开奖数据:`);
             console.log(`  红球: [${actualIssue.Red1}, ${actualIssue.Red2}, ${actualIssue.Red3}, ${actualIssue.Red4}, ${actualIssue.Red5}]`);
             console.log(`  蓝球: [${actualIssue.Blue1}, ${actualIssue.Blue2}]`);
 

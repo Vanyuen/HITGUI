@@ -1,7 +1,7 @@
 /**
  * 统一更新所有大乐透相关数据表
  * 模式:
- *   - full: 全量更新（清空HIT_DLT重新导入）
+ *   - full: 全量更新（清空hit_dlts重新导入）
  *   - repair: 快速修复（仅重新生成衍生数据）
  */
 
@@ -17,7 +17,7 @@ async function connectDB() {
     console.log('✅ 数据库连接成功\n');
 }
 
-// HIT_DLT Schema
+// hit_dlts Schema
 const dltSchema = new mongoose.Schema({
     ID: { type: Number, required: true, unique: true },
     Issue: { type: Number, required: true, unique: true },
@@ -37,7 +37,7 @@ const dltSchema = new mongoose.Schema({
     DrawDate: { type: Date, required: true }
 });
 
-const DLT = mongoose.model('HIT_DLT', dltSchema);
+const hit_dlts = mongoose.model('hit_dlts', dltSchema);
 
 // DLTComboFeatures Schema
 const dltComboFeaturesSchema = new mongoose.Schema({
@@ -111,7 +111,12 @@ const dltRedCombinationSchema = new mongoose.Schema({
     red_ball_5: { type: Number, required: true }
 });
 
-const DLTRedCombination = mongoose.model('HIT_DLT_RedCombinations', dltRedCombinationSchema);
+let DLTRedCombination;
+try {
+    DLTRedCombination = mongoose.model('hit_dlts');
+} catch (err) {
+    DLTRedCombination = mongoose.model('hit_dlts', dltRedCombinationSchema);
+}
 
 // 组合特征生成工具函数
 function generateCombo2(balls) {
@@ -197,10 +202,10 @@ function calculateHotWarmColdRatio(missingValues) {
     return `${hot}:${warm}:${cold}`;
 }
 
-// 步骤1: 导入CSV到HIT_DLT
+// 步骤1: 导入CSV到hit_dlts
 async function importCSVToHIT_DLT(csvPath) {
     console.log('═══════════════════════════════════════════════════════════════');
-    console.log('📦 步骤1/4: 导入CSV到HIT_DLT表');
+    console.log('📦 步骤1/4: 导入CSV到hit_dlts表');
     console.log('═══════════════════════════════════════════════════════════════\n');
 
     const csvContent = fs.readFileSync(csvPath, 'utf-8');
@@ -211,7 +216,7 @@ async function importCSVToHIT_DLT(csvPath) {
     console.log(`📊 数据行数: ${dataLines.length}\n`);
 
     console.log('🗑️  清空现有数据...');
-    await DLT.deleteMany({});
+    await hit_dlts.deleteMany({});
     console.log('✅ 数据已清空\n');
 
     const batchSize = 100;
@@ -252,13 +257,13 @@ async function importCSVToHIT_DLT(csvPath) {
         }
 
         if (records.length > 0) {
-            await DLT.insertMany(records, { ordered: false });
+            await hit_dlts.insertMany(records, { ordered: false });
             totalImported += records.length;
             console.log(`   已导入: ${totalImported} / ${dataLines.length}`);
         }
     }
 
-    console.log(`\n✅ HIT_DLT导入完成，共 ${totalImported} 条记录\n`);
+    console.log(`\n✅ hit_dlts导入完成，共 ${totalImported} 条记录\n`);
     return totalImported;
 }
 
@@ -268,7 +273,7 @@ async function generateMissingTables() {
     console.log('🔄 步骤2/4: 生成遗漏值表');
     console.log('═══════════════════════════════════════════════════════════════\n');
 
-    const allRecords = await DLT.find({}).sort({ Issue: 1 }).lean();
+    const allRecords = await hit_dlts.find({}).sort({ Issue: 1 }).lean();
     console.log(`📊 基于 ${allRecords.length} 期数据生成遗漏值\n`);
 
     const redMissing = Array(35).fill(0);
@@ -317,7 +322,7 @@ async function generateMissingTables() {
 
     console.log(`\n🗑️  清空旧的遗漏值数据...`);
     await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories').deleteMany({});
-    await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').deleteMany({});
+    await mongoose.connection.db.collection('hit_dlts').deleteMany({});
 
     console.log('💾 插入新的遗漏值数据...\n');
     const batchSize = 500;
@@ -330,7 +335,7 @@ async function generateMissingTables() {
 
     for (let i = 0; i < blueMissingRecords.length; i += batchSize) {
         const batch = blueMissingRecords.slice(i, i + batchSize);
-        await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').insertMany(batch);
+        await mongoose.connection.db.collection('hit_dlts').insertMany(batch);
         console.log(`   蓝球遗漏: ${Math.min(i + batchSize, blueMissingRecords.length)} / ${blueMissingRecords.length}`);
     }
 
@@ -343,7 +348,7 @@ async function generateComboFeatures() {
     console.log('🔄 步骤3/5: 生成组合特征表');
     console.log('═══════════════════════════════════════════════════════════════\n');
 
-    const allRecords = await DLT.find({}).sort({ ID: 1 }).lean();
+    const allRecords = await hit_dlts.find({}).sort({ ID: 1 }).lean();
     console.log(`📊 基于 ${allRecords.length} 期数据生成组合特征\n`);
 
     const batchSize = 100;
@@ -400,7 +405,7 @@ async function cleanupExpiredCache() {
     console.log('🧹 步骤4/5: 清理过期缓存');
     console.log('═══════════════════════════════════════════════════════════════\n');
 
-    const latestIssue = await DLT.findOne({}).sort({ Issue: -1 }).select('Issue');
+    const latestIssue = await hit_dlts.findOne({}).sort({ Issue: -1 }).select('Issue');
     const latestIssueNum = latestIssue ? latestIssue.Issue : 0;
 
     console.log(`📊 最新期号: ${latestIssueNum}`);
@@ -422,7 +427,7 @@ async function generateHotWarmColdOptimizedTable() {
     const startTime = Date.now();
 
     // 获取所有期号（按升序）
-    const allIssues = await DLT.find({}).sort({ Issue: 1 }).lean();
+    const allIssues = await hit_dlts.find({}).sort({ Issue: 1 }).lean();
     console.log(`📊 找到 ${allIssues.length} 期数据\n`);
 
     if (allIssues.length < 2) {
@@ -575,15 +580,15 @@ async function verifyData() {
     console.log('✔️  步骤6/6: 验证数据完整性');
     console.log('═══════════════════════════════════════════════════════════════\n');
 
-    const dltCount = await DLT.countDocuments();
-    const dltLatest = await DLT.findOne({}).sort({ Issue: -1 });
+    const dltCount = await hit_dlts.countDocuments();
+    const dltLatest = await hit_dlts.findOne({}).sort({ Issue: -1 });
 
     const redMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories').countDocuments();
-    const blueMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').countDocuments();
+    const blueMissingCount = await mongoose.connection.db.collection('hit_dlts').countDocuments();
     const comboFeaturesCount = await DLTComboFeatures.countDocuments();
     const hwcOptimizedCount = await DLTRedCombinationsHotWarmColdOptimized.countDocuments();
 
-    console.log(`📊 HIT_DLT: ${dltCount} 期，最新期号 ${dltLatest?.Issue}`);
+    console.log(`📊 hit_dlts: ${dltCount} 期，最新期号 ${dltLatest?.Issue}`);
     console.log(`📊 红球遗漏: ${redMissingCount} 期`);
     console.log(`📊 蓝球遗漏: ${blueMissingCount} 期`);
     console.log(`📊 组合特征: ${comboFeaturesCount} 期`);

@@ -360,7 +360,7 @@ class GlobalCacheManager {
         log(`  📊 [GlobalCache] 历史数据范围: Issue < ${minTargetIssue}, 最多${maxHistoricalPeriods + 100}期`);
 
         // 3. 批量查询历史数据（多查一些确保覆盖）
-        const historicalRecords = await DLT.find({
+        const historicalRecords = await hit_dlts.find({
             Issue: { $lt: minTargetIssue }
         })
         .sort({ Issue: -1 })
@@ -492,7 +492,7 @@ async ensureCacheReady(maxRedCombinations, exclude_conditions, enableValidation,
 // 优化前（每期查询数据库）
 if (exclude_conditions.sum?.historical?.enabled) {
     const recentPeriods = exclude_conditions.sum.historical.count || 10;
-    const historicalRecords = await DLT.find({
+    const historicalRecords = await hit_dlts.find({
         ID: { $lte: basePeriodID }
     })
     .sort({ ID: -1 })
@@ -549,7 +549,7 @@ async performBatchHitValidation(issuesArray, redCombinationsMap, blueCombination
     log(`🔍 [${this.sessionId}] 开始批量命中验证: ${issuesArray.length}期`);
 
     // 1. 批量查询所有期号的开奖数据（单次查询）
-    const winningData = await DLT.find({
+    const winningData = await hit_dlts.find({
         Issue: { $in: issuesArray.map(i => parseInt(i)) }
     })
     .select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2')

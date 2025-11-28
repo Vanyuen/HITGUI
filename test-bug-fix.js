@@ -22,7 +22,7 @@ async function testExclusionBugFix() {
 
     // 1. 获取遗漏数据
     console.log(`1️⃣ 获取期号 ${targetIssue} 的红球遗漏数据...`);
-    const mvDoc = await mongoose.connection.db.collection('hit_dlt_redballmissing_histories').findOne({ Issue: targetIssue });
+    const mvDoc = await mongoose.connection.db.collection('hit_dlts').findOne({ Issue: targetIssue });
 
     if (!mvDoc) {
       console.log(`❌ 找不到期号 ${targetIssue} 的遗漏数据`);

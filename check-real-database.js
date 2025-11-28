@@ -50,12 +50,12 @@ async function checkDatabase() {
         // 检查关键集合
         console.log('\n🔑 关键集合检查:');
 
-        // HIT_DLT
-        const dltCount = await lotteryDb.collection('HIT_DLT').countDocuments();
+        // hit_dlts
+        const dltCount = await lotteryDb.collection('hit_dlts').countDocuments();
         console.log(`  大乐透历史数据: ${dltCount} 期`);
 
         if (dltCount > 0) {
-          const latestIssue = await lotteryDb.collection('HIT_DLT')
+          const latestIssue = await lotteryDb.collection('hit_dlts')
             .find({})
             .sort({ Issue: -1 })
             .limit(1)

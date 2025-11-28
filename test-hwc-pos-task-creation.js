@@ -6,30 +6,16 @@
 const http = require('http');
 
 const testData = {
-    task_name: "超级认真模式测试_2025-11-04",
+    task_name: "测试期号范围处理_2025-11-16",
     period_range: {
         type: "custom",
-        value: { start: "25114", end: "25125" }
+        start: "25115",
+        end: "25125"
     },
     positive_selection: {
-        hwc_ratios: [
-            { hot: 4, warm: 1, cold: 0 }
-        ],
-        zone_ratios: [
-            { zone1: 2, zone2: 1, zone3: 2 }
-        ],
-        sum_ranges: [],
-        span_ranges: [],
-        odd_even_ratios: [
-            { odd: 2, even: 3 },
-            { odd: 3, even: 2 }
-        ],
-        primes_ratios: [],
-        ac_values: [],
-        consecutive_settings: {
-            allow_2_consecutive: true,
-            allow_3_consecutive: false
-        }
+        hwc_ratios: ["3:2:0", "2:3:0"],
+        zone_ratios: ["2:1:2"],
+        odd_even_ratios: ["2:3"]
     },
     exclusion_conditions: {}
 };
@@ -52,7 +38,6 @@ console.log('📝 请求数据:', JSON.stringify(testData, null, 2));
 
 const req = http.request(options, (res) => {
     console.log(`\n📡 响应状态码: ${res.statusCode}`);
-    console.log(`📋 响应头:`, res.headers);
 
     let data = '';
 
@@ -69,6 +54,44 @@ const req = http.request(options, (res) => {
             if (result.success) {
                 console.log('\n✅ 任务创建成功！');
                 console.log(`📋 任务ID: ${result.data.task_id}`);
+
+                // 如果任务创建成功，直接查看任务详情
+                const taskId = result.data.task_id;
+                const detailOptions = {
+                    hostname: 'localhost',
+                    port: 3003,
+                    path: `/api/dlt/hwc-positive-tasks/${taskId}`,
+                    method: 'GET'
+                };
+
+                const detailReq = http.request(detailOptions, (detailRes) => {
+                    let detailData = '';
+                    detailRes.on('data', (chunk) => {
+                        detailData += chunk;
+                    });
+                    detailRes.on('end', () => {
+                        try {
+                            const detailResult = JSON.parse(detailData);
+                            console.log('\n📋 任务详情:');
+                            console.log(JSON.stringify(detailResult, null, 2));
+
+                            // 打印期号范围
+                            if (detailResult.data && detailResult.data.period_range) {
+                                console.log('\n📅 期号范围:');
+                                console.log(`起始期号: ${detailResult.data.period_range.start}`);
+                                console.log(`结束期号: ${detailResult.data.period_range.end}`);
+                            }
+                        } catch (detailError) {
+                            console.log('❌ 解析任务详情失败:', detailError.message);
+                        }
+                    });
+                });
+
+                detailReq.on('error', (error) => {
+                    console.error('❌ 获取任务详情失败:', error.message);
+                });
+
+                detailReq.end();
             } else {
                 console.log('\n❌ 任务创建失败！');
                 console.log(`❌ 错误信息: ${result.message}`);

@@ -56,7 +56,7 @@ function calculateACValueSimple(numbers) {
  * 初始化大乐透系统
  */
 function initDLTSystem() {
-    console.log('Initializing DLT System...');
+    console.log('Initializing hit_dlts System...');
 
     // 初始化各个子模块
     initDLTNavigation();
@@ -67,7 +67,7 @@ function initDLTSystem() {
     initDLTExpertModule();
     initDLTCombinationModule();
 
-    console.log('DLT System initialized successfully');
+    console.log('hit_dlts System initialized successfully');
 }
 
 // ===== 大乐透批量预测命中对比分析模块 =====
@@ -785,11 +785,11 @@ function createComprehensiveAnalysisInterface() {
 function initDLTNavigation() {
     const dltPanel = document.getElementById('dlt-panel');
     if (!dltPanel) {
-        console.warn('DLT panel not found');
+        console.warn('hit_dlts panel not found');
         return;
     }
     
-    console.log('DLT navigation initialized (managed by main app.js)');
+    console.log('hit_dlts navigation initialized (managed by main app.js)');
     
     // 大乐透导航事件现在由主app.js的initSubNavigation()统一处理
     // 这里只做一些大乐透特有的初始化工作
@@ -818,7 +818,7 @@ function switchDLTContentPanel(contentType) {
  * 加载大乐透内容
  */
 function loadDLTContent(contentType) {
-    console.log(`Loading DLT content: ${contentType}`);
+    console.log(`Loading hit_dlts content: ${contentType}`);
     
     switch (contentType) {
         case 'dlt-history':
@@ -832,10 +832,10 @@ function loadDLTContent(contentType) {
             break;
         case 'dlt-combination':
             // 组合预测面板不需要预加载数据，只需要初始化界面
-            console.log('DLT combination panel activated');
+            console.log('hit_dlts combination panel activated');
             break;
         default:
-            console.warn(`Unknown DLT content type: ${contentType}`);
+            console.warn(`Unknown hit_dlts content type: ${contentType}`);
     }
 }
 
@@ -845,7 +845,7 @@ function loadDLTContent(contentType) {
  * 初始化大乐透历史开奖模块
  */
 function initDLTHistoryModule() {
-    console.log('Initializing DLT History Module...');
+    console.log('Initializing hit_dlts History Module...');
     
     // 初始化分页事件
     initDLTHistoryPagination();
@@ -867,16 +867,16 @@ let dltHistoryLoadingTimer = null;
 async function loadDLTHistoryData(page = 1, forceRefresh = false) {
     // 防止重复加载
     if (dltHistoryLoading && !forceRefresh) {
-        console.log('DLT history data is already loading, skipping...');
+        console.log('hit_dlts history data is already loading, skipping...');
         return;
     }
     
-    console.log(`Loading DLT history data for page ${page}${forceRefresh ? ' (force refresh)' : ''}`);
+    console.log(`Loading hit_dlts history data for page ${page}${forceRefresh ? ' (force refresh)' : ''}`);
     
     try {
         const tbody = document.querySelector('#dlt-history tbody');
         if (!tbody) {
-            console.error('DLT history table body not found');
+            console.error('hit_dlts history table body not found');
             return;
         }
         
@@ -885,7 +885,7 @@ async function loadDLTHistoryData(page = 1, forceRefresh = false) {
         if (!forceRefresh && dltHistoryCache.has(cacheKey)) {
             const cachedData = dltHistoryCache.get(cacheKey);
             displayDLTHistoryData(cachedData.data, cachedData.pagination);
-            console.log(`DLT history data loaded from cache for page ${page}`);
+            console.log(`hit_dlts history data loaded from cache for page ${page}`);
             return;
         }
         
@@ -917,10 +917,10 @@ async function loadDLTHistoryData(page = 1, forceRefresh = false) {
         displayDLTHistoryData(result.data, result.pagination);
         
         const endTime = performance.now();
-        console.log(`DLT history data loaded in ${Math.round(endTime - startTime)}ms`);
+        console.log(`hit_dlts history data loaded in ${Math.round(endTime - startTime)}ms`);
         
     } catch (error) {
-        console.error('Error loading DLT history data:', error);
+        console.error('Error loading hit_dlts history data:', error);
         const tbody = document.querySelector('#dlt-history tbody');
         if (tbody) {
             tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; padding: 20px; color: #e74c3c;">加载失败: ${error.message}</td></tr>`;
@@ -991,7 +991,7 @@ function displayDLTHistoryData(data, pagination) {
     updateDLTHistoryPagination(pagination);
     
     const endTime = performance.now();
-    console.log(`DLT history display rendered in ${Math.round(endTime - startTime)}ms for ${data.length} records`);
+    console.log(`hit_dlts history display rendered in ${Math.round(endTime - startTime)}ms for ${data.length} records`);
 }
 
 /**
@@ -1017,7 +1017,7 @@ function initDLTHistoryPagination() {
         });
     }
     
-    console.log('DLT history pagination initialized');
+    console.log('hit_dlts history pagination initialized');
 }
 
 /**
@@ -1054,7 +1054,7 @@ function initDLTHistoryRefresh() {
     const refreshBtns = document.querySelectorAll('#dlt-history .refresh-btn');
     refreshBtns.forEach(btn => {
         btn.addEventListener('click', () => {
-            console.log('Refreshing DLT history data...');
+            console.log('Refreshing hit_dlts history data...');
 
             // 刷新时清除缓存，确保获取最新数据
             dltHistoryCache.clear();
@@ -1152,7 +1152,7 @@ async function showDataStatusDialog() {
  * 初始化大乐透走势图模块
  */
 function initDLTTrendModule() {
-    console.log('Initializing DLT Trend Module...');
+    console.log('Initializing hit_dlts Trend Module...');
 
     // 初始化期数按钮选择器（与双色球保持一致）
     initDLTPeriodButtons();
@@ -1178,7 +1178,7 @@ function initDLTZoomControls() {
     const zoomWrapper = dltPanel.querySelector('.trend-zoom-wrapper');
 
     if (!zoomWrapper) {
-        console.warn('DLT Zoom wrapper not found');
+        console.warn('hit_dlts Zoom wrapper not found');
         return;
     }
 
@@ -1384,15 +1384,15 @@ function initDLTCustomRangeSelector() {
  * 加载大乐透走势图数据
  */
 async function loadDLTTrendData(startIssue = null, endIssue = null) {
-    console.log('Loading DLT trend data...', {startIssue, endIssue, dltCurrentPeriods});
+    console.log('Loading hit_dlts trend data...', {startIssue, endIssue, dltCurrentPeriods});
     
     try {
         const container = document.querySelector('#dlt-trend .trend-table-container');
         if (!container) {
-            console.error('DLT trend table container not found');
+            console.error('hit_dlts trend table container not found');
             return;
         }
-        console.log('Found DLT trend container:', container);
+        console.log('Found hit_dlts trend container:', container);
         
         // 显示加载状态
         showDLTTrendLoading(container);
@@ -1416,7 +1416,7 @@ async function loadDLTTrendData(startIssue = null, endIssue = null) {
         displayDLTTrendData(result.data, frequencyResult.data);
         
     } catch (error) {
-        console.error('Error loading DLT trend data:', error);
+        console.error('Error loading hit_dlts trend data:', error);
         const container = document.querySelector('#dlt-trend .trend-table-container');
         if (container) {
             container.innerHTML = `<div class="error-message" style="text-align: center; padding: 20px; color: #e74c3c;">加载数据失败: ${error.message}</div>`;
@@ -1515,7 +1515,7 @@ function showDLTTrendLoading(container) {
  * 显示大乐透走势图数据
  */
 function displayDLTTrendData(data, frequencyData) {
-    console.log('Displaying DLT trend data:', data?.length, 'records');
+    console.log('Displaying hit_dlts trend data:', data?.length, 'records');
     
     const tbody = document.querySelector('#dlt-trendTableBody');
     if (!tbody) return;
@@ -1675,7 +1675,7 @@ function displayDLTTrendData(data, frequencyData) {
     }).join('');
     
     tbody.innerHTML = rows;
-    console.log('DLT tbody updated with', rows.length, 'characters of HTML');
+    console.log('hit_dlts tbody updated with', rows.length, 'characters of HTML');
     
     // 移除加载状态
     const container = document.querySelector('#dlt-trend .trend-table-container');
@@ -1698,28 +1698,28 @@ function displayDLTTrendData(data, frequencyData) {
     // 初始化预选功能
     try {
         initDLTPreSelectRows();
-        console.log('DLT pre-select rows initialized');
+        console.log('hit_dlts pre-select rows initialized');
     } catch (error) {
-        console.error('Error initializing DLT pre-select rows:', error);
+        console.error('Error initializing hit_dlts pre-select rows:', error);
     }
     
     // 应用频率突显效果
     try {
         applyDLTFrequencyHighlight(data);
-        console.log('DLT frequency highlighting applied');
+        console.log('hit_dlts frequency highlighting applied');
     } catch (error) {
-        console.error('Error applying DLT frequency highlighting:', error);
+        console.error('Error applying hit_dlts frequency highlighting:', error);
     }
 
     // 更新统计面板
     try {
         updateDLTStatisticsPanel(data);
-        console.log('DLT statistics panel updated');
+        console.log('hit_dlts statistics panel updated');
     } catch (error) {
-        console.error('Error updating DLT statistics panel:', error);
+        console.error('Error updating hit_dlts statistics panel:', error);
     }
 
-    console.log(`DLT trend data displayed: ${data.length} records`);
+    console.log(`hit_dlts trend data displayed: ${data.length} records`);
 }
 
 /**
@@ -1899,7 +1899,7 @@ function applyDLTFrequencyHighlight(data) {
         }
     });
     
-    console.log('DLT frequency highlighting applied:', frequencyStats);
+    console.log('hit_dlts frequency highlighting applied:', frequencyStats);
     
     // 在浏览器控制台显示频率统计信息
     if (Object.keys(frequencyStats).length > 0) {
@@ -1924,11 +1924,11 @@ function applyDLTFrequencyHighlight(data) {
 function initDLTPreSelectRows() {
     const preSelectRows = document.getElementById('dltPreSelectRows');
     if (!preSelectRows) {
-        console.warn('DLT pre-select rows not found');
+        console.warn('hit_dlts pre-select rows not found');
         return;
     }
     
-    console.log('Initializing DLT pre-select rows...');
+    console.log('Initializing hit_dlts pre-select rows...');
     
     preSelectRows.addEventListener('click', (e) => {
         const cell = e.target.closest('.selectable-cell');
@@ -1938,7 +1938,7 @@ function initDLTPreSelectRows() {
         updateDLTRowSelections(cell.closest('.pre-select-row'));
     });
     
-    console.log('DLT pre-select rows initialized successfully');
+    console.log('hit_dlts pre-select rows initialized successfully');
 }
 
 /**
@@ -2004,7 +2004,7 @@ function updateDLTRowSelections(row) {
  * 初始化大乐透数据分析模块
  */
 function initDLTAnalysisModule() {
-    console.log('Initializing DLT Analysis Module...');
+    console.log('Initializing hit_dlts Analysis Module...');
     // 预留给同出数据、相克数据等分析功能
 }
 
@@ -2033,7 +2033,7 @@ function initDLTAnalysisButtons() {
  * 处理大乐透同出数据请求
  */
 async function handleDLTCooccurrenceData() {
-    console.log('DLT co-occurrence data requested');
+    console.log('hit_dlts co-occurrence data requested');
     
     try {
         // 显示加载状态
@@ -2054,7 +2054,7 @@ async function handleDLTCooccurrenceData() {
         displayDLTCooccurrenceData(result.data);
         
     } catch (error) {
-        console.error('Error loading DLT co-occurrence data:', error);
+        console.error('Error loading hit_dlts co-occurrence data:', error);
         showDLTAnalysisError('同出数据加载失败: ' + error.message);
     }
 }
@@ -2063,7 +2063,7 @@ async function handleDLTCooccurrenceData() {
  * 处理大乐透相克数据请求
  */
 async function handleDLTConflictData() {
-    console.log('DLT conflict data requested');
+    console.log('hit_dlts conflict data requested');
     
     try {
         // 显示加载状态
@@ -2084,7 +2084,7 @@ async function handleDLTConflictData() {
         displayDLTConflictData(result.data);
         
     } catch (error) {
-        console.error('Error loading DLT conflict data:', error);
+        console.error('Error loading hit_dlts conflict data:', error);
         showDLTAnalysisError('相克数据加载失败: ' + error.message);
     }
 }
@@ -2095,7 +2095,7 @@ async function handleDLTConflictData() {
  * 初始化大乐透专家推荐模块
  */
 function initDLTExpertModule() {
-    console.log('Initializing DLT Expert Module...');
+    console.log('Initializing hit_dlts Expert Module...');
     
     // 初始化专家和值预测按钮事件
     const predictBtn = document.getElementById('dlt-sum-predict-btn');
@@ -2425,7 +2425,7 @@ function getDLTCurrentAnalysisParams() {
  * 加载大乐透专家推荐数据
  */
 function loadDLTExpertData() {
-    console.log('Loading DLT expert data...');
+    console.log('Loading hit_dlts expert data...');
     // 显示初始界面，等待用户选择参数后手动触发预测
     const expertContent = document.querySelector('#dlt-expert .content-body');
     if (expertContent && !expertContent.querySelector('.dlt-sum-placeholder')) {
@@ -2484,11 +2484,11 @@ async function loadDLTSumPrediction() {
         const periodGroup = getDLTCurrentGroupPeriods();
         const analysisParams = getDLTCurrentAnalysisParams();
         
-        console.log(`Loading DLT sum prediction with periodGroup: ${periodGroup}`, analysisParams);
+        console.log(`Loading hit_dlts sum prediction with periodGroup: ${periodGroup}`, analysisParams);
         
         const contentContainer = document.getElementById('dlt-sum-content');
         if (!contentContainer) {
-            console.error('DLT sum content container not found');
+            console.error('hit_dlts sum content container not found');
             return;
         }
         
@@ -2518,7 +2518,7 @@ async function loadDLTSumPrediction() {
         displayDLTCombinedResults(predictionResult.data, validationResult.data);
         
     } catch (error) {
-        console.error('Error loading DLT sum prediction:', error);
+        console.error('Error loading hit_dlts sum prediction:', error);
         const contentContainer = document.getElementById('dlt-sum-content');
         if (contentContainer) {
             contentContainer.innerHTML = `
@@ -3523,7 +3523,7 @@ async function exportDLTCooccurrenceData() {
         downloadDLTExcelFile(result.data.excelData, result.data.filename);
         
     } catch (error) {
-        console.error('Error exporting DLT co-occurrence data:', error);
+        console.error('Error exporting hit_dlts co-occurrence data:', error);
         alert('导出失败: ' + error.message);
     }
 }
@@ -3545,7 +3545,7 @@ async function exportDLTConflictData() {
         downloadDLTExcelFile(result.data.excelData, result.data.filename);
         
     } catch (error) {
-        console.error('Error exporting DLT conflict data:', error);
+        console.error('Error exporting hit_dlts conflict data:', error);
         alert('导出失败: ' + error.message);
     }
 }
@@ -3745,7 +3745,7 @@ function showDLTConflictTable() {
  * 加载大乐透预测验证
  */
 async function loadDLTValidation() {
-    console.log('Loading DLT validation...');
+    console.log('Loading hit_dlts validation...');
     
     const contentElement = document.getElementById('dlt-sum-content');
     if (!contentElement) return;
@@ -3774,7 +3774,7 @@ async function loadDLTValidation() {
             throw new Error(data.message || '验证请求失败');
         }
     } catch (error) {
-        console.error('DLT validation error:', error);
+        console.error('hit_dlts validation error:', error);
         contentElement.innerHTML = `
             <div class="error-message">
                 <h3>验证失败</h3>
@@ -3931,7 +3931,7 @@ function showValidationView(viewType) {
  * 初始化大乐透组合预测模块
  */
 function initDLTCombinationModule() {
-    console.log('Initializing New DLT Combination module...');
+    console.log('Initializing New hit_dlts Combination module...');
     
     // 初始化新的组合预测按钮事件
     const newCombinationBtn = document.getElementById('new-dlt-combination-predict-btn');
@@ -3966,7 +3966,7 @@ function initDLTCombinationModule() {
         debugInputBoxes();
     }, 1000);
 
-    console.log('New DLT Combination module initialized');
+    console.log('New hit_dlts Combination module initialized');
 }
 
 /**
@@ -7625,8 +7625,8 @@ async function loadDLTCombinationPrediction() {
             btn.textContent = '生成中...';
         }
         
-        console.log('=== 开始加载DLT组合预测 ===');
-        console.log('Loading DLT combination prediction...');
+        console.log('=== 开始加载hit_dlts组合预测 ===');
+        console.log('Loading hit_dlts combination prediction...');
         
         // 获取目标期号
         const targetIssue = document.getElementById('dlt-target-issue').value;
@@ -7740,7 +7740,7 @@ async function loadDLTCombinationPrediction() {
         }
 
     } catch (error) {
-        console.error('Error loading DLT combination prediction:', error);
+        console.error('Error loading hit_dlts combination prediction:', error);
         const container = document.getElementById('dlt-combination-content');
         if (container) {
             container.innerHTML = `
@@ -9439,7 +9439,7 @@ function showV2GeneratingInterface(targetIssue, estimatedTime) {
 }
 
 /**
- * 显示DLT组合预测结果（v2版本）
+ * 显示hit_dlts组合预测结果（v2版本）
  */
 function displayDLTCombinationResultsV2(data) {
     console.log('📊 v2版本 displayDLTCombinationResults 被调用，数据:', data);
@@ -9551,7 +9551,7 @@ function displayDLTCombinationResultsV2(data) {
 }
 
 /**
- * 更新DLT预测统计信息（v2版本）
+ * 更新hit_dlts预测统计信息（v2版本）
  */
 function updatePredictionStatisticsV2(data) {
     console.log('📈 v2版本 updatePredictionStatistics 被调用');
@@ -9716,7 +9716,7 @@ function showV3GeneratingInterface(targetIssue, estimatedTime) {
 }
 
 /**
- * 显示DLT组合预测结果（v3版本）
+ * 显示hit_dlts组合预测结果（v3版本）
  */
 function displayDLTCombinationResultsV3(data, warnings = [], suggestions = [], message = '组合预测查询完成') {
     console.log('📊 v3版本 displayDLTCombinationResults 被调用，数据:', data);
@@ -9955,7 +9955,7 @@ function displayFilteringWarningsAndSuggestions(warnings = [], suggestions = [],
 }
 
 /**
- * 更新DLT预测统计信息（v3版本）
+ * 更新hit_dlts预测统计信息（v3版本）
  */
 function updatePredictionStatisticsV3(data) {
     console.log('📈 v3版本 updatePredictionStatistics 被调用');
@@ -10043,7 +10043,7 @@ window.deleteHistoryItem = deleteHistoryItem;
 window.loadLatestIssues = loadLatestIssues;
 window.loadHistoricalIssues = loadHistoricalIssues;
 
-console.log('DLT Module loaded successfully');
+console.log('hit_dlts Module loaded successfully');
 
 // ===== 批量预测功能模块 =====
 
@@ -10051,7 +10051,7 @@ console.log('DLT Module loaded successfully');
  * 批量预测功能初始化
  */
 function initDLTBatchPrediction() {
-    console.log('🚀 Initializing DLT Batch Prediction...');
+    console.log('🚀 Initializing hit_dlts Batch Prediction...');
     console.log('📊 Current page location:', window.location.pathname);
     console.log('📋 Document ready state:', document.readyState);
     
@@ -13052,7 +13052,7 @@ window.exportBlueCombinations = exportBlueCombinations;
 window.exportHitAnalysis = exportHitAnalysis;
 window.exportCompleteReport = exportCompleteReport;
 
-console.log('DLT Module loaded successfully');
+console.log('hit_dlts Module loaded successfully');
 
 // 暴露关键函数到全局作用域
 if (typeof window !== 'undefined') {
@@ -13060,7 +13060,7 @@ if (typeof window !== 'undefined') {
     window.initDLTCombinationModule = initDLTCombinationModule;
     window.initDataGenerationManagement = initDataGenerationManagement;
     window.refreshGenerationProgress = refreshGenerationProgress;
-    console.log('✅ DLT关键函数已暴露到全局作用域');
+    console.log('✅ hit_dlts关键函数已暴露到全局作用域');
 }
 
 /**
@@ -15600,7 +15600,7 @@ if (typeof window !== 'undefined') {
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
             setTimeout(() => {
-                console.log('Initializing DLT Batch Prediction module...');
+                console.log('Initializing hit_dlts Batch Prediction module...');
                 initDLTBatchPrediction();
                 initTaskManagement(); // 初始化任务管理
             }, 100); // 短暂延迟确保其他模块先初始化
@@ -15608,7 +15608,7 @@ if (typeof window !== 'undefined') {
     } else {
         // 页面已经加载完成
         setTimeout(() => {
-            console.log('Initializing DLT Batch Prediction module...');
+            console.log('Initializing hit_dlts Batch Prediction module...');
             initDLTBatchPrediction();
             initTaskManagement(); // 初始化任务管理
         }, 100);

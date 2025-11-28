@@ -15,7 +15,7 @@ let db;
 const COLLECTIONS = {
   DLT_HISTORY: 'hit_dlts',                                    // 大乐透历史数据
   RED_COMBINATIONS: 'hit_dlt_redcombinations',               // 红球组合表
-  BLUE_COMBINATIONS: 'HIT_DLT_BlueCombinations',             // 蓝球组合表
+  BLUE_COMBINATIONS: 'hit_dlts',             // 蓝球组合表
   HWC_OPTIMIZED: 'hit_dlt_redcombinationshotwarmcoldoptimizeds', // 热温冷优化表
   TASKS: 'hit_dlt_hwcpositivepredictiontasks',               // 热温冷正选任务表
   RESULTS: 'hit_dlt_hwcpositivepredictiontaskresults',       // 任务结果表

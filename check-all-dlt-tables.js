@@ -18,7 +18,7 @@ async function checkAllTables() {
         // 定义所有需要检查的表
         const tables = [
             {
-                name: 'HIT_DLT (开奖记录)',
+                name: 'hit_dlts (开奖记录)',
                 collection: 'hit_dlts',
                 key: 'Issue',
                 description: '基础开奖数据'
@@ -31,7 +31,7 @@ async function checkAllTables() {
             },
             {
                 name: 'DLTBlueMissing (蓝球遗漏)',
-                collection: 'hit_dlt_basictrendchart_blueballmissing_histories',
+                collection: 'hit_dlts',
                 key: 'Issue',
                 description: '走势图数据源'
             },
@@ -60,7 +60,7 @@ async function checkAllTables() {
         const mainCount = await db.collection('hit_dlts').countDocuments();
 
         console.log('═══════════════════════════════════════════════════════════════');
-        console.log(`📊 基准表: HIT_DLT`);
+        console.log(`📊 基准表: hit_dlts`);
         console.log(`   记录数: ${mainCount} 期`);
         console.log(`   最新期号: ${mainIssue?.Issue}`);
         console.log(`   最新日期: ${mainIssue?.DrawDate ? new Date(mainIssue.DrawDate).toLocaleDateString('zh-CN') : '无'}`);

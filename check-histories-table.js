@@ -4,19 +4,19 @@ const { MongoClient } = require('mongodb');
     const client = await MongoClient.connect('mongodb://127.0.0.1:27017');
     const db = client.db('lottery');
 
-    console.log('=== 检查 hit_dlt_redballmissing_histories 表 ===\n');
+    console.log('=== 检查 hit_dlts 表 ===\n');
 
-    const count = await db.collection('hit_dlt_redballmissing_histories').countDocuments();
+    const count = await db.collection('hit_dlts').countDocuments();
     console.log('总记录数:', count);
 
     if (count === 0) {
-        console.log('❌ hit_dlt_redballmissing_histories 表为空！');
+        console.log('❌ hit_dlts 表为空！');
         await client.close();
         return;
     }
 
     // 检查最新的记录
-    const latest = await db.collection('hit_dlt_redballmissing_histories')
+    const latest = await db.collection('hit_dlts')
         .find()
         .sort({ Issue: -1 })
         .limit(5)
@@ -28,7 +28,7 @@ const { MongoClient } = require('mongodb');
     });
 
     // 检查期号25114的数据
-    const issue25114 = await db.collection('hit_dlt_redballmissing_histories')
+    const issue25114 = await db.collection('hit_dlts')
         .findOne({ Issue: 25114 });
 
     if (!issue25114) {

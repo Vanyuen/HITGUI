@@ -1,5 +1,5 @@
 /**
- * 检查DLT遗漏值表的数据状态
+ * 检查hit_dlts遗漏值表的数据状态
  */
 
 require('dotenv').config();
@@ -15,12 +15,12 @@ async function checkTables() {
     try {
         await connectDB();
 
-        // 检查HIT_DLT表
+        // 检查hit_dlts表
         const dltCount = await mongoose.connection.db.collection('hit_dlts').countDocuments();
         const dltLatest = await mongoose.connection.db.collection('hit_dlts')
             .findOne({}, { sort: { Issue: -1 } });
 
-        console.log('\n📊 HIT_DLT 表状态:');
+        console.log('\n📊 hit_dlts 表状态:');
         console.log(`   记录数: ${dltCount}`);
         console.log(`   最新期号: ${dltLatest?.Issue}`);
         console.log(`   最新日期: ${dltLatest?.DrawDate}`);
@@ -36,8 +36,8 @@ async function checkTables() {
         console.log(`   DrawingDay: ${redMissingLatest?.DrawingDay}`);
 
         // 检查DLTBlueMissing表
-        const blueMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').countDocuments();
-        const blueMissingLatest = await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories')
+        const blueMissingCount = await mongoose.connection.db.collection('hit_dlts').countDocuments();
+        const blueMissingLatest = await mongoose.connection.db.collection('hit_dlts')
             .findOne({}, { sort: { ID: -1 } });
 
         console.log('\n📊 DLTBlueMissing 表状态:');
@@ -57,7 +57,7 @@ async function checkTables() {
             } else if (dltIssue === redIssue) {
                 console.log(`✅ 遗漏值表数据最新`);
             } else {
-                console.log(`⚠️  HIT_DLT表数据落后`);
+                console.log(`⚠️  hit_dlts表数据落后`);
             }
         }
 

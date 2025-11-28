@@ -100,7 +100,7 @@ for (let ballNum = 1; ballNum <= 35; ballNum++) {
 // API: /api/dlt/cooccurrence-per-ball?targetIssue=25078&periods=1&mode=time
 // 逻辑: 提取最近N期的所有号码,生成所有可能的号码对
 
-const recentIssues = await DLT.find({ ID: { $lt: targetID } })
+const recentIssues = await hit_dlts.find({ ID: { $lt: targetID } })
     .sort({ ID: -1 }).limit(periodsCount).lean();
 
 const allAppearedNumbers = new Set();
@@ -128,7 +128,7 @@ recentIssues.forEach(issue => {
 // API: /api/dlt/cooccurrence-stats?targetIssue=25078&periods=100&threshold=30
 // 逻辑: 统计最近N期内,哪些号码对出现次数≥阈值
 
-const recentIssues = await DLT.find({ ID: { $lt: targetID } })
+const recentIssues = await hit_dlts.find({ ID: { $lt: targetID } })
     .sort({ ID: -1 }).limit(periodsCount).lean();
 
 // 统计号码对出现频率

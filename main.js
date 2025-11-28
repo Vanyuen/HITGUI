@@ -1,5 +1,8 @@
 require('dotenv').config();
 const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron');
+
+// ⭐ 2025-11-14修复: 增加Node.js堆内存限制到16GB，防止处理大量期号时内存溢出
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=16384');
 const path = require('path');
 const { spawn } = require('child_process');
 const express = require('express');
@@ -13,9 +16,29 @@ let mainWindow;
 let serverProcess;
 let expressApp;
 let expressServer;
+let isQuitting = false;  // 标记应用是否正在退出
+let activeConnections = new Set();  // 跟踪活跃连接
 
 // 开发模式检测
 const isDev = process.argv.includes('--dev') || !app.isPackaged;
+
+// 🔒 单实例锁：防止多个应用实例同时运行
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  console.log('⚠️  应用已在运行，退出当前实例');
+  app.quit();
+  process.exit(0);
+} else {
+  // 当第二个实例尝试启动时，聚焦到第一个实例
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    console.log('🔔 检测到第二个实例启动，聚焦到当前窗口');
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
 
 function createWindow() {
   // 创建浏览器窗口
@@ -53,8 +76,16 @@ function createWindow() {
 
   // 启动内嵌服务器
   startInternalServer().then(() => {
-    // 加载应用
-    mainWindow.loadURL('http://localhost:3003');
+    // 彻底清除所有缓存（包括JavaScript文件缓存）
+    mainWindow.webContents.session.clearStorageData({
+      storages: ['appcache', 'filesystem', 'indexdb', 'localstorage', 'shadercache', 'websql', 'serviceworkers', 'cachestorage']
+    }).then(() => {
+      return mainWindow.webContents.session.clearCache();
+    }).then(() => {
+      console.log('🧹 Electron所有缓存已彻底清除');
+      // 加载应用
+      mainWindow.loadURL('http://localhost:3003');
+    });
   }).catch(err => {
     console.error('Failed to start internal server:', err);
     dialog.showErrorBox('启动失败', '无法启动内部服务器，请检查端口是否被占用。');
@@ -125,11 +156,16 @@ function createMenu() {
         {
           label: '清理缓存',
           click: () => {
-            mainWindow.webContents.session.clearCache();
-            dialog.showMessageBox(mainWindow, {
-              type: 'info',
-              title: '缓存清理',
-              message: '缓存已清理完成！'
+            mainWindow.webContents.session.clearStorageData({
+              storages: ['appcache', 'filesystem', 'indexdb', 'localstorage', 'shadercache', 'websql', 'serviceworkers', 'cachestorage']
+            }).then(() => {
+              return mainWindow.webContents.session.clearCache();
+            }).then(() => {
+              dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: '缓存清理',
+                message: '所有缓存已彻底清理完成！'
+              });
             });
           }
         },
@@ -198,10 +234,20 @@ async function startInternalServer() {
       // 导入服务器代码
       const serverModule = require('./src/server/server.js');
 
+      // ⭐ 2025-11-15: 使用httpServer代替app以支持Socket.IO
       // 启动服务器
-      expressServer = serverModule.listen(3003, 'localhost', () => {
+      expressServer = serverModule.httpServer.listen(3003, 'localhost', () => {
         console.log('✅ 内嵌服务器已启动: http://localhost:3003');
+        console.log('🔌 Socket.IO服务器已启动，支持实时进度推送');
         console.log('📊 数据库连接状态:', dbManager.getConnectionStatus());
+
+        // 跟踪活跃连接，便于优雅关闭
+        expressServer.on('connection', (socket) => {
+          activeConnections.add(socket);
+          socket.on('close', () => {
+            activeConnections.delete(socket);
+          });
+        });
 
         // 性能优化：在后台异步创建数据库索引（不阻塞窗口显示）
         if (serverModule.ensureDatabaseIndexes) {
@@ -234,21 +280,75 @@ async function startInternalServer() {
   });
 }
 
-// 停止内嵌服务器
+// 停止内嵌服务器（优雅关闭，带超时）
 async function stopInternalServer() {
-  try {
-    if (expressServer) {
-      expressServer.close(() => {
-        console.log('🔴 内嵌服务器已停止');
-      });
-    }
-
-    // 关闭数据库连接
-    await dbManager.close();
-
-  } catch (error) {
-    console.error('停止服务器时出错:', error);
+  if (isQuitting) {
+    return; // 防止重复调用
   }
+  isQuitting = true;
+
+  return new Promise(async (resolve) => {
+    console.log('🛑 开始关闭服务器...');
+
+    // 设置3秒超时，防止hang住
+    const forceShutdownTimeout = setTimeout(() => {
+      console.log('⚠️  服务器关闭超时，强制终止所有连接');
+
+      // 强制销毁所有活跃连接
+      activeConnections.forEach(socket => {
+        try {
+          socket.destroy();
+        } catch (e) {
+          // 忽略错误
+        }
+      });
+      activeConnections.clear();
+
+      resolve();
+    }, 3000);
+
+    try {
+      // 第1步：停止接受新连接
+      if (expressServer) {
+        expressServer.close(async () => {
+          console.log('✅ 服务器已停止接受新连接');
+          clearTimeout(forceShutdownTimeout);
+
+          // 第2步：关闭数据库
+          try {
+            await dbManager.close();
+            console.log('✅ 数据库连接已关闭');
+          } catch (dbErr) {
+            console.error('⚠️  关闭数据库时出错:', dbErr.message);
+          }
+
+          resolve();
+        });
+
+        // 等待一小段时间让现有请求完成
+        setTimeout(() => {
+          // 优雅关闭所有连接
+          console.log(`📊 关闭 ${activeConnections.size} 个活跃连接...`);
+          activeConnections.forEach(socket => {
+            try {
+              socket.end();  // 优雅关闭
+            } catch (e) {
+              socket.destroy();  // 如果优雅关闭失败，强制销毁
+            }
+          });
+        }, 500);
+      } else {
+        // 没有服务器在运行
+        clearTimeout(forceShutdownTimeout);
+        await dbManager.close();
+        resolve();
+      }
+    } catch (error) {
+      clearTimeout(forceShutdownTimeout);
+      console.error('❌ 停止服务器时出错:', error.message);
+      resolve(); // 即使出错也要resolve，避免hang住
+    }
+  });
 }
 
 // 应用事件处理
@@ -263,14 +363,21 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', async () => {
+  console.log('📌 所有窗口已关闭');
   await stopInternalServer();
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
-app.on('before-quit', async () => {
-  await stopInternalServer();
+// 使用 will-quit 而不是 before-quit，并阻止默认行为直到清理完成
+app.on('will-quit', async (event) => {
+  if (!isQuitting) {
+    event.preventDefault();  // 阻止立即退出
+    console.log('📌 应用即将退出，执行清理...');
+    await stopInternalServer();
+    app.quit();  // 清理完成后再退出
+  }
 });
 
 // IPC 事件处理
@@ -404,12 +511,39 @@ ipcMain.handle('open-admin-window', () => {
   return { success: true };
 });
 
+// 处理进程信号（Ctrl+C、强制终止等）
+process.on('SIGINT', async () => {
+  console.log('\n📌 收到 SIGINT 信号 (Ctrl+C)，执行清理...');
+  await stopInternalServer();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('\n📌 收到 SIGTERM 信号，执行清理...');
+  await stopInternalServer();
+  process.exit(0);
+});
+
+// Windows特定信号
+if (process.platform === 'win32') {
+  process.on('SIGBREAK', async () => {
+    console.log('\n📌 收到 SIGBREAK 信号，执行清理...');
+    await stopInternalServer();
+    process.exit(0);
+  });
+}
+
 // 处理未捕获的异常
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  dialog.showErrorBox('应用程序错误', error.message);
+  console.error('❌ Uncaught Exception:', error);
+  // 不要在这里调用 dialog，可能会导致问题
+  // 记录错误并优雅退出
+  stopInternalServer().then(() => {
+    process.exit(1);
+  });
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  // 警告但不退出，继续运行
 });

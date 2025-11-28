@@ -5373,6 +5373,55 @@
 
 /* ===== 统计关系分析面板样式 ===== */
 
+/* 子导航按钮 */
+.stats-sub-nav {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.stats-sub-nav-btn {
+    padding: 10px 24px;
+    background: linear-gradient(135deg, #f0f2f5 0%, #e9ecef 100%);
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #495057;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    outline: none;
+}
+
+.stats-sub-nav-btn:hover {
+    background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
+    border-color: #007bff;
+    color: #007bff;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.2);
+}
+
+.stats-sub-nav-btn.active {
+    background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+    border-color: #0056b3;
+    color: white;
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+}
+
+.stats-sub-nav-btn.active:hover {
+    background: linear-gradient(135deg, #0056b3 0%, #004085 100%);
+    transform: translateY(-1px);
+}
+
+/* 分析面板显示控制 */
+.stats-analysis-panel {
+    display: none;
+}
+
+.stats-analysis-panel.active {
+    display: block;
+}
+
 .stats-relation-container {
     max-width: 1400px;
     margin: 0 auto;
@@ -5672,15 +5721,15 @@
     font-size: 16px;
 }
 
-/* TOP3统计卡片网格 */
-.stats-top3-grid {
+/* TOP6统计卡片网格 */
+.stats-top6-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 16px;
     margin-bottom: 24px;
 }
 
-.stats-top3-card {
+.stats-top6-card {
     background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
     border-radius: 10px;
     padding: 16px;
@@ -5688,13 +5737,13 @@
     transition: all 0.3s ease;
 }
 
-.stats-top3-card:hover {
+.stats-top6-card:hover {
     border-color: #007bff;
     box-shadow: 0 4px 12px rgba(0, 123, 255, 0.15);
     transform: translateY(-2px);
 }
 
-.stats-top3-card h5 {
+.stats-top6-card h5 {
     margin: 0 0 12px 0;
     font-size: 14px;
     color: #6c757d;

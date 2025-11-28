@@ -1,5 +1,5 @@
 /**
- * 根据HIT_DLT表重新生成遗漏值数据
+ * 根据hit_dlts表重新生成遗漏值数据
  * 生成表: DLTRedMissing 和 DLTBlueMissing
  */
 
@@ -12,7 +12,7 @@ async function connectDB() {
     console.log('✅ 数据库连接成功: lottery');
 }
 
-// HIT_DLT Schema
+// hit_dlts Schema
 const dltSchema = new mongoose.Schema({
     ID: { type: Number, required: true, unique: true },
     Issue: { type: Number, required: true, unique: true },
@@ -26,7 +26,7 @@ const dltSchema = new mongoose.Schema({
     DrawDate: { type: Date, required: true }
 });
 
-const DLT = mongoose.model('HIT_DLT', dltSchema);
+const hit_dlts = mongoose.model('hit_dlts', dltSchema);
 
 // 计算热温冷比
 function calculateHotWarmColdRatio(missingValues) {
@@ -49,7 +49,7 @@ async function generateMissingValues() {
         console.log('\n🔄 开始生成遗漏值数据...\n');
 
         // 获取所有开奖记录，按期号升序
-        const allRecords = await DLT.find({}).sort({ Issue: 1 }).lean();
+        const allRecords = await hit_dlts.find({}).sort({ Issue: 1 }).lean();
         console.log(`📊 共 ${allRecords.length} 期数据`);
 
         if (allRecords.length === 0) {
@@ -119,7 +119,7 @@ async function generateMissingValues() {
         // 清空旧数据
         console.log('\n🗑️  清空旧的遗漏值数据...');
         await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories').deleteMany({});
-        await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').deleteMany({});
+        await mongoose.connection.db.collection('hit_dlts').deleteMany({});
         console.log('✅ 旧数据已清空');
 
         // 批量插入新数据
@@ -134,7 +134,7 @@ async function generateMissingValues() {
 
         for (let i = 0; i < blueMissingRecords.length; i += batchSize) {
             const batch = blueMissingRecords.slice(i, i + batchSize);
-            await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').insertMany(batch);
+            await mongoose.connection.db.collection('hit_dlts').insertMany(batch);
             console.log(`   蓝球遗漏: ${Math.min(i + batchSize, blueMissingRecords.length)} / ${blueMissingRecords.length}`);
         }
 
@@ -142,7 +142,7 @@ async function generateMissingValues() {
 
         // 验证结果
         const redCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories').countDocuments();
-        const blueCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').countDocuments();
+        const blueCount = await mongoose.connection.db.collection('hit_dlts').countDocuments();
         const latestRed = await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories')
             .findOne({}, { sort: { Issue: -1 } });
 

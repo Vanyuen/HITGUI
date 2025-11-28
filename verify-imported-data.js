@@ -6,10 +6,10 @@ async function verifyData() {
         await mongoose.connect('mongodb://127.0.0.1:27017/lottery');
         console.log('✅ 连接到MongoDB\n');
 
-        const DLT = mongoose.model('HIT_DLT', new mongoose.Schema({}, { strict: false, collection: 'HIT_DLT' }));
+        const hit_dlts = mongoose.model('hit_dlts', new mongoose.Schema({}, { strict: false, collection: 'hit_dlts' }));
 
         // 查询最新导入的两条记录
-        const records = await DLT.find({ Issue: { $in: ['25120', '25121'] } })
+        const records = await hit_dlts.find({ Issue: { $in: ['25120', '25121'] } })
             .sort({ Issue: -1 })
             .lean();
 

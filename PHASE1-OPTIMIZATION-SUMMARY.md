@@ -69,13 +69,13 @@ for (let id = 1; id <= PERFORMANCE_CONSTANTS.TOTAL_DLT_RED_COMBINATIONS; id++) {
 ### ✅ A3: 添加数据库降序索引
 
 **问题**:
-- `DLT.find({Issue: {$lt: targetIssue}}).sort({Issue: -1})` 查询慢
+- `hit_dlts.find({Issue: {$lt: targetIssue}}).sort({Issue: -1})` 查询慢
 - `DLTRedMissing.find({ID: {$lt: targetID}})` 查询慢
 
 **解决方案** (第1026-1027行, 第1036-1037行):
 ```javascript
-// DLT主表索引
-await DLT.collection.createIndex({ Issue: -1 }, { background: true });
+// hit_dlts主表索引
+await hit_dlts.collection.createIndex({ Issue: -1 }, { background: true });
 
 // DLTRedMissing表索引
 await DLTRedMissing.collection.createIndex({ ID: -1 }, { background: true });
@@ -147,7 +147,7 @@ node test-phase1-performance.js
 1. **第54-62行**: 新增性能优化常量
 2. **第13868行**: 使用硬编码常量替代数据库查询
 3. **第13879-13891行**: 使用 Set 优化ID查找
-4. **第1026-1027行**: 添加 DLT.Issue 降序索引
+4. **第1026-1027行**: 添加 hit_dlts.Issue 降序索引
 5. **第1036-1037行**: 添加 DLTRedMissing.ID 降序索引
 
 ### 新增的文件
@@ -242,7 +242,7 @@ basicExcludedIds = allCombinationIds.filter(id => !retainedIds.has(id));
 ### 回滚 A3
 ```javascript
 // 删除索引（可选，不影响功能）
-await DLT.collection.dropIndex({ Issue: -1 });
+await hit_dlts.collection.dropIndex({ Issue: -1 });
 await DLTRedMissing.collection.dropIndex({ ID: -1 });
 ```
 

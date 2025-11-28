@@ -257,7 +257,7 @@ GET /api/dlt/hwc-positive-tasks/:task_id/period/:period/combination/:combo_id/ex
 
 ## 六、中奖规则与计算
 
-### 大乐透（DLT）中奖规则
+### 大乐透（hit_dlts）中奖规则
 
 | 等级 | 红球 | 蓝球 | 奖金 |
 |-----|------|------|------|

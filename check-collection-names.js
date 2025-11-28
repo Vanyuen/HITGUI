@@ -33,7 +33,7 @@ const { MongoClient } = require('mongodb');
 
   const namesToTry = [
     'hit_dlt_bluecombinations',
-    'HIT_DLT_BlueCombinations',
+    'hit_dlts',
     'hit_dlt_BlueCombinations',
     'HIT_DLT_bluecombinations'
   ];

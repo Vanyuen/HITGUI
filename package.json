@@ -4,8 +4,8 @@
   "description": "HIT双色球和大乐透数据分析系统 - GUI客户端版本",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron . --dev",
+    "start": "electron . --js-flags=\"--max-old-space-size=8192\"",
+    "dev": "electron . --dev --js-flags=\"--max-old-space-size=8192\"",
     "build": "electron-builder",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
@@ -29,9 +29,13 @@
     "electron-store": "^8.1.0",
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
+    "lodash": "^4.17.21",
     "mongodb-memory-server": "^8.16.0",
     "mongoose": "^6.13.8",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "p-limit": "^3.1.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
     "electron": "^25.9.0",

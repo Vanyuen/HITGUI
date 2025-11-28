@@ -38,7 +38,7 @@ const { MongoClient } = require('mongodb');
   console.log('✅ 已清空');
 
   // 4. 从源集合读取数据
-  const sourceCollection = db.collection('HIT_DLT_BlueCombinations');
+  const sourceCollection = db.collection('hit_dlts');
   const allData = await sourceCollection.find({}).toArray();
   console.log(`\n读取源数据: ${allData.length}条`);
 

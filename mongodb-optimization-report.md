@@ -429,7 +429,7 @@ db.hit_dlt_exclusiondetails.countDocuments()
 
 ```javascript
 // 查询最新期号
-const latestIssue = await DLT.findOne().sort({ Issue: -1 });
+const latestIssue = await hit_dlts.findOne().sort({ Issue: -1 });
 
 // 计算200期前的期号
 const cutoffIssue = (parseInt(latestIssue.Issue) - 200).toString();

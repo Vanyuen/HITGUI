@@ -38,7 +38,7 @@ const dltSchema = new mongoose.Schema({
     Blue2: { type: Number, required: true },
     DrawDate: { type: Date, required: true }
 });
-const DLT = mongoose.model('HIT_DLT', dltSchema);
+const hit_dlts = mongoose.model('hit_dlts', dltSchema);
 
 const dltComboFeaturesSchema = new mongoose.Schema({
     ID: { type: Number, required: true, unique: true, index: true },
@@ -109,7 +109,7 @@ async function generateComboFeatures() {
 
         // 1. 获取所有历史开奖记录（按ID排序）
         console.log('📊 正在读取历史开奖记录...');
-        const allRecords = await DLT.find({}).sort({ ID: 1 }).lean();
+        const allRecords = await hit_dlts.find({}).sort({ ID: 1 }).lean();
         console.log(`✅ 共读取 ${allRecords.length} 期历史数据\n`);
 
         if (allRecords.length === 0) {

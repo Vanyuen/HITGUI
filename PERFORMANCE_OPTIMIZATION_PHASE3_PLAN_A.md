@@ -586,7 +586,7 @@ async function createOptimizedIndexes() {
 
         // 1. 红球组合复合索引
         console.log('📊 创建红球组合复合索引...');
-        await db.collection('HIT_DLT_RedCombinations').createIndex(
+        await db.collection('hit_dlts').createIndex(
             {
                 sum_value: 1,
                 span_value: 1
@@ -597,7 +597,7 @@ async function createOptimizedIndexes() {
             }
         );
 
-        await db.collection('HIT_DLT_RedCombinations').createIndex(
+        await db.collection('hit_dlts').createIndex(
             {
                 zone_ratio: 1,
                 odd_even_ratio: 1
@@ -624,7 +624,7 @@ async function createOptimizedIndexes() {
 
         // 3. 历史数据索引
         console.log('📊 创建历史数据索引...');
-        await db.collection('HIT_DLT').createIndex(
+        await db.collection('hit_dlts').createIndex(
             { Issue: 1 },
             {
                 name: 'idx_issue',
@@ -635,7 +635,7 @@ async function createOptimizedIndexes() {
         console.log('✅ 所有索引创建完成');
 
         // 查看索引
-        const collections = ['HIT_DLT_RedCombinations', 'HIT_DLT_RedCombinationsHotWarmColdOptimized', 'HIT_DLT'];
+        const collections = ['hit_dlts', 'HIT_DLT_RedCombinationsHotWarmColdOptimized', 'hit_dlts'];
         for (const collName of collections) {
             const indexes = await db.collection(collName).indexes();
             console.log(`\n📋 ${collName} 索引列表:`);
@@ -671,7 +671,7 @@ class DatabaseManager {
             const db = this.mongoose.connection.db;
 
             // 检查索引是否存在
-            const existing = await db.collection('HIT_DLT_RedCombinations').indexes();
+            const existing = await db.collection('hit_dlts').indexes();
             const hasOptimized = existing.some(idx => idx.name === 'idx_sum_span');
 
             if (!hasOptimized) {

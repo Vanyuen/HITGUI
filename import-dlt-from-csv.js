@@ -36,7 +36,7 @@ const dltSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
-const DLT = mongoose.model('HIT_DLT', dltSchema);
+const hit_dlts = mongoose.model('hit_dlts', dltSchema);
 
 // 解析CSV行
 function parseCSVLine(line) {
@@ -88,7 +88,7 @@ async function importCSV(csvPath) {
 
         // 清空现有数据
         console.log('🗑️  清空现有数据...');
-        await DLT.deleteMany({});
+        await hit_dlts.deleteMany({});
         console.log('✅ 数据已清空\n');
 
         // 批量插入数据
@@ -135,7 +135,7 @@ async function importCSV(csvPath) {
             }
 
             if (records.length > 0) {
-                await DLT.insertMany(records, { ordered: false });
+                await hit_dlts.insertMany(records, { ordered: false });
                 totalImported += records.length;
                 console.log(`✅ 已导入: ${totalImported} / ${dataLines.length}`);
             }
@@ -156,14 +156,14 @@ async function importCSV(csvPath) {
 
         // 验证结果
         console.log('\n验证导入结果:');
-        const count = await DLT.countDocuments();
+        const count = await hit_dlts.countDocuments();
         console.log(`📊 数据库记录总数: ${count}`);
 
-        const sample = await DLT.findOne().sort({ Issue: 1 });
+        const sample = await hit_dlts.findOne().sort({ Issue: 1 });
         console.log('\n示例记录（最早期号）:');
         console.log(JSON.stringify(sample, null, 2));
 
-        const latest = await DLT.findOne().sort({ Issue: -1 });
+        const latest = await hit_dlts.findOne().sort({ Issue: -1 });
         console.log('\n示例记录（最新期号）:');
         console.log(JSON.stringify(latest, null, 2));
 

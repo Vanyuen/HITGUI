@@ -16,7 +16,7 @@
 **代码位置**：`src/server/server.js:11168-11171`（修复前）
 
 ```javascript
-const issueRecord = await DLT.findOne({ Issue: issue });
+const issueRecord = await hit_dlts.findOne({ Issue: issue });
 if (!issueRecord) {
     throw new Error(`期号${issue}不存在`);  // ❌ 直接抛出异常
 }
@@ -48,7 +48,7 @@ if (!issueRecord) {
 
 ```javascript
 // ✅ 修复推算期BUG：检查期号是否存在，如果不存在则为推算期
-let issueRecord = await DLT.findOne({ Issue: issue });
+let issueRecord = await hit_dlts.findOne({ Issue: issue });
 let currentPeriodID;
 let isPredictedPeriod = false;
 
@@ -57,7 +57,7 @@ if (!issueRecord) {
     log(`⭐ [${this.sessionId}] 期号${issue}不存在，判定为推算期，使用上一期数据`);
     isPredictedPeriod = true;
 
-    const previousIssue = await DLT.findOne({ Issue: parseInt(issue) - 1 });
+    const previousIssue = await hit_dlts.findOne({ Issue: parseInt(issue) - 1 });
     if (!previousIssue) {
         throw new Error(`推算期${issue}的上一期(Issue=${parseInt(issue) - 1})不存在`);
     }
@@ -136,7 +136,7 @@ log(`🔧 [${this.sessionId}] 基础查询条件: ${JSON.stringify(baseQuery)}`)
 #### 和值排除（历史）
 ```javascript
 // 查询最近N期的和值
-await DLT.find({ ID: { $lt: currentPeriodID } }).sort({ ID: -1 }).limit(count);
+await hit_dlts.find({ ID: { $lt: currentPeriodID } }).sort({ ID: -1 }).limit(count);
 ```
 - 推算期25122使用ID=120（25121的ID）
 - 查询ID<120的数据 ✅ 正确
@@ -155,7 +155,7 @@ await DLTRedCombinationsHotWarmColdOptimized.findOne({
 #### 相克排除
 ```javascript
 // 查询最近N期的相克对
-await DLT.find({ Issue: { $lt: parseInt(issue) } }).sort({ Issue: -1 }).limit(count);
+await hit_dlts.find({ Issue: { $lt: parseInt(issue) } }).sort({ Issue: -1 }).limit(count);
 ```
 - 查询Issue<25122的数据
 - 包含25121及之前的所有数据 ✅ 正确
@@ -163,8 +163,8 @@ await DLT.find({ Issue: { $lt: parseInt(issue) } }).sort({ Issue: -1 }).limit(co
 #### 同出排除
 ```javascript
 // 查询最近N期的同出组合
-const targetIssue = await DLT.findOne({ Issue: parseInt(issue) });
-await DLT.find({ ID: { $lt: targetIssue.ID } }).sort({ ID: -1 }).limit(periods);
+const targetIssue = await hit_dlts.findOne({ Issue: parseInt(issue) });
+await hit_dlts.find({ ID: { $lt: targetIssue.ID } }).sort({ ID: -1 }).limit(periods);
 ```
 - 原逻辑：需要目标期的ID
 - **修复后**：推算期使用上一期的ID

@@ -11,13 +11,13 @@ const DB_NAME = 'lottery';
 
 // server.js 中的模型定义 (行号: 模型名 => 期望的集合名)
 const MODEL_MAPPINGS = {
-  230: { model: 'HIT_DLT', schema: 'dltSchema', collection: 'hit_dlts' },
+  230: { model: 'hit_dlts', schema: 'dltSchema', collection: 'hit_dlts' },
   256: { model: 'HIT_DLT_ComboFeatures', collection: 'hit_dlt_combofeatures' },
-  400: { model: 'HIT_DLT_RedCombinations', collection: 'hit_dlt_redcombinations' },
-  416: { model: 'HIT_DLT_BlueCombinations', collection: 'HIT_DLT_BlueCombinations' }, // schema中指定
+  400: { model: 'hit_dlts', collection: 'hit_dlt_redcombinations' },
+  416: { model: 'hit_dlts', collection: 'hit_dlts' }, // schema中指定
   462: { model: 'HIT_DLT_RedCombinationsHotWarmColdOptimized', collection: 'hit_dlt_redcombinationshotwarmcoldoptimizeds' },
   505: { model: 'HIT_DLT_Basictrendchart_redballmissing_history', collection: 'hit_dlt_basictrendchart_redballmissing_histories' },
-  519: { model: 'HIT_DLT_Basictrendchart_blueballmissing_history', collection: 'hit_dlt_basictrendchart_blueballmissing_histories' },
+  519: { model: 'HIT_DLT_Basictrendchart_blueballmissing_history', collection: 'hit_dlts' },
   837: { model: 'HIT_DLT_PredictionTask', collection: 'hit_dlt_predictiontasks' },
   1003: { model: 'HIT_DLT_PredictionTaskResult', collection: 'hit_dlt_predictiontaskresults' },
   1034: { model: 'HIT_DLT_ExclusionDetails', collection: 'hit_dlt_exclusiondetails' },
@@ -124,8 +124,8 @@ async function verify() {
     console.log('='.repeat(100));
 
     const keyChecks = [
-      { model: 'HIT_DLT (主数据表)', expected: 'hit_dlts' },
-      { model: 'HIT_DLT_RedCombinations (红球组合)', expected: 'hit_dlt_redcombinations' },
+      { model: 'hit_dlts (主数据表)', expected: 'hit_dlts' },
+      { model: 'hit_dlts (红球组合)', expected: 'hit_dlt_redcombinations' },
       { model: 'HIT_DLT_RedCombinationsHotWarmColdOptimized (热温冷优化表)', expected: 'hit_dlt_redcombinationshotwarmcoldoptimizeds' }
     ];
 

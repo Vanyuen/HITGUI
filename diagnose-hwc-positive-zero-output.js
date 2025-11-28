@@ -1,26 +1,16 @@
 /**
- * 诊断热温冷正选批量预测输出0组合的问题
- *
- * 分析目标:
- * 1. 检查基础数据完整性（期号范围、历史数据）
- * 2. 验证热温冷比4:1:0的条件是否过于严格
- * 3. 检查组合筛选逻辑是否有bug
- * 4. 找出被排除的原因统计
+ * 诊断热温冷正选批量预测任务结果统计
+ * 检查保留组合数为0的根本原因
  */
 
-const { MongoClient } = require('mongodb');
-
-const MONGO_URI = 'mongodb://127.0.0.1:27017';
-const DB_NAME = 'lottery';
+const mongoose = require('mongoose');
 
 async function diagnose() {
-  const client = new MongoClient(MONGO_URI);
-
   try {
-    await client.connect();
+    await mongoose.connect('mongodb://127.0.0.1:27017/lottery');
     console.log('✅ 已连接到MongoDB\n');
 
-    const db = client.db(DB_NAME);
+    const db = mongoose.connection.db;
 
     // 任务参数（从用户描述中提取）
     const taskParams = {
@@ -44,7 +34,7 @@ async function diagnose() {
     console.log('🔍 第一步: 检查期号范围数据完整性');
     console.log('='.repeat(60));
 
-    const issuesInRange = await db.collection('HIT_DLT')
+    const issuesInRange = await db.collection('hit_dlts')
       .find({
         Issue: {
           $gte: taskParams.issueRange.start,
@@ -77,7 +67,7 @@ async function diagnose() {
     console.log('='.repeat(60));
 
     // 随机抽取100个组合进行测试
-    const sampleCombos = await db.collection('HIT_DLT_RedCombinations')
+    const sampleCombos = await db.collection('hit_dlts')
       .aggregate([
         { $sample: { size: 100 } }
       ])
@@ -189,7 +179,7 @@ async function diagnose() {
       ]
     };
 
-    const baseMatchCount = await db.collection('HIT_DLT_RedCombinations')
+    const baseMatchCount = await db.collection('hit_dlts')
       .countDocuments(baseQuery);
 
     console.log(`✅ 符合区间比和奇偶比的组合: ${baseMatchCount}`);

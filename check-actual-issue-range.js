@@ -17,17 +17,17 @@ async function checkIssueRange() {
     const db = client.db(DB_NAME);
 
     // 获取总数
-    const totalCount = await db.collection('HIT_DLT').countDocuments();
+    const totalCount = await db.collection('hit_dlts').countDocuments();
     console.log(`📊 数据库中共有 ${totalCount} 期数据\n`);
 
     // 获取最早和最新的期号
-    const earliest = await db.collection('HIT_DLT')
+    const earliest = await db.collection('hit_dlts')
       .find({})
       .sort({ Issue: 1 })
       .limit(1)
       .toArray();
 
-    const latest = await db.collection('HIT_DLT')
+    const latest = await db.collection('hit_dlts')
       .find({})
       .sort({ Issue: -1 })
       .limit(1)
@@ -42,7 +42,7 @@ async function checkIssueRange() {
 
     // 获取最近10期数据
     console.log('📋 最近10期数据:');
-    const recent10 = await db.collection('HIT_DLT')
+    const recent10 = await db.collection('hit_dlts')
       .find({})
       .sort({ Issue: -1 })
       .limit(10)
@@ -58,7 +58,7 @@ async function checkIssueRange() {
 
     // 检查25115-25125范围
     console.log('🔍 检查用户输入的期号范围25115-25125:');
-    const userRange = await db.collection('HIT_DLT')
+    const userRange = await db.collection('hit_dlts')
       .find({ Issue: { $gte: '25115', $lte: '25125' } })
       .sort({ Issue: 1 })
       .toArray();
@@ -79,7 +79,7 @@ async function checkIssueRange() {
 
     // 检查期号格式
     console.log('🔍 检查期号格式:');
-    const sampleIssues = await db.collection('HIT_DLT')
+    const sampleIssues = await db.collection('hit_dlts')
       .find({})
       .sort({ Issue: -1 })
       .limit(5)

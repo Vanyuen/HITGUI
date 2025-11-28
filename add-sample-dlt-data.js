@@ -23,7 +23,7 @@ const DLTSchema = new mongoose.Schema({
     Blue1: Number,
     Blue2: Number,
     DrawDate: Date
-}, { collection: 'HIT_DLT' });
+}, { collection: 'hit_dlts' });
 
 const DLTRedMissingSchema = new mongoose.Schema({
     ID: Number,
@@ -66,7 +66,7 @@ const DLTRedMissingSchema = new mongoose.Schema({
     FrontHotWarmColdRatio: String
 }, { collection: 'HIT_DLT_RedMissing' });
 
-const DLT = mongoose.model('DLT', DLTSchema);
+const hit_dlts = mongoose.model('hit_dlts', DLTSchema);
 const DLTRedMissing = mongoose.model('DLTRedMissing', DLTRedMissingSchema);
 
 // 生成最近30期的示例数据
@@ -105,7 +105,7 @@ async function generateSampleData() {
         // 生成开奖日期
         const drawDate = new Date(2025, 9, 1 + i * 2); // 每2天一期
 
-        // DLT主表数据
+        // hit_dlts主表数据
         dltData.push({
             ID: id,
             Issue: issue,
@@ -151,12 +151,12 @@ async function generateSampleData() {
 
     try {
         // 删除现有数据
-        await DLT.deleteMany({});
+        await hit_dlts.deleteMany({});
         await DLTRedMissing.deleteMany({});
         console.log('✅ 清除现有数据完成');
 
         // 插入新数据
-        await DLT.insertMany(dltData);
+        await hit_dlts.insertMany(dltData);
         console.log(`✅ 已插入 ${dltData.length} 期大乐透开奖数据`);
 
         await DLTRedMissing.insertMany(missingData);

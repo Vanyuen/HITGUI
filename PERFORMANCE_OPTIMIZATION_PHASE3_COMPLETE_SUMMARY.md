@@ -379,7 +379,7 @@
 ### 数据库索引日志
 ```bash
 # MongoDB查询计划分析
-db.HIT_DLT_RedCombinations.find({
+db.hit_dlts.find({
     sum_value: { $gte: 60, $lte: 100 },
     span_value: { $gte: 10, $lte: 20 }
 }).explain('executionStats')

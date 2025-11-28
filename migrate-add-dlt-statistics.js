@@ -1,9 +1,9 @@
 /**
  * 大乐透统计数据迁移脚本
- * 为HIT_DLT表的所有历史数据添加statistics字段
+ * 为hit_dlts表的所有历史数据添加statistics字段
  *
  * 功能：
- * 1. 读取所有DLT开奖记录
+ * 1. 读取所有hit_dlts开奖记录
  * 2. 计算8个统计指标（和值、跨度、热温冷比、区间比、AC值、奇偶比等）
  * 3. 更新到statistics字段
  * 4. 显示迁移进度
@@ -91,7 +91,7 @@ const dltRedMissingSchema = new mongoose.Schema({
     FrontHotWarmColdRatio: String  // 格式: "2:2:1"
 }, { strict: false });  // 允许动态字段
 
-const DLT = mongoose.model('HIT_DLT', dltSchema);
+const hit_dlts = mongoose.model('hit_dlts', dltSchema);
 const DLTRedMissing = mongoose.model('HIT_DLT_Basictrendchart_redballmissing_history', dltRedMissingSchema);
 
 // ===== 主迁移函数 =====
@@ -106,9 +106,9 @@ async function migrateStatistics() {
         await mongoose.connect(MONGODB_URI);
         console.log('✅ 数据库连接成功');
 
-        // 获取所有DLT记录（按ID升序，保证从旧到新处理）
-        console.log('\n📊 读取DLT开奖数据...');
-        const dltRecords = await DLT.find().sort({ ID: 1 }).lean();
+        // 获取所有hit_dlts记录（按ID升序，保证从旧到新处理）
+        console.log('\n📊 读取hit_dlts开奖数据...');
+        const dltRecords = await hit_dlts.find().sort({ ID: 1 }).lean();
         console.log(`✅ 找到 ${dltRecords.length} 条记录\n`);
 
         if (dltRecords.length === 0) {
@@ -216,7 +216,7 @@ async function migrateStatistics() {
 
             // 批量执行更新
             if (updateOperations.length > 0) {
-                await DLT.bulkWrite(updateOperations);
+                await hit_dlts.bulkWrite(updateOperations);
             }
 
             // 显示进度
@@ -239,7 +239,7 @@ async function migrateStatistics() {
 
         // 验证迁移结果
         console.log('\n🔍 验证迁移结果...');
-        const sampleRecord = await DLT.findOne({ 'statistics.frontSum': { $exists: true } }).lean();
+        const sampleRecord = await hit_dlts.findOne({ 'statistics.frontSum': { $exists: true } }).lean();
         if (sampleRecord && sampleRecord.statistics) {
             console.log('✅ 迁移验证通过');
             console.log('\n📋 示例数据:');

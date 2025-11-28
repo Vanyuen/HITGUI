@@ -1,6 +1,6 @@
 /**
  * 修复热温冷比数据脚本
- * 问题：所有2780条DLT记录的statistics.frontHotWarmColdRatio都是"0:0:5"
+ * 问题：所有2780条hit_dlts记录的statistics.frontHotWarmColdRatio都是"0:0:5"
  * 解决：重新计算每期的正确热温冷比
  */
 
@@ -13,7 +13,7 @@ const MONGODB_URI = 'mongodb://localhost:27017/lottery';
 const dltSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlts' });
 const redMissingSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlt_basictrendchart_redballmissing_histories' });
 
-let DLT, DLTRedMissing;
+let hit_dlts, DLTRedMissing;
 
 /**
  * 计算热温冷比
@@ -73,13 +73,13 @@ async function fixHotWarmColdRatios() {
         console.log('✅ MongoDB连接成功\n');
 
         // 初始化模型
-        DLT = mongoose.models.HIT_DLT || mongoose.model('HIT_DLT', dltSchema);
+        hit_dlts = mongoose.models.hit_dlts || mongoose.model('hit_dlts', dltSchema);
         DLTRedMissing = mongoose.models.HIT_DLT_Basictrendchart_redballmissing_history ||
                         mongoose.model('HIT_DLT_Basictrendchart_redballmissing_history', redMissingSchema);
 
-        // 获取所有DLT记录（按期号升序，方便处理上一期）
-        console.log('📊 查询所有DLT记录...');
-        const allRecords = await DLT.find({})
+        // 获取所有hit_dlts记录（按期号升序，方便处理上一期）
+        console.log('📊 查询所有hit_dlts记录...');
+        const allRecords = await hit_dlts.find({})
             .select('Issue Red1 Red2 Red3 Red4 Red5 statistics')
             .sort({ Issue: 1 })
             .lean();
@@ -157,7 +157,7 @@ async function fixHotWarmColdRatios() {
 
             // 更新数据库
             try {
-                await DLT.updateOne(
+                await hit_dlts.updateOne(
                     { Issue: currentIssue },
                     {
                         $set: {
@@ -199,7 +199,7 @@ async function fixHotWarmColdRatios() {
  */
 async function verifyFixedData() {
     // 统计不同热温冷比的分布
-    const allRecords = await DLT.find({
+    const allRecords = await hit_dlts.find({
         'statistics.frontHotWarmColdRatio': { $exists: true, $ne: null }
     })
     .select('statistics.frontHotWarmColdRatio')

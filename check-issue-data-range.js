@@ -7,13 +7,13 @@ const { MongoClient } = require('mongodb');
   console.log('=== 检查开奖数据范围 ===\n');
 
   // 获取最新和最旧的期号
-  const latest = await db.collection('HIT_DLT')
+  const latest = await db.collection('hit_dlts')
     .find({})
     .sort({ Issue: -1 })
     .limit(1)
     .toArray();
 
-  const oldest = await db.collection('HIT_DLT')
+  const oldest = await db.collection('hit_dlts')
     .find({})
     .sort({ Issue: 1 })
     .limit(1)
@@ -25,7 +25,7 @@ const { MongoClient } = require('mongodb');
 
   // 检查25074-25125范围内的数据
   console.log('\n检查任务期号范围 (25074-25125):');
-  const issuesInRange = await db.collection('HIT_DLT')
+  const issuesInRange = await db.collection('hit_dlts')
     .find({
       Issue: {
         $gte: '25074',
@@ -44,7 +44,7 @@ const { MongoClient } = require('mongodb');
 
   // 检查最近的几期
   console.log('\n最近10期开奖数据:');
-  const recent = await db.collection('HIT_DLT')
+  const recent = await db.collection('hit_dlts')
     .find({})
     .sort({ Issue: -1 })
     .limit(10)

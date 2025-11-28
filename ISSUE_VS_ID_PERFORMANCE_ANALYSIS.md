@@ -16,7 +16,7 @@ for (const issue of issuesBatch) {  // 例如: ['25001', '25002', ..., '25051']
     // ==========================================
     // 步骤1: 查询期号记录 (数据库I/O)
     // ==========================================
-    let issueRecord = await DLT.findOne({ Issue: issue });
+    let issueRecord = await hit_dlts.findOne({ Issue: issue });
     // MongoDB查询: Issue字段 (字符串类型)
     // 索引: { Issue: 1 }
     // 耗时: ~5-10ms/期 (包含网络延迟)
@@ -28,7 +28,7 @@ for (const issue of issuesBatch) {  // 例如: ['25001', '25002', ..., '25051']
         // 推算期处理
         isPredictedPeriod = true;
         const previousIssue = parseInt(issue) - 1;
-        const previousRecord = await DLT.findOne({ Issue: previousIssue });
+        const previousRecord = await hit_dlts.findOne({ Issue: previousIssue });
         // ⚠️ 又一次数据库查询
         currentPeriodID = previousRecord ? previousRecord.ID + 1 : null;
     } else {
@@ -41,7 +41,7 @@ for (const issue of issuesBatch) {  // 例如: ['25001', '25002', ..., '25051']
     let basePeriodIDForHistory;
     if (isPredictedPeriod) {
         const previousIssue = parseInt(issue) - 1;
-        const previousRecord = await DLT.findOne({ Issue: previousIssue });
+        const previousRecord = await hit_dlts.findOne({ Issue: previousIssue });
         // ⚠️ 可能是重复查询 (如果上面已查过)
         basePeriodIDForHistory = previousRecord?.ID;
     } else {
@@ -98,7 +98,7 @@ for (const issue of issuesBatch) {  // 例如: ['25001', '25002', ..., '25051']
 └──────────────────────────────────────────────────────────┘
 
 注释:
-① 每期查询 DLT.findOne({ Issue: '25001' })
+① 每期查询 hit_dlts.findOne({ Issue: '25001' })
 ② 历史排除需要查询上一期的ID
 ③ 正选筛选是最大瓶颈,占总时间50%
 ```
@@ -110,7 +110,7 @@ for (const issue of issuesBatch) {  // 例如: ['25001', '25002', ..., '25051']
 ### 2.1 数据库表结构
 
 ```javascript
-// MongoDB Collection: hit_dlt
+// MongoDB Collection: hit_dlts
 {
   _id: ObjectId("..."),
   ID: 2156,              // 整数, 连续递增 (1,2,3,...)
@@ -163,7 +163,7 @@ for (const issue of issuesBatch) {  // 例如: ['25001', '25002', ..., '25051']
 │                 后端API层 (转换层)                       │
 │  1. 接收 Issue范围: 25001-25120                         │
 │  2. 查询映射: Issue → ID                                 │
-│     SELECT ID, Issue FROM hit_dlt                       │
+│     SELECT ID, Issue FROM hit_dlts                       │
 │     WHERE Issue BETWEEN 25001 AND 25120                 │
 │     ORDER BY ID ASC                                     │
 │     结果: [(ID:2000, Issue:25001),                      │
@@ -220,8 +220,8 @@ for (const issue of issuesBatch) {  // 例如: ['25001', '25002', ..., '25051']
 **现状**:
 ```javascript
 // 每期2次Issue查询
-const issueRecord = await DLT.findOne({ Issue: issue });  // 5-10ms
-const previousRecord = await DLT.findOne({ Issue: issue-1 }); // 5-10ms
+const issueRecord = await hit_dlts.findOne({ Issue: issue });  // 5-10ms
+const previousRecord = await hit_dlts.findOne({ Issue: issue-1 }); // 5-10ms
 
 // 51期累计: 102次查询 × 7.5ms = 765ms
 ```
@@ -230,7 +230,7 @@ const previousRecord = await DLT.findOne({ Issue: issue-1 }); // 5-10ms
 ```javascript
 // 启动时一次性加载ID-Issue映射
 const idIssueMap = new Map();  // Map<ID, {ID, Issue, Red1-5, Blue1-2, ...}>
-await DLT.find({}).select('ID Issue Red1 Red2 Red3 Red4 Red5').lean()
+await hit_dlts.find({}).select('ID Issue Red1 Red2 Red3 Red4 Red5').lean()
     .then(docs => docs.forEach(d => idIssueMap.set(d.ID, d)));
 
 // 期号处理: 0次查询
@@ -247,7 +247,7 @@ const record = idIssueMap.get(periodID);  // O(1) 内存查询
 **现状**:
 ```javascript
 // 历史和值排除: 需要查询最近N期
-const historicalIssues = await DLT.find({
+const historicalIssues = await hit_dlts.find({
     Issue: { $lt: targetIssue }
 }).sort({ Issue: -1 }).limit(10).lean();
 
@@ -406,7 +406,7 @@ app.post('/api/dlt/positive-prediction/create-task', async (req, res) => {
 
 // 辅助函数
 async function buildIssueToIDMap(issues) {
-    const records = await DLT.find({
+    const records = await hit_dlts.find({
         Issue: { $in: issues.map(i => parseInt(i)) }
     }).select('ID Issue').lean();
 
@@ -424,7 +424,7 @@ class StreamBatchPredictor {
     async preloadData(...) {
         // 🆕 新增: 预加载ID-Issue映射
         this.idToRecordMap = new Map();
-        const allRecords = await DLT.find({})
+        const allRecords = await hit_dlts.find({})
             .select('ID Issue Red1 Red2 Red3 Red4 Red5')
             .lean();
         allRecords.forEach(r => {

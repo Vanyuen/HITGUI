@@ -42,8 +42,8 @@ async function diagnose() {
 
         console.log(`✅ 找到 ${results.length} 个期号结果（显示前3个）:\n`);
 
-        // 3. 查询DLT实际开奖数据
-        const DLT = mongoose.model('HIT_DLT', new mongoose.Schema({}, { strict: false }));
+        // 3. 查询hit_dlts实际开奖数据
+        const hit_dlts = mongoose.model('hit_dlts', new mongoose.Schema({}, { strict: false }));
 
         for (const result of results) {
             console.log(`\n📊 期号 ${result.period}:`);
@@ -59,15 +59,15 @@ async function diagnose() {
                 console.log(`      ❌ winning_numbers 为 null/undefined`);
             }
 
-            // 查询DLT实际数据
-            const actualData = await DLT.findOne({ Issue: parseInt(result.period) }).lean();
+            // 查询hit_dlts实际数据
+            const actualData = await hit_dlts.findOne({ Issue: parseInt(result.period) }).lean();
 
             if (actualData) {
-                console.log(`\n   ✅ DLT实际开奖数据:`);
+                console.log(`\n   ✅ hit_dlts实际开奖数据:`);
                 console.log(`      红球: [${actualData.Red1}, ${actualData.Red2}, ${actualData.Red3}, ${actualData.Red4}, ${actualData.Red5}]`);
                 console.log(`      蓝球: [${actualData.Blue1}, ${actualData.Blue2}]`);
             } else {
-                console.log(`\n   ⚠️ DLT中无此期号（推算期）`);
+                console.log(`\n   ⚠️ hit_dlts中无此期号（推算期）`);
             }
 
             // 检查 hit_analysis

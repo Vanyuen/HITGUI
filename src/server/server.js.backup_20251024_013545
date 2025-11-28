@@ -182,7 +182,7 @@ const dltSchema = new mongoose.Schema({
     updatedAt: { type: Date }                          // 统计数据最后更新时间
 });
 
-const DLT = mongoose.model('HIT_DLT', dltSchema);
+const hit_dlts = mongoose.model('hit_dlts', dltSchema);
 
 // ===== 大乐透组合特征表（用于同出排除优化） =====
 const dltComboFeaturesSchema = new mongoose.Schema({
@@ -347,7 +347,7 @@ dltRedCombinationsSchema.index({ combo_4: 1 });
 dltRedCombinationsSchema.index({ consecutive_groups: 1 });
 dltRedCombinationsSchema.index({ max_consecutive_length: 1 });
 
-const DLTRedCombinations = mongoose.model('HIT_DLT_RedCombinations', dltRedCombinationsSchema);
+const DLTRedCombinations = mongoose.model('hit_dlts', dltRedCombinationsSchema);
 
 // 2. 蓝球组合表
 const dltBlueCombinationsSchema = new mongoose.Schema({
@@ -361,7 +361,7 @@ const dltBlueCombinationsSchema = new mongoose.Schema({
 dltBlueCombinationsSchema.index({ sum_value: 1 });
 dltBlueCombinationsSchema.index({ combination_id: 1 });
 
-const DLTBlueCombinations = mongoose.model('HIT_DLT_BlueCombinations', dltBlueCombinationsSchema);
+const DLTBlueCombinations = mongoose.model('hit_dlts', dltBlueCombinationsSchema);
 
 // 3. 红球组合热温冷分析表 - 优化版压缩存储
 const dltRedCombinationsHotWarmColdOptimizedSchema = new mongoose.Schema({
@@ -1102,16 +1102,16 @@ async function ensureDatabaseIndexes() {
     try {
         console.log('\n📊 开始创建数据库索引（性能优化）...');
 
-        // DLT主表索引
+        // hit_dlts主表索引
         try {
-            await DLT.collection.createIndex({ ID: 1 }, { background: true });
-            await DLT.collection.createIndex({ ID: -1 }, { background: true });
-            await DLT.collection.createIndex({ Issue: 1 }, { background: true });
+            await hit_dlts.collection.createIndex({ ID: 1 }, { background: true });
+            await hit_dlts.collection.createIndex({ ID: -1 }, { background: true });
+            await hit_dlts.collection.createIndex({ Issue: 1 }, { background: true });
             // 优化A3: 添加 Issue 降序索引，优化 {Issue: {$lt}} 查询（节省 100-270ms）
-            await DLT.collection.createIndex({ Issue: -1 }, { background: true });
-            console.log('  ✓ DLT主表索引创建完成');
+            await hit_dlts.collection.createIndex({ Issue: -1 }, { background: true });
+            console.log('  ✓ hit_dlts主表索引创建完成');
         } catch (err) {
-            console.log('  ℹ DLT主表索引已存在');
+            console.log('  ℹ hit_dlts主表索引已存在');
         }
 
         // DLTRedMissing表索引
@@ -1875,9 +1875,9 @@ async function convertDLTIssueRangeToIDRange(startIssue, endIssue) {
         const normalizedEnd = parseInt(normalizeDLTIssueNumber(endIssue));
         
         // 查找起始期号对应的ID（Issue字段在数据库中是数字类型）
-        const startRecord = await DLT.findOne({Issue: {$gte: normalizedStart}}).sort({Issue: 1}).select('ID');
+        const startRecord = await hit_dlts.findOne({Issue: {$gte: normalizedStart}}).sort({Issue: 1}).select('ID');
         // 查找结束期号对应的ID
-        const endRecord = await DLT.findOne({Issue: {$lte: normalizedEnd}}).sort({Issue: -1}).select('ID');
+        const endRecord = await hit_dlts.findOne({Issue: {$lte: normalizedEnd}}).sort({Issue: -1}).select('ID');
         
         if (!startRecord || !endRecord) {
             return null; // 没有找到对应的数据
@@ -1889,7 +1889,7 @@ async function convertDLTIssueRangeToIDRange(startIssue, endIssue) {
             query: { ID: { $gte: startRecord.ID, $lte: endRecord.ID } }
         };
     } catch (error) {
-        console.error('Error converting DLT issue range to ID range:', error);
+        console.error('Error converting hit_dlts issue range to ID range:', error);
         return null;
     }
 }
@@ -2566,7 +2566,7 @@ function generateConflictExcelData(matrix) {
 // 大乐透历史数据接口
 app.get('/api/dlt/history', async (req, res) => {
     try {
-        console.log('Fetching DLT history data...');
+        console.log('Fetching hit_dlts history data...');
         const { page = 1, limit = 20, startIssue, endIssue } = req.query;
         
         let data, total;
@@ -2585,24 +2585,24 @@ app.get('/api/dlt/history', async (req, res) => {
                 }
             };
             
-            total = await DLT.countDocuments(query);
+            total = await hit_dlts.countDocuments(query);
             
-            data = await DLT.find(query)
+            data = await hit_dlts.find(query)
                 .sort({ Issue: -1 })
                 .limit(parseInt(limit))
                 .skip((parseInt(page) - 1) * parseInt(limit));
             
             console.log(`Range query found ${total} records, returning ${data.length} for page ${page} (issues: ${normalizedStart} to ${normalizedEnd})`);
         } else {
-            data = await DLT.find({})
+            data = await hit_dlts.find({})
                 .sort({ Issue: -1 })
                 .limit(parseInt(limit))
                 .skip((parseInt(page) - 1) * parseInt(limit));
                 
-            total = await DLT.countDocuments({});
+            total = await hit_dlts.countDocuments({});
         }
         
-        console.log(`Successfully fetched ${data.length} DLT history records`);
+        console.log(`Successfully fetched ${data.length} hit_dlts history records`);
         
         res.json({
             success: true,
@@ -2616,7 +2616,7 @@ app.get('/api/dlt/history', async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Error fetching DLT history:', error);
+        console.error('Error fetching hit_dlts history:', error);
         res.status(500).json({ 
             success: false, 
             message: error.message 
@@ -2627,7 +2627,7 @@ app.get('/api/dlt/history', async (req, res) => {
 // 大乐透走势图数据接口 - 使用预存储遗漏值数据
 app.get('/api/dlt/trendchart', async (req, res) => {
     try {
-        log('Received DLT trend chart request with query: ' + JSON.stringify(req.query));
+        log('Received hit_dlts trend chart request with query: ' + JSON.stringify(req.query));
         
         let query = {};
         let limit = 0;
@@ -2650,13 +2650,13 @@ app.get('/api/dlt/trendchart', async (req, res) => {
             }
             
             query = idRange.query;
-            log(`Fetching DLT trend chart data from ID ${idRange.startID} to ${idRange.endID} (issues: ${req.query.startIssue} to ${req.query.endIssue})`);
+            log(`Fetching hit_dlts trend chart data from ID ${idRange.startID} to ${idRange.endID} (issues: ${req.query.startIssue} to ${req.query.endIssue})`);
         }
 
-        // ===== 优化：同时获取DLT主表（包含statistics预处理数据）和遗漏值数据 =====
+        // ===== 优化：同时获取hit_dlts主表（包含statistics预处理数据）和遗漏值数据 =====
 
         // 获取大乐透主表数据（包含预处理的statistics字段）
-        let dltMainData = await DLT.find(query).sort({ ID: 1 }).lean();
+        let dltMainData = await hit_dlts.find(query).sort({ ID: 1 }).lean();
 
         if (limit > 0) {
             dltMainData = dltMainData.slice(-limit);
@@ -2671,21 +2671,21 @@ app.get('/api/dlt/trendchart', async (req, res) => {
         }
 
         if (!dltRedData || dltRedData.length === 0) {
-            log('No DLT red data found');
+            log('No hit_dlts red data found');
             return res.status(404).json({
                 success: false,
                 error: '未找到前区数据'
             });
         }
 
-        log(`Found ${dltRedData.length} records for DLT red balls, ${dltMainData.length} records from main table`);
+        log(`Found ${dltRedData.length} records for hit_dlts red balls, ${dltMainData.length} records from main table`);
         
         // 调试：显示前3条和后3条记录的ID和期号
         if (dltRedData.length > 0) {
             const first3 = dltRedData.slice(0, 3);
             const last3 = dltRedData.slice(-3);
-            log(`DLT Red data order check - First 3: ${first3.map(r => `ID:${r.ID},Issue:${r.Issue}`).join(' | ')}`);
-            log(`DLT Red data order check - Last 3: ${last3.map(r => `ID:${r.ID},Issue:${r.Issue}`).join(' | ')}`);
+            log(`hit_dlts Red data order check - First 3: ${first3.map(r => `ID:${r.ID},Issue:${r.Issue}`).join(' | ')}`);
+            log(`hit_dlts Red data order check - Last 3: ${last3.map(r => `ID:${r.ID},Issue:${r.Issue}`).join(' | ')}`);
         }
 
         // 获取大乐透后区遗漏值数据，始终按ID升序排列
@@ -2697,18 +2697,18 @@ app.get('/api/dlt/trendchart', async (req, res) => {
         }
 
         if (!dltBlueData || dltBlueData.length === 0) {
-            log('No DLT blue data found');
+            log('No hit_dlts blue data found');
             return res.status(404).json({
                 success: false,
                 error: '未找到后区数据'
             });
         }
 
-        log(`Found ${dltBlueData.length} records for DLT blue balls`);
+        log(`Found ${dltBlueData.length} records for hit_dlts blue balls`);
 
         // 验证数据长度匹配
         if (dltRedData.length !== dltBlueData.length) {
-            log('Data length mismatch between DLT red and blue balls');
+            log('Data length mismatch between hit_dlts red and blue balls');
             return res.status(500).json({
                 success: false,
                 error: '前区后区数据不一致'
@@ -2727,7 +2727,7 @@ app.get('/api/dlt/trendchart', async (req, res) => {
 
             // 验证记录的完整性
             if (!redRecord || !blueRecord || !redRecord.Issue || !blueRecord.Issue || redRecord.Issue !== blueRecord.Issue) {
-                log(`DLT data integrity issue at index ${index}`);
+                log(`hit_dlts data integrity issue at index ${index}`);
                 throw new Error('大乐透数据完整性错误');
             }
 
@@ -2810,15 +2810,15 @@ app.get('/api/dlt/trendchart', async (req, res) => {
             };
         });
 
-        log(`Successfully prepared DLT trend chart data with ${trendChartData.length} records`);
+        log(`Successfully prepared hit_dlts trend chart data with ${trendChartData.length} records`);
 
         res.json({
             success: true,
             data: trendChartData
         });
     } catch (error) {
-        log(`Error in DLT trend chart API: ${error.message}`);
-        console.error('Error fetching DLT trend chart data:', error);
+        log(`Error in hit_dlts trend chart API: ${error.message}`);
+        console.error('Error fetching hit_dlts trend chart data:', error);
         res.status(500).json({
             success: false,
             error: error.message || '服务器内部错误'
@@ -2851,8 +2851,8 @@ app.get('/api/dlt/stats-relation', async (req, res) => {
         } else if (periods) {
             const limit = parseInt(periods);
 
-            // 从DLT主表获取最近N期的期号
-            const recentRecords = await DLT.find({})
+            // 从hit_dlts主表获取最近N期的期号
+            const recentRecords = await hit_dlts.find({})
                 .select('Issue')
                 .sort({ Issue: -1 })
                 .limit(limit)
@@ -2869,26 +2869,26 @@ app.get('/api/dlt/stats-relation', async (req, res) => {
 
         // ===== 优化2: 查询符合热温冷比的数据（带回退机制） =====
         let records = [];
-        let dataSource = 'DLT主表';
+        let dataSource = 'hit_dlts主表';
 
         try {
-            // 优先使用DLT主表（有完整统计字段）
+            // 优先使用hit_dlts主表（有完整统计字段）
             const query = {
                 Issue: issueQuery,
                 'statistics.frontHotWarmColdRatio': { $in: ratioList }
             };
 
-            records = await DLT.find(query)
+            records = await hit_dlts.find(query)
                 .select('Issue Red1 Red2 Red3 Red4 Red5 statistics')
                 .sort({ Issue: -1 })
                 .lean()
                 .maxTimeMS(10000);
 
-            console.log(`✅ DLT主表查询成功: ${records.length}条记录`);
+            console.log(`✅ hit_dlts主表查询成功: ${records.length}条记录`);
 
         } catch (mainTableError) {
             // 回退到DLTRedMissing表
-            console.warn(`⚠️  DLT主表查询失败，回退到遗漏值表: ${mainTableError.message}`);
+            console.warn(`⚠️  hit_dlts主表查询失败，回退到遗漏值表: ${mainTableError.message}`);
             dataSource = 'DLTRedMissing表(回退)';
 
             try {
@@ -2910,8 +2910,8 @@ app.get('/api/dlt/stats-relation', async (req, res) => {
                 const matchedIssues = missingRecords.map(r => r.Issue);
 
                 if (matchedIssues.length > 0) {
-                    // 从DLT主表获取完整开奖数据和统计信息
-                    records = await DLT.find({ Issue: { $in: matchedIssues } })
+                    // 从hit_dlts主表获取完整开奖数据和统计信息
+                    records = await hit_dlts.find({ Issue: { $in: matchedIssues } })
                         .select('Issue Red1 Red2 Red3 Red4 Red5 statistics')
                         .sort({ Issue: -1 })
                         .lean()
@@ -3020,7 +3020,7 @@ app.get('/api/dlt/stats-relation', async (req, res) => {
 
 app.get('/api/dlt/frequency', async (req, res) => {
     try {
-        console.log('Fetching DLT frequency data...');
+        console.log('Fetching hit_dlts frequency data...');
 
         res.json({
             success: true,
@@ -3028,7 +3028,7 @@ app.get('/api/dlt/frequency', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error fetching DLT frequency:', error);
+        console.error('Error fetching hit_dlts frequency:', error);
         res.status(500).json({
             success: false,
             message: error.message
@@ -3095,7 +3095,7 @@ function calculateDLTOddEvenRatio(numbers) {
 // ===== 大乐透同出数据接口 =====
 app.get('/api/dlt/cooccurrence', async (req, res) => {
     try {
-        log('Received DLT co-occurrence data request with query: ' + JSON.stringify(req.query));
+        log('Received hit_dlts co-occurrence data request with query: ' + JSON.stringify(req.query));
         
         let query = {};
         let filename = '';
@@ -3116,20 +3116,20 @@ app.get('/api/dlt/cooccurrence', async (req, res) => {
             
             query = idRange.query;
             filename = `大乐透同出数据_${startIssue}至${endIssue}.xlsx`;
-            log(`Fetching DLT co-occurrence data from ID ${idRange.startID} to ${idRange.endID} (issues: ${startIssue} to ${endIssue})`);
+            log(`Fetching hit_dlts co-occurrence data from ID ${idRange.startID} to ${idRange.endID} (issues: ${startIssue} to ${endIssue})`);
         } else {
             // 处理最近期数筛选
             const limit = parseInt(req.query.periods) || 30;
             filename = `大乐透同出数据_最近${limit}期.xlsx`;
-            log(`Fetching DLT co-occurrence data for most recent ${limit} periods`);
+            log(`Fetching hit_dlts co-occurrence data for most recent ${limit} periods`);
         }
 
         let data;
         if (req.query.startIssue && req.query.endIssue) {
-            data = await DLT.find(query).sort({ Issue: 1 });
+            data = await hit_dlts.find(query).sort({ Issue: 1 });
         } else {
             const limit = parseInt(req.query.periods) || 30;
-            data = await DLT.find({}).sort({ Issue: -1 }).limit(limit);
+            data = await hit_dlts.find({}).sort({ Issue: -1 }).limit(limit);
             data = data.reverse(); // 转为升序
         }
 
@@ -3140,7 +3140,7 @@ app.get('/api/dlt/cooccurrence', async (req, res) => {
             });
         }
 
-        log(`Found ${data.length} records for DLT co-occurrence calculation`);
+        log(`Found ${data.length} records for hit_dlts co-occurrence calculation`);
 
         // 计算同出数据
         const cooccurrenceMatrix = calculateDLTCooccurrenceMatrix(data);
@@ -3148,7 +3148,7 @@ app.get('/api/dlt/cooccurrence', async (req, res) => {
         // 生成统计报告
         const statistics = generateDLTCooccurrenceStatistics(cooccurrenceMatrix, data);
         
-        log(`Successfully calculated DLT co-occurrence data for ${data.length} records`);
+        log(`Successfully calculated hit_dlts co-occurrence data for ${data.length} records`);
         
         res.json({
             success: true,
@@ -3164,8 +3164,8 @@ app.get('/api/dlt/cooccurrence', async (req, res) => {
         });
         
     } catch (error) {
-        log(`Error in DLT co-occurrence API: ${error.message}`);
-        console.error('Error calculating DLT co-occurrence data:', error);
+        log(`Error in hit_dlts co-occurrence API: ${error.message}`);
+        console.error('Error calculating hit_dlts co-occurrence data:', error);
         res.status(500).json({
             success: false,
             message: error.message || '计算同出数据失败'
@@ -3176,7 +3176,7 @@ app.get('/api/dlt/cooccurrence', async (req, res) => {
 // 大乐透同出数据Excel导出
 app.get('/api/dlt/cooccurrence/excel', async (req, res) => {
     try {
-        log('Received DLT co-occurrence Excel export request: ' + JSON.stringify(req.query));
+        log('Received hit_dlts co-occurrence Excel export request: ' + JSON.stringify(req.query));
         
         let query = {};
         let filename = '';
@@ -3204,10 +3204,10 @@ app.get('/api/dlt/cooccurrence/excel', async (req, res) => {
 
         let data;
         if (req.query.startIssue && req.query.endIssue) {
-            data = await DLT.find(query).sort({ Issue: 1 });
+            data = await hit_dlts.find(query).sort({ Issue: 1 });
         } else {
             const limit = parseInt(req.query.periods) || 30;
-            data = await DLT.find({}).sort({ Issue: -1 }).limit(limit);
+            data = await hit_dlts.find({}).sort({ Issue: -1 }).limit(limit);
             data = data.reverse();
         }
 
@@ -3233,8 +3233,8 @@ app.get('/api/dlt/cooccurrence/excel', async (req, res) => {
         });
         
     } catch (error) {
-        log(`Error in DLT co-occurrence Excel export API: ${error.message}`);
-        console.error('Error generating DLT co-occurrence Excel data:', error);
+        log(`Error in hit_dlts co-occurrence Excel export API: ${error.message}`);
+        console.error('Error generating hit_dlts co-occurrence Excel data:', error);
         res.status(500).json({
             success: false,
             message: error.message || '大乐透同出数据Excel导出失败'
@@ -3245,7 +3245,7 @@ app.get('/api/dlt/cooccurrence/excel', async (req, res) => {
 // ===== 大乐透相克数据接口 =====
 app.get('/api/dlt/conflict', async (req, res) => {
     try {
-        log('Received DLT conflict data request with query: ' + JSON.stringify(req.query));
+        log('Received hit_dlts conflict data request with query: ' + JSON.stringify(req.query));
         
         let query = {};
         let filename = '';
@@ -3266,29 +3266,29 @@ app.get('/api/dlt/conflict', async (req, res) => {
             
             query = idRange.query;
             filename = `大乐透相克数据_${startIssue}至${endIssue}.xlsx`;
-            log(`Fetching DLT conflict data from ID ${idRange.startID} to ${idRange.endID} (issues: ${startIssue} to ${endIssue})`);
+            log(`Fetching hit_dlts conflict data from ID ${idRange.startID} to ${idRange.endID} (issues: ${startIssue} to ${endIssue})`);
         } else {
             // 处理最近期数筛选
             const limit = parseInt(req.query.periods) || 30;
             filename = `大乐透相克数据_最近${limit}期.xlsx`;
-            log(`Fetching DLT conflict data for most recent ${limit} periods`);
+            log(`Fetching hit_dlts conflict data for most recent ${limit} periods`);
         }
 
         let data;
         if (req.query.startIssue && req.query.endIssue) {
             // 由于Issue字段是字符串，我们需要使用正确的查询方式
-            data = await DLT.find(query).sort({ Issue: 1 });
+            data = await hit_dlts.find(query).sort({ Issue: 1 });
             
             // 如果没有数据，打印调试信息
             if (!data || data.length === 0) {
                 log(`No data found for query: ${JSON.stringify(query)}`);
                 // 尝试查看数据库中的实际数据
-                const sampleData = await DLT.find({}).sort({ Issue: -1 }).limit(5).select('Issue');
+                const sampleData = await hit_dlts.find({}).sort({ Issue: -1 }).limit(5).select('Issue');
                 log(`Sample recent issues: ${JSON.stringify(sampleData.map(d => d.Issue))}`);
             }
         } else {
             const limit = parseInt(req.query.periods) || 30;
-            data = await DLT.find({}).sort({ Issue: -1 }).limit(limit);
+            data = await hit_dlts.find({}).sort({ Issue: -1 }).limit(limit);
             data = data.reverse(); // 转为升序
         }
 
@@ -3299,7 +3299,7 @@ app.get('/api/dlt/conflict', async (req, res) => {
             });
         }
 
-        log(`Found ${data.length} records for DLT conflict calculation`);
+        log(`Found ${data.length} records for hit_dlts conflict calculation`);
 
         // 计算相克数据
         const conflictMatrix = calculateDLTConflictMatrix(data);
@@ -3307,7 +3307,7 @@ app.get('/api/dlt/conflict', async (req, res) => {
         // 生成统计报告
         const statistics = generateDLTConflictStatistics(conflictMatrix, data);
         
-        log(`Successfully calculated DLT conflict data for ${data.length} records`);
+        log(`Successfully calculated hit_dlts conflict data for ${data.length} records`);
         
         res.json({
             success: true,
@@ -3323,8 +3323,8 @@ app.get('/api/dlt/conflict', async (req, res) => {
         });
         
     } catch (error) {
-        log(`Error in DLT conflict API: ${error.message}`);
-        console.error('Error calculating DLT conflict data:', error);
+        log(`Error in hit_dlts conflict API: ${error.message}`);
+        console.error('Error calculating hit_dlts conflict data:', error);
         res.status(500).json({
             success: false,
             message: error.message || '计算相克数据失败'
@@ -3335,7 +3335,7 @@ app.get('/api/dlt/conflict', async (req, res) => {
 // 大乐透相克数据Excel导出
 app.get('/api/dlt/conflict/excel', async (req, res) => {
     try {
-        log('Received DLT conflict Excel export request: ' + JSON.stringify(req.query));
+        log('Received hit_dlts conflict Excel export request: ' + JSON.stringify(req.query));
         
         let query = {};
         let filename = '';
@@ -3363,10 +3363,10 @@ app.get('/api/dlt/conflict/excel', async (req, res) => {
 
         let data;
         if (req.query.startIssue && req.query.endIssue) {
-            data = await DLT.find(query).sort({ Issue: 1 });
+            data = await hit_dlts.find(query).sort({ Issue: 1 });
         } else {
             const limit = parseInt(req.query.periods) || 30;
-            data = await DLT.find({}).sort({ Issue: -1 }).limit(limit);
+            data = await hit_dlts.find({}).sort({ Issue: -1 }).limit(limit);
             data = data.reverse();
         }
 
@@ -3392,8 +3392,8 @@ app.get('/api/dlt/conflict/excel', async (req, res) => {
         });
         
     } catch (error) {
-        log(`Error in DLT conflict Excel export API: ${error.message}`);
-        console.error('Error generating DLT conflict Excel data:', error);
+        log(`Error in hit_dlts conflict Excel export API: ${error.message}`);
+        console.error('Error generating hit_dlts conflict Excel data:', error);
         res.status(500).json({
             success: false,
             message: error.message || '大乐透相克数据Excel导出失败'
@@ -3420,7 +3420,7 @@ app.get('/api/dlt/conflict-topn', async (req, res) => {
         const includeBack = includeBackBalls === 'true';
 
         // 先查找目标期号对应的ID
-        const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+        const targetRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
         if (!targetRecord) {
             return res.json({
                 success: false,
@@ -3434,7 +3434,7 @@ app.get('/api/dlt/conflict-topn', async (req, res) => {
         log(`目标期号${targetIssue}对应ID=${targetID}, 分析ID范围: ${startID} ~ ${targetID - 1}`);
 
         // 查询指定ID范围的数据（目标期往前推N期）
-        const data = await DLT.find({
+        const data = await hit_dlts.find({
             ID: {
                 $gte: startID,
                 $lt: targetID
@@ -3752,7 +3752,7 @@ app.get('/api/dlt/conflict-per-ball', async (req, res) => {
         const topNCount = parseInt(topN) || 5;
 
         // 先查找目标期号对应的ID
-        const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+        const targetRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
         if (!targetRecord) {
             return res.json({
                 success: false,
@@ -3766,7 +3766,7 @@ app.get('/api/dlt/conflict-per-ball', async (req, res) => {
         log(`目标期号${targetIssue}对应ID=${targetID}, 分析ID范围: ${startID} ~ ${targetID - 1}`);
 
         // 查询指定ID范围的数据（目标期往前推N期）
-        const data = await DLT.find({
+        const data = await hit_dlts.find({
             ID: {
                 $gte: startID,
                 $lt: targetID
@@ -4265,7 +4265,7 @@ function generateDLTConflictStatistics(matrix, data) {
 // 大乐透专家和值预测API
 app.get('/api/dlt/sum-prediction', async (req, res) => {
     try {
-        log('Received DLT sum prediction request: ' + JSON.stringify(req.query));
+        log('Received hit_dlts sum prediction request: ' + JSON.stringify(req.query));
         
         const periodGroup = parseInt(req.query.periodGroup) || 30; // 期数分组，默认30期
         const maPeriod = parseInt(req.query.maPeriod) || 20; // MA周期，默认20期
@@ -4302,7 +4302,7 @@ app.get('/api/dlt/sum-prediction', async (req, res) => {
             const expandedEndIssue = endIssue + periodGroup; // 往后扩展periodGroup期
             
             // 根据扩展的期号范围查询
-            recentData = await DLT.find({
+            recentData = await hit_dlts.find({
                 Issue: { $gte: expandedStartIssue, $lte: expandedEndIssue }
             }).sort({ Issue: 1 }); // 按期号升序排列
             
@@ -4316,11 +4316,11 @@ app.get('/api/dlt/sum-prediction', async (req, res) => {
                 targetPeriods: endIssue - startIssue + 1
             };
             
-            log(`Querying DLT data by expanded issue range: ${expandedStartIssue} - ${expandedEndIssue} (target: ${startIssue} - ${endIssue}), found ${recentData.length} records`);
+            log(`Querying hit_dlts data by expanded issue range: ${expandedStartIssue} - ${expandedEndIssue} (target: ${startIssue} - ${endIssue}), found ${recentData.length} records`);
             
         } else if (req.query.analyzeAll === 'true') {
             // 从最开始分析所有数据（优化：只选择需要的字段）
-            recentData = await DLT.find()
+            recentData = await hit_dlts.find()
                 .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 Date')
                 .sort({ ID: 1 })  // ID连续且按Issue升序
                 .lean();
@@ -4330,24 +4330,24 @@ app.get('/api/dlt/sum-prediction', async (req, res) => {
                 totalPeriods: recentData.length
             };
             
-            log(`Querying all DLT data from beginning, found ${recentData.length} records`);
+            log(`Querying all hit_dlts data from beginning, found ${recentData.length} records`);
             
         } else if (req.query.startFrom) {
             // 从最近第N期开始分析（优化：先获取总数，避免查询全部数据）
             const startFrom = parseInt(req.query.startFrom);
 
             // 先获取总记录数
-            const totalCount = await DLT.countDocuments();
+            const totalCount = await hit_dlts.countDocuments();
 
             if (totalCount <= startFrom) {
                 // 如果请求的期数超过总期数，则使用所有数据
-                recentData = await DLT.find()
+                recentData = await hit_dlts.find()
                     .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 Date')
                     .sort({ ID: 1 })  // 升序
                     .lean();
             } else {
                 // 只查询最近的startFrom期数据
-                recentData = await DLT.find()
+                recentData = await hit_dlts.find()
                     .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 Date')
                     .sort({ ID: -1 })  // 降序取前startFrom条
                     .limit(startFrom)
@@ -4362,12 +4362,12 @@ app.get('/api/dlt/sum-prediction', async (req, res) => {
                 availableTotal: totalCount
             };
 
-            log(`Querying DLT data starting from recent ${startFrom}th period, found ${recentData.length} records`);
+            log(`Querying hit_dlts data starting from recent ${startFrom}th period, found ${recentData.length} records`);
             
         } else {
             // 使用期数限制查询（向后兼容，优化性能）
             const limit = parseInt(req.query.limit) || 100;
-            recentData = await DLT.find()
+            recentData = await hit_dlts.find()
                 .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 Date')
                 .sort({ ID: -1 })
                 .limit(limit)
@@ -4379,7 +4379,7 @@ app.get('/api/dlt/sum-prediction', async (req, res) => {
                 totalPeriods: recentData.length
             };
             
-            log(`Querying DLT data by limit: ${limit} periods, found ${recentData.length} records`);
+            log(`Querying hit_dlts data by limit: ${limit} periods, found ${recentData.length} records`);
         }
         
         if (recentData.length === 0) {
@@ -4447,8 +4447,8 @@ app.get('/api/dlt/sum-prediction', async (req, res) => {
         });
         
     } catch (error) {
-        log(`Error in DLT sum prediction API: ${error.message}`);
-        console.error('Error generating DLT sum prediction:', error);
+        log(`Error in hit_dlts sum prediction API: ${error.message}`);
+        console.error('Error generating hit_dlts sum prediction:', error);
         res.status(500).json({
             success: false,
             message: error.message || '生成和值预测失败'
@@ -4465,7 +4465,7 @@ app.get('/api/dlt/group-validation', async (req, res) => {
         const testPeriods = parseInt(req.query.testPeriods) || 200;
         
         // 获取测试数据
-        const allData = await DLT.find({}).sort({ Issue: -1 }).limit(testPeriods);
+        const allData = await hit_dlts.find({}).sort({ Issue: -1 }).limit(testPeriods);
         const sortedData = allData.reverse(); // 转为升序
         
         log(`获取到 ${sortedData.length} 期数据，期号范围: ${sortedData[0].Issue} - ${sortedData[sortedData.length - 1].Issue}`);
@@ -5334,11 +5334,11 @@ const AdvancedTechnicalAnalyzer = require('./advancedTechnicalAnalysis');
 
 app.get('/api/dlt/technical-analysis', async (req, res) => {
     try {
-        log('Received DLT technical analysis request');
+        log('Received hit_dlts technical analysis request');
         
         // 获取历史数据
         const limit = parseInt(req.query.periods) || 200; // 默认使用200期数据
-        const data = await DLT.find({}).sort({ Issue: -1 }).limit(limit);
+        const data = await hit_dlts.find({}).sort({ Issue: -1 }).limit(limit);
         
         if (!data || data.length === 0) {
             return res.status(404).json({
@@ -5616,7 +5616,7 @@ function generateCacheKey(targetIssue, filters, excludeConditions) {
         }
 
         // 获取历史数据用于排除分析（优化：只选择需要的字段）
-        const allData = await DLT.find()
+        const allData = await hit_dlts.find()
             .select('ID Issue Red1 Red2 Red3 Red4 Red5')
             .sort({ ID: -1 })  // ID连续且按Issue降序
             .lean();
@@ -6360,7 +6360,7 @@ async function generatePredictionWithProgress(sessionId, targetIssue, filters) {
         updateProgress(sessionId, 'loading-data', 60, '加载历史数据进行分析...');
 
         // 获取历史数据用于过滤分析（优化：只选择需要的字段）
-        const allData = await DLT.find()
+        const allData = await hit_dlts.find()
             .select('ID Issue Red1 Red2 Red3 Red4 Red5')
             .sort({ ID: -1 })  // ID连续且按Issue降序
             .lean();
@@ -8834,7 +8834,7 @@ app.post('/api/dlt/generate-recent-periods', async (req, res) => {
         log(`开始批量生成最近${periods}期的热温冷分析数据...`);
         
         // 获取最近的期号列表
-        const recentIssues = await DLT.find({})
+        const recentIssues = await hit_dlts.find({})
             .select('Issue')
             .sort({ Issue: -1 })
             .limit(periods + 1)  // 多取一期作为基准期
@@ -8879,7 +8879,7 @@ app.post('/api/dlt/generate-recent-periods', async (req, res) => {
 app.get('/api/dlt/generation-progress', async (req, res) => {
     try {
         // 获取最近200期期号
-        const recentIssues = await DLT.find({})
+        const recentIssues = await hit_dlts.find({})
             .select('Issue')
             .sort({ Issue: -1 })
             .limit(201)  // 多取一期作为基准期
@@ -8997,7 +8997,7 @@ app.get('/api/dlt/available-issues', async (req, res) => {
 app.get('/api/dlt/issues', async (req, res) => {
     try {
         // 获取最近50期的期号，降序排列
-        const issues = await DLT.find({})
+        const issues = await hit_dlts.find({})
             .select('Issue')
             .sort({ Issue: -1 })
             .limit(50)
@@ -9024,7 +9024,7 @@ app.get('/api/dlt/issues', async (req, res) => {
 async function getRecentPeriodSumValues(targetIssue, periods) {
     try {
         // 1. 先查询目标期对应的ID（确保不使用目标期数据）
-        const targetRecord = await DLT.findOne({ Issue: targetIssue.toString() }).lean();
+        const targetRecord = await hit_dlts.findOne({ Issue: targetIssue.toString() }).lean();
         if (!targetRecord) {
             log(`未找到期号${targetIssue}的开奖数据`);
             return [];
@@ -9037,7 +9037,7 @@ async function getRecentPeriodSumValues(targetIssue, periods) {
         log(`查询ID范围: ${startID} - ${previousID} (目标期${targetIssue}对应ID=${targetID}, 不使用目标期数据)`);
 
         // 2. 基于ID查询历史开奖数据中的和值
-        const recentData = await DLT.find({
+        const recentData = await hit_dlts.find({
             ID: {
                 $gte: startID,
                 $lte: previousID
@@ -9072,7 +9072,7 @@ app.get('/api/dlt/debug-recent-sums', async (req, res) => {
         const startIssue = targetIssueNum - parseInt(periods);
         
         // 查询历史开奖数据
-        const recentData = await DLT.find({
+        const recentData = await hit_dlts.find({
             Issue: {
                 $gt: startIssue,
                 $lt: targetIssueNum
@@ -9387,7 +9387,7 @@ app.get('/api/dlt/new-combination-prediction', async (req, res) => {
                 const excludeSettings = JSON.parse(excludeZoneRecentPeriods);
                 if (excludeSettings.enabled && excludeSettings.periods > 0) {
                     // 获取最近N期的区间比数据
-                    const recentResults = await DLT.find({
+                    const recentResults = await hit_dlts.find({
                         Issue: { $lt: parseInt(targetIssue) }
                     }).sort({ Issue: -1 }).limit(excludeSettings.periods);
                     
@@ -9471,7 +9471,7 @@ app.get('/api/dlt/new-combination-prediction', async (req, res) => {
                 const excludeSettings = JSON.parse(excludeHwcRecentPeriods);
                 if (excludeSettings.enabled && excludeSettings.periods > 0) {
                     // 获取最近N期的热温冷比数据
-                    const recentResults = await DLT.find({
+                    const recentResults = await hit_dlts.find({
                         Issue: { $lt: parseInt(targetIssue) }
                     }).sort({ Issue: -1 }).limit(excludeSettings.periods);
                     
@@ -9557,7 +9557,7 @@ app.get('/api/dlt/new-combination-prediction', async (req, res) => {
         );
         
         // 获取目标期号的开奖数据用于命中分析
-        const targetDrawResult = await DLT.findOne({ Issue: parseInt(targetIssue) }).select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2');
+        const targetDrawResult = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2');
         log(`🎯 获取目标期号${targetIssue}的开奖数据用于命中分析: ${targetDrawResult ? '已开奖' : '未开奖'}`);
         
         // 为组合添加命中分析
@@ -9907,7 +9907,7 @@ app.get('/api/dlt/new-combination-prediction', async (req, res) => {
         
         // 获取历史开奖数据（用于计算命中数）
         log('🔍 开始查询历史开奖数据...');
-        const historyData = await DLT.find({})
+        const historyData = await hit_dlts.find({})
             .sort({ Issue: -1 })
             .select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 DrawDate')
             .lean();
@@ -10057,7 +10057,7 @@ app.get('/api/dlt/hot-warm-cold-stats/:baseIssue', async (req, res) => {
  */
 app.get('/api/dlt/latest-issues', async (req, res) => {
     try {
-        const latestIssues = await DLT.find({})
+        const latestIssues = await hit_dlts.find({})
             .sort({ Issue: -1 })
             .limit(5)
             .select('Issue DrawDate');
@@ -10081,7 +10081,7 @@ app.get('/api/dlt/latest-issues', async (req, res) => {
  */
 app.get('/api/dlt/recent-data', async (req, res) => {
     try {
-        const recentData = await DLT.find({})
+        const recentData = await hit_dlts.find({})
             .sort({ Issue: -1 })
             .limit(50)
             .select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 DrawDate');
@@ -10124,7 +10124,7 @@ app.post('/api/dlt/resolve-issue-range', async (req, res) => {
         switch (rangeType) {
             case 'all':
                 // 全部历史期号 - 获取所有已开奖期号
-                const allData = await DLT.find({})
+                const allData = await hit_dlts.find({})
                     .sort({ Issue: 1 })
                     .select('Issue')
                     .lean();
@@ -10134,7 +10134,7 @@ app.post('/api/dlt/resolve-issue-range', async (req, res) => {
 
             case 'recent':
                 // 最近N期
-                const recentData = await DLT.find({})
+                const recentData = await hit_dlts.find({})
                     .sort({ Issue: -1 })
                     .limit(parseInt(recentCount) || 100)
                     .select('Issue')
@@ -10162,7 +10162,7 @@ app.post('/api/dlt/resolve-issue-range', async (req, res) => {
                     });
                 }
 
-                const customData = await DLT.find({
+                const customData = await hit_dlts.find({
                     Issue: {
                         $gte: normalizedStart,
                         $lte: normalizedEnd
@@ -10225,7 +10225,7 @@ async function resolveIssueRangeInternal(rangeConfig) {
     switch (rangeType) {
         case 'all':
             // 全部历史期号 - 获取所有已开奖期号
-            const allData = await DLT.find({})
+            const allData = await hit_dlts.find({})
                 .sort({ Issue: 1 })
                 .select('Issue')
                 .lean();
@@ -10233,7 +10233,7 @@ async function resolveIssueRangeInternal(rangeConfig) {
 
         case 'recent':
             // 最近N期
-            const recentData = await DLT.find({})
+            const recentData = await hit_dlts.find({})
                 .sort({ Issue: -1 })
                 .limit(parseInt(recentCount) || 100)
                 .select('Issue')
@@ -10253,7 +10253,7 @@ async function resolveIssueRangeInternal(rangeConfig) {
                 throw new Error('起始期号不能大于结束期号');
             }
 
-            const customData = await DLT.find({
+            const customData = await hit_dlts.find({
                 Issue: {
                     $gte: normalizedStart,
                     $lte: normalizedEnd
@@ -10826,7 +10826,7 @@ class StreamBatchPredictor {
 
                 // 3. 历史开奖数据（用于命中验证）
                 enableValidation ?
-                    DLT.find({}).select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2').lean().then(data => {
+                    hit_dlts.find({}).select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2').lean().then(data => {
                         log(`  ✅ [${this.sessionId}] 历史开奖: ${data.length}期`);
                         return data;
                     }) :
@@ -11042,7 +11042,7 @@ class StreamBatchPredictor {
             log(`⚔️ [${this.sessionId}] 相克配置检查: conflictExclude存在=${!!filters.conflictExclude}, enabled=${filters.conflictExclude?.enabled}`);
 
             // 🔧 修复：1. 先应用基础排除条件构建查询（和值、区间比、奇偶比、连号等）
-            const issueRecord = await DLT.findOne({ Issue: issue });
+            const issueRecord = await hit_dlts.findOne({ Issue: issue });
             if (!issueRecord) {
                 throw new Error(`期号${issue}不存在`);
             }
@@ -11214,7 +11214,7 @@ class StreamBatchPredictor {
 
                         // 查找前一期作为基准期号
                         const targetIssueNum = parseInt(issue);
-                        const previousIssue = await DLT.findOne({ Issue: { $lt: targetIssueNum } })
+                        const previousIssue = await hit_dlts.findOne({ Issue: { $lt: targetIssueNum } })
                             .sort({ Issue: -1 })
                             .lean();
 
@@ -11276,7 +11276,7 @@ class StreamBatchPredictor {
     async getHistoricalHWCRatios(targetIssue, count) {
         try {
             // 获取目标期号的记录
-            const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+            const targetRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
             if (!targetRecord) {
                 log(`⚠️ [${this.sessionId}] 未找到期号 ${targetIssue}`);
                 return [];
@@ -11343,7 +11343,7 @@ class StreamBatchPredictor {
             log(`🎯 [${this.sessionId}] 开始获取待排除特征 - 期号:${targetIssue}, 每个红球最近${periods}期`);
 
             // 1. 获取目标期号的ID
-            const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+            const targetRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
             if (!targetRecord) {
                 log(`⚠️ [${this.sessionId}] 未找到目标期号 ${targetIssue}`);
                 return { combo_2: [], combo_3: [], combo_4: [] };
@@ -11495,7 +11495,7 @@ class StreamBatchPredictor {
             log(`🎯 [${this.sessionId}] 获取待排除特征(按期号) - 期号:${targetIssue}, 最近${periods}期`);
 
             // 1. 获取目标期号的ID
-            const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+            const targetRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
             if (!targetRecord) {
                 log(`⚠️ [${this.sessionId}] 未找到目标期号 ${targetIssue}`);
                 return {
@@ -11507,7 +11507,7 @@ class StreamBatchPredictor {
 
             // 2. 获取最近N期的ID（连续期号）
             const startID = targetRecord.ID - periods;
-            const recentRecords = await DLT.find({
+            const recentRecords = await hit_dlts.find({
                 ID: { $gte: startID, $lt: targetRecord.ID }
             }).select('ID Issue').sort({ ID: 1 }).lean();
 
@@ -11773,7 +11773,7 @@ class StreamBatchPredictor {
 
             // 获取目标期号的前N期数据来分析相克关系
             const targetIssueNum = parseInt(targetIssue);
-            const analysisData = await DLT.find({
+            const analysisData = await hit_dlts.find({
                 Issue: { $lt: targetIssueNum }
             })
                 .sort({ Issue: -1 })
@@ -11996,7 +11996,7 @@ class StreamBatchPredictor {
             // 缓存未命中，回退到数据库查询
             if (!actualResult) {
                 log(`⚠️ [${this.sessionId}] 缓存未命中，从数据库查询期号${issue}开奖数据...`);
-                actualResult = await DLT.findOne({ Issue: parseInt(issue) }).lean();
+                actualResult = await hit_dlts.findOne({ Issue: parseInt(issue) }).lean();
             }
 
             if (!actualResult) return null;
@@ -12081,7 +12081,7 @@ class StreamBatchPredictor {
      * 根据大乐透中奖规则判断奖项
      */
     async calculatePrizeStats(redHits, blueHits, actualResult) {
-        // 从DLT表读取浮动奖金
+        // 从hit_dlts表读取浮动奖金
         const firstPrizeAmount = this.parsePrizeAmount(actualResult.FirstPrizeAmount);
         const secondPrizeAmount = this.parsePrizeAmount(actualResult.SecondPrizeAmount);
 
@@ -12160,7 +12160,7 @@ class StreamBatchPredictor {
 
     /**
      * 🔧 新增：解析奖金金额字符串
-     * DLT表中奖金可能是 "1,234,567" 或 "1234567" 格式
+     * hit_dlts表中奖金可能是 "1,234,567" 或 "1234567" 格式
      */
     parsePrizeAmount(amountStr) {
         if (!amountStr) return 0;
@@ -12967,7 +12967,7 @@ app.post('/api/dlt/prediction-tasks/create', async (req, res) => {
 
         if (period_range.type === 'all') {
             // 获取所有历史期号
-            const allIssues = await DLT.find({}).sort({ Issue: 1 }).select('Issue').lean();
+            const allIssues = await hit_dlts.find({}).sort({ Issue: 1 }).select('Issue').lean();
             if (allIssues.length === 0) {
                 return res.json({ success: false, message: '没有找到历史期号数据' });
             }
@@ -12977,7 +12977,7 @@ app.post('/api/dlt/prediction-tasks/create', async (req, res) => {
         } else if (period_range.type === 'recent') {
             // 最近N期
             const recentCount = period_range.value || 100;
-            const recentIssues = await DLT.find({}).sort({ Issue: -1 }).limit(recentCount).select('Issue').lean();
+            const recentIssues = await hit_dlts.find({}).sort({ Issue: -1 }).limit(recentCount).select('Issue').lean();
             if (recentIssues.length === 0) {
                 return res.json({ success: false, message: '没有找到历史期号数据' });
             }
@@ -12988,7 +12988,7 @@ app.post('/api/dlt/prediction-tasks/create', async (req, res) => {
             // 自定义范围
             startPeriod = period_range.value.start;
             endPeriod = period_range.value.end;
-            const issuesInRange = await DLT.find({
+            const issuesInRange = await hit_dlts.find({
                 Issue: { $gte: startPeriod, $lte: endPeriod }
             }).countDocuments();
             totalPeriods = issuesInRange;
@@ -14067,7 +14067,7 @@ async function streamPeriodDetailCSV(res, taskId, period) {
         }).lean();
 
         // 6. 查询该期的开奖号码（如果已开奖）
-        const drawResult = await DLT.findOne({ Issue: parseInt(period) }).lean();
+        const drawResult = await hit_dlts.findOne({ Issue: parseInt(period) }).lean();
         const winningNumbers = drawResult ? {
             red: [drawResult.Red1, drawResult.Red2, drawResult.Red3, drawResult.Red4, drawResult.Red5],
             blue: [drawResult.Blue1, drawResult.Blue2]
@@ -14726,7 +14726,7 @@ async function executePredictionTask(taskId) {
 
         // 3. 获取期号列表（保持与原逻辑一致）
         log(`📊 [${sessionId}] 查询期号列表...`);
-        const issues = await DLT.find({
+        const issues = await hit_dlts.find({
             Issue: { $gte: task.period_range.start, $lte: task.period_range.end }
         }).sort({ Issue: 1 }).lean();
 
@@ -14977,7 +14977,7 @@ async function executePredictionTask(taskId) {
  */
 async function getHistoricalSumValues(recentCount, beforePeriodID) {
     try {
-        const issues = await DLT.find({ ID: { $lt: beforePeriodID } })
+        const issues = await hit_dlts.find({ ID: { $lt: beforePeriodID } })
             .sort({ ID: -1 })
             .limit(recentCount)
             .lean();
@@ -15003,7 +15003,7 @@ async function getHistoricalSumValues(recentCount, beforePeriodID) {
  */
 async function getHistoricalSpanValues(recentCount, beforePeriodID) {
     try {
-        const issues = await DLT.find({ ID: { $lt: beforePeriodID } })
+        const issues = await hit_dlts.find({ ID: { $lt: beforePeriodID } })
             .sort({ ID: -1 })
             .limit(recentCount)
             .lean();
@@ -15030,7 +15030,7 @@ async function getHistoricalSpanValues(recentCount, beforePeriodID) {
  */
 async function getHistoricalACValues(recentCount, beforePeriodID) {
     try {
-        const issues = await DLT.find({ ID: { $lt: beforePeriodID } })
+        const issues = await hit_dlts.find({ ID: { $lt: beforePeriodID } })
             .sort({ ID: -1 })
             .limit(recentCount)
             .lean();
@@ -15084,7 +15084,7 @@ async function getHistoricalHWCRatios(recentCount, beforePeriodID) {
  */
 async function getHistoricalZoneRatios(recentCount, beforePeriodID) {
     try {
-        const issues = await DLT.find({ ID: { $lt: beforePeriodID } })
+        const issues = await hit_dlts.find({ ID: { $lt: beforePeriodID } })
             .sort({ ID: -1 })
             .limit(recentCount)
             .lean();
@@ -15114,7 +15114,7 @@ async function getHistoricalZoneRatios(recentCount, beforePeriodID) {
  */
 async function getHistoricalOddEvenRatios(recentCount, beforePeriodID) {
     try {
-        const issues = await DLT.find({ ID: { $lt: beforePeriodID } })
+        const issues = await hit_dlts.find({ ID: { $lt: beforePeriodID } })
             .sort({ ID: -1 })
             .limit(recentCount)
             .lean();
@@ -16099,7 +16099,7 @@ class MegaConcurrencyBatchPredictor {
             const endIssue = parseInt(targetIssue) - 1;
             
             // 查询历史开奖数据
-            const historicalData = await DLT.find({
+            const historicalData = await hit_dlts.find({
                 Issue: { 
                     $gte: startIssue.toString(), 
                     $lte: endIssue.toString() 
@@ -16378,7 +16378,7 @@ class MegaConcurrencyBatchPredictor {
     async quickValidate(targetIssue, filteredReds) {
         try {
             // 获取实际开奖结果
-            const actualResult = await DLT.findOne({ Issue: parseInt(targetIssue) });
+            const actualResult = await hit_dlts.findOne({ Issue: parseInt(targetIssue) });
             if (!actualResult) {
                 return null; // 没有开奖结果，无法验证
             }
@@ -16420,7 +16420,7 @@ class MegaConcurrencyBatchPredictor {
         const startIssue = parseInt(targetIssue) - periods;
         const endIssue = parseInt(targetIssue) - 1;
         
-        const historicalData = await DLT.find({
+        const historicalData = await hit_dlts.find({
             Issue: { 
                 $gte: startIssue.toString(), 
                 $lte: endIssue.toString() 
@@ -16444,7 +16444,7 @@ class MegaConcurrencyBatchPredictor {
         const startIssue = parseInt(targetIssue) - periods;
         const endIssue = parseInt(targetIssue) - 1;
         
-        const historicalData = await DLT.find({
+        const historicalData = await hit_dlts.find({
             Issue: { 
                 $gte: startIssue.toString(), 
                 $lte: endIssue.toString() 
@@ -16479,7 +16479,7 @@ class MegaConcurrencyBatchPredictor {
             const startIssue = parseInt(targetIssue) - periods;
             const endIssue = parseInt(targetIssue) - 1;
             
-            const historicalData = await DLT.find({
+            const historicalData = await hit_dlts.find({
                 Issue: { 
                     $gte: startIssue.toString(), 
                     $lte: endIssue.toString() 
@@ -16521,7 +16521,7 @@ class MegaConcurrencyBatchPredictor {
             const baseIssue = parseInt(targetIssue) - 1;
             const recentIssues = Math.max(24001, baseIssue - 19); // 最近20期
 
-            const recentData = await DLT.find({
+            const recentData = await hit_dlts.find({
                 Issue: { $gte: recentIssues, $lte: baseIssue }
             }).lean();
 
@@ -17383,7 +17383,7 @@ app.post('/api/dlt/patterns/generate', async (req, res) => {
         log(`🔍 开始生成规律 - 分析期数: ${periods}, 最小置信度: ${minConfidence}`);
 
         // 1. 获取历史数据
-        const historicalData = await DLT.find({})
+        const historicalData = await hit_dlts.find({})
             .sort({ Issue: -1 })
             .limit(periods)
             .lean();
@@ -17814,7 +17814,7 @@ app.post('/api/dlt/patterns/validate/:patternId', async (req, res) => {
         }
 
         // 获取测试数据
-        const testData = await DLT.find({})
+        const testData = await hit_dlts.find({})
             .sort({ Issue: -1 })
             .limit(testPeriods)
             .lean();
@@ -17910,7 +17910,7 @@ app.get('/api/dlt/patterns/trend/:patternId', async (req, res) => {
         }
 
         // 获取历史数据
-        const historicalData = await DLT.find({})
+        const historicalData = await hit_dlts.find({})
             .sort({ Issue: -1 })
             .limit(parseInt(periods))
             .lean();
@@ -18208,7 +18208,7 @@ async function buildUnlimitedQuery(filters, targetIssue) {
 async function getRecentPeriodHtcRatios(targetIssue, periods) {
     try {
         // 1. 先查询目标期对应的ID（确保不使用目标期数据）
-        const targetRecord = await DLT.findOne({ Issue: targetIssue.toString() }).lean();
+        const targetRecord = await hit_dlts.findOne({ Issue: targetIssue.toString() }).lean();
         if (!targetRecord) {
             console.error(`未找到期号${targetIssue}的开奖数据`);
             return [];
@@ -18219,7 +18219,7 @@ async function getRecentPeriodHtcRatios(targetIssue, periods) {
         const startID = previousID - periods + 1;
 
         // 2. 基于ID查询最近N期数据
-        const recentData = await DLT.find({
+        const recentData = await hit_dlts.find({
             ID: {
                 $gte: startID,
                 $lte: previousID
@@ -18265,7 +18265,7 @@ async function getRecentPeriodHtcRatios(targetIssue, periods) {
 async function getRecentPeriodZoneRatios(targetIssue, periods) {
     try {
         // 1. 先查询目标期对应的ID（确保不使用目标期数据）
-        const targetRecord = await DLT.findOne({ Issue: targetIssue.toString() }).lean();
+        const targetRecord = await hit_dlts.findOne({ Issue: targetIssue.toString() }).lean();
         if (!targetRecord) {
             console.error(`未找到期号${targetIssue}的开奖数据`);
             return [];
@@ -18276,7 +18276,7 @@ async function getRecentPeriodZoneRatios(targetIssue, periods) {
         const startID = previousID - periods + 1;
 
         // 2. 基于ID查询最近N期数据
-        const recentData = await DLT.find({
+        const recentData = await hit_dlts.find({
             ID: {
                 $gte: startID,
                 $lte: previousID
@@ -18493,14 +18493,14 @@ function generateTXTContent(data, targetIssue = '') {
  */
 app.get('/api/dlt/data-status', async (req, res) => {
     try {
-        const mainLatest = await DLT.findOne({}).sort({ Issue: -1 });
-        const mainCount = await DLT.countDocuments();
+        const mainLatest = await hit_dlts.findOne({}).sort({ Issue: -1 });
+        const mainCount = await hit_dlts.countDocuments();
 
         const redMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories').countDocuments();
         const redMissingLatest = await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories')
             .findOne({}, { sort: { ID: -1 } });
 
-        const blueMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').countDocuments();
+        const blueMissingCount = await mongoose.connection.db.collection('hit_dlts').countDocuments();
 
         // 检查组合特征表
         const comboFeaturesCount = await DLTComboFeatures.countDocuments();
@@ -18512,7 +18512,7 @@ app.get('/api/dlt/data-status', async (req, res) => {
 
         const tables = [
             {
-                name: 'HIT_DLT',
+                name: 'hit_dlts',
                 count: mainCount,
                 latestIssue: mainLatestIssue,
                 status: 'ok'
@@ -18620,7 +18620,7 @@ app.post('/api/dlt/repair-data', async (req, res) => {
  */
 app.post('/api/dlt/cleanup-expired-cache', async (req, res) => {
     try {
-        const latestIssue = await DLT.findOne({}).sort({ Issue: -1 }).select('Issue');
+        const latestIssue = await hit_dlts.findOne({}).sort({ Issue: -1 }).select('Issue');
         const latestIssueNum = latestIssue ? latestIssue.Issue : 0;
 
         const result = await mongoose.connection.db.collection('hit_dlt_redcombinationshotwarmcolds').deleteMany({

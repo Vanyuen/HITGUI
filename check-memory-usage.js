@@ -12,8 +12,8 @@ const DLTRedCombination = mongoose.model('DLTRedCombination_Check', dltRedCombin
 const dltBlueCombinationSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlt_bluecombinations' });
 const DLTBlueCombination = mongoose.model('DLTBlueCombination_Check', dltBlueCombinationSchema);
 
-const dltSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlt' });
-const DLT = mongoose.model('DLT_Check', dltSchema);
+const dltSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlts' });
+const hit_dlts = mongoose.model('DLT_Check', dltSchema);
 
 const dltComboFeaturesSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlt_combofeatures' });
 const DLTComboFeatures = mongoose.model('DLTComboFeatures_Check', dltComboFeaturesSchema);
@@ -57,11 +57,11 @@ async function checkMemoryUsage() {
         }
 
         // 3. 检查历史开奖表
-        console.log('\n3️⃣ 历史开奖表 (hit_dlt)');
-        const historyCount = await DLT.countDocuments();
+        console.log('\n3️⃣ 历史开奖表 (hit_dlts)');
+        const historyCount = await hit_dlts.countDocuments();
         console.log(`   总文档数: ${historyCount.toLocaleString()}`);
 
-        const historySample = await DLT.findOne().select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2').lean();
+        const historySample = await hit_dlts.findOne().select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2').lean();
         if (historySample) {
             const jsonStr = JSON.stringify(historySample);
             const singleSize = jsonStr.length;

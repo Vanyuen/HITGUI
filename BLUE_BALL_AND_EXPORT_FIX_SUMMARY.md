@@ -45,7 +45,7 @@ db.collection('hit_dlt_bluecombinations').countDocuments()
 
 **根本原因**:
 1. **数据库集合名称大小写问题**:
-   - 初始化脚本创建了 `HIT_DLT_BlueCombinations` (大写，包含66条记录)
+   - 初始化脚本创建了 `hit_dlts` (大写，包含66条记录)
    - 服务器代码读取 `hit_dlt_bluecombinations` (小写，只有1条记录)
 
 2. **集合未正确初始化**:
@@ -111,7 +111,7 @@ const winningBlue = periodResult.winning_numbers.blue || []; // undefined
 node check-collection-names.js
 ```
 **发现**:
-- `HIT_DLT_BlueCombinations`: 66条记录 ✅
+- `hit_dlts`: 66条记录 ✅
 - `hit_dlt_bluecombinations`: 1条记录 ❌
 
 #### 步骤2: 修复索引并迁移数据
@@ -122,7 +122,7 @@ node fix-blue-combos-indexes.js
 **修复内容**:
 1. 删除错误的 `id_1` 索引
 2. 清空目标集合 `hit_dlt_bluecombinations`
-3. 从 `HIT_DLT_BlueCombinations` 复制全部66条记录
+3. 从 `hit_dlts` 复制全部66条记录
 4. 重建正确的索引:
    - `combination_id` (唯一索引)
    - `sum_value` (普通索引)
@@ -421,12 +421,12 @@ await db.collection('hit_dlt_hwcpositivepredictiontaskresults').updateMany(
 ### 2. 集合名称规范化（中优先级）
 
 **问题**: 同一数据有两个集合
-- `HIT_DLT_BlueCombinations` (初始化脚本创建)
+- `hit_dlts` (初始化脚本创建)
 - `hit_dlt_bluecombinations` (服务器代码使用)
 
 **建议**:
 1. 统一使用小写集合名（MongoDB最佳实践）
-2. 删除大写集合 `HIT_DLT_BlueCombinations`
+2. 删除大写集合 `hit_dlts`
 3. 更新初始化脚本使用小写名称
 
 ### 3. 任务创建界面优化（低优先级）

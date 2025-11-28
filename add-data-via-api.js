@@ -45,17 +45,17 @@ async function addDataToRunningApp() {
             FrontHotWarmColdRatio: String
         });
 
-        const DLT = mongoose.model('HIT_DLT', DLTSchema);
+        const hit_dlts = mongoose.model('hit_dlts', DLTSchema);
         const DLTRedMissing = mongoose.model('HIT_DLT_Basictrendchart_redballmissing_history', DLTRedMissingSchema);
 
         // 检查是否已有数据
-        const existingCount = await DLT.countDocuments();
+        const existingCount = await hit_dlts.countDocuments();
         console.log(`📊 当前数据库中已有 ${existingCount} 期数据`);
 
         if (existingCount > 0) {
             console.log('⚠️  数据库中已有数据，是否要清除？(Ctrl+C取消)');
             // 简单起见，自动清除
-            await DLT.deleteMany({});
+            await hit_dlts.deleteMany({});
             await DLTRedMissing.deleteMany({});
             console.log('✅ 已清除现有数据');
         }
@@ -126,7 +126,7 @@ async function addDataToRunningApp() {
         }
 
         // 插入数据
-        await DLT.insertMany(dltData);
+        await hit_dlts.insertMany(dltData);
         console.log(`✅ 已插入 ${dltData.length} 期开奖数据`);
 
         await DLTRedMissing.insertMany(missingData);

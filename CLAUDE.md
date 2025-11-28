@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-HIT数据分析系统 (HIT Lottery Analysis System) is an Electron-based desktop application for analyzing Chinese lottery data, specifically 双色球 (SSQ - Double Color Ball) and 大乐透 (DLT - Super Lotto). The app features historical data analysis, trend visualization, combination prediction, and Excel export capabilities.
+HIT数据分析系统 (HIT Lottery Analysis System) is an Electron-based desktop application for analyzing Chinese lottery data, specifically 双色球 (SSQ - Double Color Ball) and 大乐透 (hit_dlts - Super Lotto). The app features historical data analysis, trend visualization, combination prediction, and Excel export capabilities.
 
 ## Development Commands
 
@@ -74,7 +74,7 @@ This is an Electron app with a classic multi-process architecture:
 2. **Renderer Process** (`src/renderer/`)
    - `index.html` - Main UI entry point
    - `app.js` - 双色球 (SSQ) functionality
-   - `dlt-module.js` - 大乐透 (DLT) functionality
+   - `dlt-module.js` - 大乐透 (hit_dlts) functionality
    - Communicates with backend via REST API
 
 3. **Server Process** (`src/server/server.js`)
@@ -97,21 +97,29 @@ This is an Electron app with a classic multi-process architecture:
 
 **Key Collections:**
 - `HIT_UnionLotto` - 双色球历史数据
-- `HIT_DLT` - 大乐透历史数据
-- `HIT_DLT_RedCombinations` - 红球组合数据 (324,632 records for C(35,5))
-- `HIT_DLT_BlueCombinations` - 蓝球组合数据
+- `hit_dlts` - 大乐透历史数据 (2,792 records, periods 7001-25124)
+- `hit_dlt_redcombinations` - 红球组合数据 (324,632 records for C(35,5))
+- `hit_dlt_bluecombinations` - 蓝球组合数据 (66 records for C(12,2))
 - `HIT_DLT_RedCombinationsHotWarmColdOptimized` - 热温冷比优化表
 - `PredictionTask` - 预测任务
 - `PredictionTaskResult` - 任务结果
 - `DLTExclusionDetails` - 排除详情记录
+
+**IMPORTANT - DLT Collection Names (Updated 2025-11-16):**
+See `PLAN_C_COMPLETION_REPORT.md` for full details on the collection naming unification.
+- ✅ Main data: `hit_dlts` (lowercase, plural)
+- ✅ Red combinations: `hit_dlt_redcombinations` (lowercase, singular dlt)
+- ✅ Blue combinations: `hit_dlt_bluecombinations` (lowercase, singular dlt)
+- ❌ DO NOT use: `HIT_DLT`, `hit_dlt`, `DLT` (empty collections, deprecated)
+- ❌ DO NOT use: `HIT_DLT_RedCombinations`, `HIT_DLT_BlueCombinations` (empty or duplicate)
 
 ### Data Processing Pipeline
 
 **大乐透 Combination Prediction System:**
 
 1. **Pre-computed Combinations**
-   - Red balls: C(35,5) = 324,632 combinations stored in `DLTRedCombinations`
-   - Blue balls: C(12,2) = 66 combinations stored in `DLTBlueCombinations`
+   - Red balls: C(35,5) = 324,632 combinations stored in `hit_dlt_redcombinations`
+   - Blue balls: C(12,2) = 66 combinations stored in `hit_dlt_bluecombinations`
    - Each combination pre-calculated with features (sum, span, zone_ratio, odd_even_ratio, etc.)
 
 2. **Task-Based Processing** (StreamBatchPredictor)
@@ -295,7 +303,7 @@ curl -X POST http://localhost:3003/api/dlt/prediction-tasks/create \
 
 #### 1. 全部历史期号
 - **返回**：所有已开奖期号（按 Issue 升序）
-- **实现**：`DLT.find({}).sort({ Issue: 1 })`
+- **实现**：`hit_dlts.find({}).sort({ Issue: 1 })`
 - **示例**：如果数据库有 2000 条记录，返回 2000 个期号
 
 #### 2. 最近N期（默认100期）

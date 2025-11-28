@@ -13,9 +13,9 @@
 **函数**: `generateUnifiedMissingTables()` (line 24635)
 **生成的数据表**:
 1. ✅ `hit_dlt_basictrendchart_redballmissing_histories` - **红球遗漏值表**
-2. ✅ `hit_dlt_basictrendchart_blueballmissing_histories` - **蓝球遗漏值表**
+2. ✅ `hit_dlts` - **蓝球遗漏值表**
 
-**数据来源**: `DLT.find({})` - 从 `hit_dlts` 表读取所有期号数据
+**数据来源**: `hit_dlts.find({})` - 从 `hit_dlts` 表读取所有期号数据
 
 **字段内容**:
 ```javascript
@@ -43,7 +43,7 @@
 ```
 
 **⭐ 重要**: 这是修复后第一次运行时的关键步骤！
-- 之前因为 DLT Model 指向空集合，生成了空表
+- 之前因为 hit_dlts Model 指向空集合，生成了空表
 - 修复后会基于2792期数据生成完整遗漏值表
 
 ---
@@ -53,7 +53,7 @@
 **生成的数据表**:
 1. ✅ `hit_dlt_combofeatures` - **组合特征表**
 
-**数据来源**: `DLT.find({})` - 从 `hit_dlts` 表读取
+**数据来源**: `hit_dlts.find({})` - 从 `hit_dlts` 表读取
 
 **字段内容**:
 ```javascript
@@ -139,7 +139,7 @@ statistics: {
 - **用途**: 预生成的所有可能红球组合
 - **是否需要更新**: ❌ 不需要（这是固定的组合表，除非游戏规则改变）
 
-### 2. ❓ `hit_dlt_bluecombinations` / `HIT_DLT_BlueCombinations` (蓝球组合表)
+### 2. ❓ `hit_dlt_bluecombinations` / `hit_dlts` (蓝球组合表)
 - **记录数**: 66 (C(12,2)) / 1
 - **用途**: 预生成的所有可能蓝球组合
 - **是否需要更新**: ❌ 不需要（固定组合表）
@@ -171,7 +171,7 @@ statistics: {
 ### ✅ 当前"统一更新所有数据"功能已经包含的核心数据表：
 
 1. ✅ **红球遗漏值表** - `hit_dlt_basictrendchart_redballmissing_histories`
-2. ✅ **蓝球遗漏值表** - `hit_dlt_basictrendchart_blueballmissing_histories`
+2. ✅ **蓝球遗漏值表** - `hit_dlts`
 3. ✅ **组合特征表** - `hit_dlt_combofeatures`
 4. ✅ **Statistics字段** - `hit_dlts.statistics`
 5. ✅ **热温冷比优化表** - `hit_dlt_redcombinationshotwarmcoldoptimizeds`
@@ -184,7 +184,7 @@ hit_dlts (2792期原始数据)
     ↓
 步骤1: 生成遗漏值表
     → hit_dlt_basictrendchart_redballmissing_histories (2792期)
-    → hit_dlt_basictrendchart_blueballmissing_histories (2792期)
+    → hit_dlts (2792期)
     ↓
 步骤2: 生成组合特征表
     → hit_dlt_combofeatures (2792期)
@@ -216,9 +216,9 @@ hit_dlts (2792期原始数据)
 
 ### ⚠️ 唯一的问题是：
 
-**修复 DLT Model 之前**，步骤1读取到0条数据，导致生成空的遗漏值表。
+**修复 hit_dlts Model 之前**，步骤1读取到0条数据，导致生成空的遗漏值表。
 
-**修复 DLT Model 之后**，步骤1会读取2792期数据，生成完整的遗漏值表。
+**修复 hit_dlts Model 之后**，步骤1会读取2792期数据，生成完整的遗漏值表。
 
 ---
 
@@ -241,4 +241,4 @@ hit_dlts (2792期原始数据)
 
 ---
 
-**最终答案**: "统一更新所有数据"功能已经包含了所有必需的遗漏数据生成步骤，没有遗漏！唯一的问题已经修复（DLT Model 指向错误集合），现在可以直接使用了。
+**最终答案**: "统一更新所有数据"功能已经包含了所有必需的遗漏数据生成步骤，没有遗漏！唯一的问题已经修复（hit_dlts Model 指向错误集合），现在可以直接使用了。

@@ -19,8 +19,8 @@ async function verifyHWCOptimizedTable() {
             new mongoose.Schema({}, { strict: false })
         );
 
-        const DLT = mongoose.model(
-            'HIT_DLT',
+        const hit_dlts = mongoose.model(
+            'hit_dlts',
             new mongoose.Schema({}, { strict: false })
         );
 
@@ -31,7 +31,7 @@ async function verifyHWCOptimizedTable() {
         // ========== 1. 统计总体数据 ==========
         console.log('📊 【1/5】统计总体数据\n');
 
-        const dltCount = await DLT.countDocuments();
+        const dltCount = await hit_dlts.countDocuments();
         console.log(`   已开奖期数: ${dltCount}`);
 
         const totalCount = await DLTRedCombinationsHotWarmColdOptimized.countDocuments();
@@ -55,7 +55,7 @@ async function verifyHWCOptimizedTable() {
         // ========== 2. 验证推算期数据 ==========
         console.log('📊 【2/5】验证推算期数据\n');
 
-        const latestDLT = await DLT.findOne({}).sort({ Issue: -1 }).select('Issue').lean();
+        const latestDLT = await hit_dlts.findOne({}).sort({ Issue: -1 }).select('Issue').lean();
         const latestIssue = latestDLT ? latestDLT.Issue : 0;
         const expectedPredictedIssue = latestIssue + 1;
 
@@ -97,9 +97,9 @@ async function verifyHWCOptimizedTable() {
             const targetIssue = parseInt(record.target_issue);
 
             // 查询target_issue的真正上一期（通过ID-1）
-            const targetDLT = await DLT.findOne({ Issue: targetIssue }).select('ID Issue').lean();
+            const targetDLT = await hit_dlts.findOne({ Issue: targetIssue }).select('ID Issue').lean();
             if (targetDLT) {
-                const truePreviousDLT = await DLT.findOne({ ID: targetDLT.ID - 1 }).select('Issue').lean();
+                const truePreviousDLT = await hit_dlts.findOne({ ID: targetDLT.ID - 1 }).select('Issue').lean();
                 const truePreviousIssue = truePreviousDLT ? truePreviousDLT.Issue : null;
 
                 const isCorrect = baseIssue === truePreviousIssue;

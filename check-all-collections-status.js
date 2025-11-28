@@ -40,7 +40,7 @@ async function checkAllCollections() {
       console.log(`${status.padEnd(15)} ${collName.padEnd(50)} ${count.toLocaleString().padStart(15)} 条`);
 
       // 对于空集合，显示警告
-      if (count === 0 && collName.includes('DLT')) {
+      if (count === 0 && collName.includes('hit_dlts')) {
         console.log(`   ⚠️  "${collName}" 为空！这会导致大乐透相关功能无法使用`);
       }
     }
@@ -53,9 +53,9 @@ async function checkAllCollections() {
     console.log('='.repeat(80));
 
     const keyCollections = [
-      'HIT_DLT',
-      'HIT_DLT_RedCombinations',
-      'HIT_DLT_BlueCombinations',
+      'hit_dlts',
+      'hit_dlts',
+      'hit_dlts',
       'HIT_DLT_RedCombinationsHotWarmColdOptimized',
       'PredictionTask',
       'PredictionTaskResult'
@@ -81,7 +81,7 @@ async function checkAllCollections() {
         console.log(`   - 主要字段: ${fields.slice(0, 10).join(', ')}${fields.length > 10 ? '...' : ''}`);
 
         // 特殊检查
-        if (collName === 'HIT_DLT') {
+        if (collName === 'hit_dlts') {
           const withMissing = await db.collection(collName)
             .countDocuments({ Red_Missing: { $exists: true, $ne: null } });
           console.log(`   - 有缺失值数据的记录: ${withMissing}/${count} (${(withMissing/count*100).toFixed(1)}%)`);
@@ -108,12 +108,12 @@ async function checkAllCollections() {
     console.log('💡 诊断建议:');
     console.log('='.repeat(80));
 
-    const dltCount = await db.collection('HIT_DLT').countDocuments();
-    const redComboCount = await db.collection('HIT_DLT_RedCombinations').countDocuments();
-    const blueComboCount = await db.collection('HIT_DLT_BlueCombinations').countDocuments();
+    const dltCount = await db.collection('hit_dlts').countDocuments();
+    const redComboCount = await db.collection('hit_dlts').countDocuments();
+    const blueComboCount = await db.collection('hit_dlts').countDocuments();
 
     if (dltCount === 0) {
-      console.log('❌ HIT_DLT集合为空 - 这是导致热温冷正选批量预测输出0组合的根本原因！');
+      console.log('❌ hit_dlts集合为空 - 这是导致热温冷正选批量预测输出0组合的根本原因！');
       console.log('   解决方案:');
       console.log('   1. 在应用界面中导入大乐透历史数据（Excel文件）');
       console.log('   2. 或使用数据库导入工具恢复备份数据');
@@ -121,13 +121,13 @@ async function checkAllCollections() {
     }
 
     if (redComboCount === 0) {
-      console.log('❌ HIT_DLT_RedCombinations集合为空');
+      console.log('❌ hit_dlts集合为空');
       console.log('   解决方案: 运行组合生成脚本 init-combinations.js');
       console.log('');
     }
 
     if (blueComboCount === 0) {
-      console.log('❌ HIT_DLT_BlueCombinations集合为空');
+      console.log('❌ hit_dlts集合为空');
       console.log('   解决方案: 运行组合生成脚本 init-combinations.js');
       console.log('');
     }

@@ -86,7 +86,7 @@ async function checkHwcTask() {
         // 3. 检查数据库中对应期号的开奖数据
         console.log('\n\n🎱 开奖数据检查:');
         const targetIssues = results.map(r => r.target_issue);
-        const drawingResults = await db.collection('HIT_DLT')
+        const drawingResults = await db.collection('hit_dlts')
             .find({ Issue: { $in: targetIssues } })
             .sort({ Issue: 1 })
             .toArray();

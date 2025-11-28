@@ -56,7 +56,7 @@ async function startInternalServer() {
 ```
 ✅ 已连接到本地MongoDB数据库
 📊 开始创建数据库索引（性能优化）...
-  ℹ DLT主表索引已存在
+  ℹ hit_dlts主表索引已存在
   ℹ DLTRedMissing表索引已存在
   ℹ DLTRedCombination表索引已存在
   ℹ DLTComboFeatures表索引已存在
@@ -348,7 +348,7 @@ storage:
 
 ```javascript
 // 删除200期以前的数据
-const latestIssue = await DLT.findOne().sort({ Issue: -1 });
+const latestIssue = await hit_dlts.findOne().sort({ Issue: -1 });
 const cutoffIssue = (parseInt(latestIssue.Issue) - 200).toString();
 
 await DLTRedCombinationsHotWarmColdOptimized.deleteMany({

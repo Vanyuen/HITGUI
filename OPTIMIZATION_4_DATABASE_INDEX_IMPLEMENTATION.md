@@ -30,7 +30,7 @@
 
 ### 2. 优化索引详细列表
 
-#### 2.1 红球组合表 (HIT_DLT_RedCombinations)
+#### 2.1 红球组合表 (hit_dlts)
 
 **索引1: 和值+跨度复合索引**
 ```javascript
@@ -97,7 +97,7 @@
 
 ---
 
-#### 2.3 历史数据表 (HIT_DLT)
+#### 2.3 历史数据表 (hit_dlts)
 
 **索引1: Issue唯一索引**
 ```javascript
@@ -118,7 +118,7 @@
 
 ---
 
-#### 2.4 蓝球组合表 (HIT_DLT_BlueCombinations)
+#### 2.4 蓝球组合表 (hit_dlts)
 
 **索引: 组合ID索引**
 ```javascript
@@ -151,10 +151,10 @@
 
 | 集合 | 索引数量 | 数据大小 | 索引大小 | 新增索引 |
 |------|---------|---------|---------|---------|
-| HIT_DLT_RedCombinations | 7 | 0.00 MB | 0.03 MB | 6 |
+| hit_dlts | 7 | 0.00 MB | 0.03 MB | 6 |
 | HIT_DLT_RedCombinationsHotWarmColdOptimized | 3 | 0.00 MB | 0.01 MB | 2 |
-| HIT_DLT | 3 | 0.00 MB | 0.01 MB | 2 |
-| HIT_DLT_BlueCombinations | 4 | 0.01 MB | 0.09 MB | 1 |
+| hit_dlts | 3 | 0.00 MB | 0.01 MB | 2 |
+| hit_dlts | 4 | 0.01 MB | 0.09 MB | 1 |
 | PredictionTask | 2 | 0.00 MB | 0.01 MB | 1 |
 | **总计** | **19** | **0.01 MB** | **0.15 MB** | **12** |
 
@@ -365,7 +365,7 @@ node create-optimized-indexes.js
 # 对比测试：
 
 # 1. 删除优化索引（仅测试用）
-mongo lottery --eval "db.HIT_DLT_RedCombinations.dropIndex('idx_sum_span_optimized')"
+mongo lottery --eval "db.hit_dlts.dropIndex('idx_sum_span_optimized')"
 
 # 2. 运行任务，记录耗时 T1
 
@@ -381,7 +381,7 @@ node create-optimized-indexes.js
 ```bash
 # 使用MongoDB Explain分析查询
 mongo lottery --eval "
-db.HIT_DLT_RedCombinations.find({
+db.hit_dlts.find({
     sum_value: { \$gte: 60, \$lte: 100 },
     span_value: { \$gte: 10, \$lte: 20 }
 }).explain('executionStats')
@@ -413,13 +413,13 @@ node create-optimized-indexes.js
 ### 手动删除索引（仅测试用）
 ```javascript
 // MongoDB shell
-db.HIT_DLT_RedCombinations.dropIndex('idx_sum_span_optimized');
+db.hit_dlts.dropIndex('idx_sum_span_optimized');
 ```
 
 ### 查看索引
 ```javascript
 // MongoDB shell
-db.HIT_DLT_RedCombinations.getIndexes();
+db.hit_dlts.getIndexes();
 ```
 
 ---

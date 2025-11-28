@@ -64,9 +64,9 @@ async function test1_DatabaseCollections() {
   console.log('='.repeat(80));
 
   const requiredCollections = {
-    'HIT_DLT': '大乐透历史数据',
-    'HIT_DLT_RedCombinations': '红球组合预计算表',
-    'HIT_DLT_BlueCombinations': '蓝球组合预计算表',
+    'hit_dlts': '大乐透历史数据',
+    'hit_dlts': '红球组合预计算表',
+    'hit_dlts': '蓝球组合预计算表',
     'HIT_DLT_RedCombinationsHotWarmColdOptimized': '热温冷优化表',
     'PredictionTask': '预测任务表',
     'PredictionTaskResult': '任务结果表',
@@ -86,7 +86,7 @@ async function test1_DatabaseCollections() {
       );
 
       // 特殊检查
-      if (name === 'HIT_DLT_RedCombinations' && count !== 324632) {
+      if (name === 'hit_dlts' && count !== 324632) {
         addTest(
           '红球组合数量验证',
           'WARN',
@@ -94,7 +94,7 @@ async function test1_DatabaseCollections() {
         );
       }
 
-      if (name === 'HIT_DLT_BlueCombinations' && count !== 66) {
+      if (name === 'hit_dlts' && count !== 66) {
         addTest(
           '蓝球组合数量验证',
           'WARN',
@@ -173,7 +173,7 @@ async function test2_HWCOptimizedTable() {
   }
 
   // 2.4 检查最新期号的优化数据
-  const dltColl = db.collection('HIT_DLT');
+  const dltColl = db.collection('hit_dlts');
   const latestIssues = await dltColl.find({}).sort({ Issue: -1 }).limit(2).toArray();
 
   if (latestIssues.length >= 2) {
@@ -437,7 +437,7 @@ async function test7_DatabaseIndexes() {
   console.log('='.repeat(80));
 
   const collectionsToCheck = [
-    'HIT_DLT_RedCombinations',
+    'hit_dlts',
     'HIT_DLT_RedCombinationsHotWarmColdOptimized',
     'PredictionTask',
     'PredictionTaskResult'

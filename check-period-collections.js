@@ -13,7 +13,7 @@ async function checkPeriodCollections() {
         for (const coll of collections) {
             if (coll.name.includes('period') ||
                 coll.name === 'dlt' ||
-                coll.name.includes('hit_dlt') && !coll.name.includes('combination') && !coll.name.includes('missing') && !coll.name.includes('task')) {
+                coll.name.includes('hit_dlts') && !coll.name.includes('combination') && !coll.name.includes('missing') && !coll.name.includes('task')) {
                 const count = await db.collection(coll.name).countDocuments();
                 if (count > 0) {
                     console.log(`✅ ${coll.name} (${count.toLocaleString()} 条记录)`);

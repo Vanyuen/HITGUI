@@ -5,12 +5,12 @@ async function verifyHWCRepair() {
         await mongoose.connect('mongodb://localhost:27017/lottery');
 
         const dltSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlts' });
-        const DLT = mongoose.model('HIT_DLT_Verify', dltSchema);
+        const hit_dlts = mongoose.model('HIT_DLT_Verify', dltSchema);
 
         console.log('\n=== 验证热温冷比修复结果 ===\n');
 
         // 查询 3:2:0 的记录
-        const ratio320 = await DLT.find({ 'statistics.frontHotWarmColdRatio': '3:2:0' })
+        const ratio320 = await hit_dlts.find({ 'statistics.frontHotWarmColdRatio': '3:2:0' })
             .select('Issue statistics.frontHotWarmColdRatio Red1 Red2 Red3 Red4 Red5')
             .sort({ Issue: -1 })
             .limit(10)
@@ -22,7 +22,7 @@ async function verifyHWCRepair() {
         });
 
         // 统计所有热温冷比的分布
-        const allRecords = await DLT.find({ 'statistics.frontHotWarmColdRatio': { $exists: true } })
+        const allRecords = await hit_dlts.find({ 'statistics.frontHotWarmColdRatio': { $exists: true } })
             .select('statistics.frontHotWarmColdRatio')
             .lean();
 

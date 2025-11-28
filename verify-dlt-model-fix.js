@@ -1,5 +1,5 @@
 /**
- * 验证DLT Model是否正确指向hit_dlts集合
+ * 验证hit_dlts Model是否正确指向hit_dlts集合
  */
 const mongoose = require('mongoose');
 
@@ -17,21 +17,21 @@ const mongoose = require('mongoose');
         });
 
         // ⭐ 明确指定使用 hit_dlts 集合（第三个参数）
-        const DLT = mongoose.model('HIT_DLT', dltSchema, 'hit_dlts');
+        const hit_dlts = mongoose.model('hit_dlts', dltSchema, 'hit_dlts');
 
-        console.log('=== 验证DLT Model修复 ===\n');
+        console.log('=== 验证hit_dlts Model修复 ===\n');
 
-        const count = await DLT.countDocuments();
-        console.log('✅ DLT.countDocuments():', count);
+        const count = await hit_dlts.countDocuments();
+        console.log('✅ hit_dlts.countDocuments():', count);
 
         if (count > 0) {
-            const latest = await DLT.find().sort({ Issue: -1 }).limit(5);
+            const latest = await hit_dlts.find().sort({ Issue: -1 }).limit(5);
             console.log('\n最新5期:');
             latest.forEach(record => {
                 console.log(`  期号: ${record.Issue}, Red: ${record.Red1}-${record.Red2}-${record.Red3}-${record.Red4}-${record.Red5}`);
             });
 
-            const issue25114 = await DLT.findOne({ Issue: 25114 });
+            const issue25114 = await hit_dlts.findOne({ Issue: 25114 });
             if (issue25114) {
                 console.log('\n✅ 成功找到期号25114');
                 console.log(`   红球: ${issue25114.Red1}-${issue25114.Red2}-${issue25114.Red3}-${issue25114.Red4}-${issue25114.Red5}`);

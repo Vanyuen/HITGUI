@@ -58,7 +58,7 @@
 │  │ 阶段1: 数据预加载 (preloadData)                      │  │
 │  │  - DLTRedCombination.find() → 324,632条              │  │
 │  │  - DLTBlueCombination.find() → 66条                  │  │
-│  │  - 历史开奖数据 DLT.find()                            │  │
+│  │  - 历史开奖数据 hit_dlts.find()                            │  │
 │  │  - 遗漏值数据 (1000条)                                │  │
 │  │  - 构建反向索引 (combo_2/3/4)                         │  │
 │  │  ⚠️ 瓶颈: 数据库查询15-30秒 (60%时间)                │  │
@@ -103,7 +103,7 @@
 │                 数据持久化层 (MongoDB)                       │
 │  - HwcPositivePredictionTask (任务表)                        │
 │  - HwcPositivePredictionTaskResult (结果表) → 51条/任务     │
-│  - DLT (开奖数据) → 2000+期                                  │
+│  - hit_dlts (开奖数据) → 2000+期                                  │
 │  - DLTRedCombinations → 324,632条                            │
 │  - DLTBlueCombinations → 66条                                │
 │  - DLTRedCombinationsHotWarmColdOptimized (热温冷优化表)     │

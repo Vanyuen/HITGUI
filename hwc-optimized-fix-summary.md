@@ -22,7 +22,7 @@
 const baseIssue = allIssues[i - 1];
 
 // ✅ 修复后（正确）
-const baseIssue = await DLT.findOne({ ID: targetIssue.ID - 1 });
+const baseIssue = await hit_dlts.findOne({ ID: targetIssue.ID - 1 });
 ```
 
 ---
@@ -102,7 +102,7 @@ if (有新开奖期) {
 ```javascript
 for (const targetIssue of issuesToProcess) {
     // ✅ 使用 ID-1 找到真正的上一期（修复Issue不连续BUG）
-    const baseIssue = await DLT.findOne({ ID: targetIssue.ID - 1 });
+    const baseIssue = await hit_dlts.findOne({ ID: targetIssue.ID - 1 });
 
     if (!baseIssue) {
         log(`⚠️  期号${targetIssue.Issue}的上一期(ID=${targetIssue.ID - 1})不存在，跳过`);
@@ -121,7 +121,7 @@ const latestIssue = allIssues[allIssues.length - 1];
 const predictedIssueNum = latestIssue.Issue + 1;
 
 // ✅ 推算期使用 Issue-1 找上一期（因为推算期是按连续规则添加的）
-const baseIssueForPrediction = await DLT.findOne({
+const baseIssueForPrediction = await hit_dlts.findOne({
     Issue: predictedIssueNum - 1
 });
 

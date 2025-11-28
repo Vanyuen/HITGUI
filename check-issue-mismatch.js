@@ -7,12 +7,12 @@ async function checkIssueMismatch() {
         const dltSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlts' });
         const redMissingSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlt_basictrendchart_redballmissing_histories' });
 
-        const DLT = mongoose.models.HIT_DLT || mongoose.model('HIT_DLT', dltSchema);
+        const hit_dlts = mongoose.models.hit_dlts || mongoose.model('hit_dlts', dltSchema);
         const DLTRedMissing = mongoose.models.HIT_DLT_Basictrendchart_redballmissing_history ||
                               mongoose.model('HIT_DLT_Basictrendchart_redballmissing_history', redMissingSchema);
 
-        // 获取DLT表的期号范围
-        const dltRecords = await DLT.find({}).select('Issue').sort({ Issue: 1 }).lean();
+        // 获取hit_dlts表的期号范围
+        const dltRecords = await hit_dlts.find({}).select('Issue').sort({ Issue: 1 }).lean();
         const dltIssues = dltRecords.map(r => r.Issue);
 
         // 获取DLTRedMissing表的期号范围
@@ -20,10 +20,10 @@ async function checkIssueMismatch() {
         const missingIssues = missingRecords.map(r => r.Issue);
 
         console.log('\n=== 期号匹配检查 ===\n');
-        console.log(`DLT表期号数量: ${dltIssues.length}`);
-        console.log(`DLT表期号范围: ${dltIssues[0]} - ${dltIssues[dltIssues.length - 1]}`);
-        console.log(`DLT表前10期: ${dltIssues.slice(0, 10).join(', ')}`);
-        console.log(`DLT表后10期: ${dltIssues.slice(-10).join(', ')}\n`);
+        console.log(`hit_dlts表期号数量: ${dltIssues.length}`);
+        console.log(`hit_dlts表期号范围: ${dltIssues[0]} - ${dltIssues[dltIssues.length - 1]}`);
+        console.log(`hit_dlts表前10期: ${dltIssues.slice(0, 10).join(', ')}`);
+        console.log(`hit_dlts表后10期: ${dltIssues.slice(-10).join(', ')}\n`);
 
         console.log(`DLTRedMissing表期号数量: ${missingIssues.length}`);
         console.log(`DLTRedMissing表期号范围: ${missingIssues[0]} - ${missingIssues[missingIssues.length - 1]}`);
@@ -44,10 +44,10 @@ async function checkIssueMismatch() {
             console.log(`匹配的后10期: ${matchedIssues.slice(-10).join(', ')}\n`);
         }
 
-        // 找出DLT表中没有遗漏值数据的期号范围
+        // 找出hit_dlts表中没有遗漏值数据的期号范围
         const unmatchedIssues = dltIssues.filter(issue => !missingSet.has(issue));
         if (unmatchedIssues.length > 0) {
-            console.log(`DLT表中缺少遗漏值的期号（前20个）:`);
+            console.log(`hit_dlts表中缺少遗漏值的期号（前20个）:`);
             console.log(unmatchedIssues.slice(0, 20).join(', '));
         }
 

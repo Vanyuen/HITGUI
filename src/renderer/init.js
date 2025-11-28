@@ -19,28 +19,28 @@ document.addEventListener('DOMContentLoaded', () => {
     // 初始化大乐透系统
     if (window.DLTModule) {
         window.DLTModule.init();
-        console.log('✅ DLT Module integrated successfully');
+        console.log('✅ hit_dlts Module integrated successfully');
     } else {
-        console.warn('⚠️ DLT Module not loaded');
+        console.warn('⚠️ hit_dlts Module not loaded');
     }
     
     // 监听大乐透标签页切换
     const dltNavItem = document.querySelector('.nav-item[data-panel="dlt"]');
     if (dltNavItem) {
         dltNavItem.addEventListener('click', () => {
-            console.log('🎯 Switching to DLT panel');
+            console.log('🎯 Switching to hit_dlts panel');
             // 延时加载确保面板切换完成
             setTimeout(() => {
                 if (window.DLTModule) {
                     window.DLTModule.loadHistory(1);
                 } else {
-                    console.warn('⚠️ DLT Module not available for history loading');
+                    console.warn('⚠️ hit_dlts Module not available for history loading');
                 }
             }, 100);
         });
-        console.log('✅ DLT navigation event listener attached');
+        console.log('✅ hit_dlts navigation event listener attached');
     } else {
-        console.warn('⚠️ DLT navigation item not found');
+        console.warn('⚠️ hit_dlts navigation item not found');
     }
     
     // 添加CSP兼容性检查

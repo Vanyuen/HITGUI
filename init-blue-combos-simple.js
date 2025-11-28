@@ -7,7 +7,7 @@ const { MongoClient } = require('mongodb');
 
 const MONGO_URI = 'mongodb://127.0.0.1:27017';
 const DB_NAME = 'lottery';
-const COLLECTION_NAME = 'HIT_DLT_BlueCombinations';
+const COLLECTION_NAME = 'hit_dlts';
 
 async function main() {
     const client = new MongoClient(MONGO_URI);

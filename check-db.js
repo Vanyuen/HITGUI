@@ -35,7 +35,7 @@ async function checkDatabase() {
         // 检查是否存在项目需要的集合
         const requiredCollections = [
             'hit_unionlottoes',      // HIT_UnionLotto
-            'hit_dlts',              // HIT_DLT
+            'hit_dlts',              // hit_dlts
             'hit_dlt_redcombinations',
             'hit_dlt_bluecombinations'
         ];

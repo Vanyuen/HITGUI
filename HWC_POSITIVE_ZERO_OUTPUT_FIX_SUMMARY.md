@@ -289,7 +289,7 @@ await HwcPositivePredictionTask.updateOne(
 
 ## 数据库字段结构验证
 
-### DLT开奖记录表 (hit_dlts)
+### hit_dlts开奖记录表 (hit_dlts)
 ```javascript
 {
   Issue: 25074,         // 期号 (整数)

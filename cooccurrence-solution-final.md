@@ -35,7 +35,7 @@
 
 async function getCoOccurrenceFromMissing(targetIssue, periods) {
     // 1. 获取目标期号对应的ID
-    const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) });
+    const targetRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) });
     const targetID = targetRecord.ID;
 
     // 2. 获取最近N期的遗漏值数据 (目标期之前的N期)
@@ -78,9 +78,9 @@ async function getCoOccurrenceFromMissing(targetIssue, periods) {
 
 ## 优势对比
 
-| 特性 | 旧方案(查DLT表) | 新方案(查遗漏值表) |
+| 特性 | 旧方案(查hit_dlts表) | 新方案(查遗漏值表) |
 |------|----------------|-------------------|
-| **数据源** | DLT历史表 | DLTRedMissing表 |
+| **数据源** | hit_dlts历史表 | DLTRedMissing表 |
 | **查询效率** | 需要遍历历史记录 | 直接读取遗漏值 |
 | **识别开奖号码** | 需要提取Red1-Red5字段 | 直接查找值=0的字段 |
 | **代码复杂度** | 需要构造号码数组 | 一行代码搞定 |
@@ -91,7 +91,7 @@ async function getCoOccurrenceFromMissing(targetIssue, periods) {
 
 ### 旧方案代码
 ```javascript
-const recentIssues = await DLT.find({ ID: { $lt: targetID } })
+const recentIssues = await hit_dlts.find({ ID: { $lt: targetID } })
     .sort({ ID: -1 }).limit(periods).lean();
 
 const allAppearedNumbers = new Set();
@@ -167,7 +167,7 @@ record25077["2"] > 0     // ✅
 ## 实施步骤
 
 1. ✅ 理解遗漏值表结构
-2. 🔄 修改API逻辑(使用DLTRedMissing代替DLT)
+2. 🔄 修改API逻辑(使用DLTRedMissing代替hit_dlts)
 3. 🔄 添加日志显示分析的期号
 4. 🧪 测试验证
 5. 📝 更新文档

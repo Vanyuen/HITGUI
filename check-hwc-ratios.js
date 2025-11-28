@@ -13,7 +13,7 @@ mongoose.connect(MONGODB_URI, {
     useUnifiedTopology: true
 });
 
-// DLT Schema
+// hit_dlts Schema
 const dltSchema = new mongoose.Schema({
     issue: { type: String, required: true, unique: true },
     drawDate: { type: Date },
@@ -29,7 +29,7 @@ const dltSchema = new mongoose.Schema({
     }
 }, { collection: 'hit_dlts' });
 
-const DLT = mongoose.model('HIT_DLT_Check', dltSchema);
+const hit_dlts = mongoose.model('HIT_DLT_Check', dltSchema);
 
 async function checkHWCRatios() {
     try {
@@ -40,7 +40,7 @@ async function checkHWCRatios() {
         // 查询最近100期的热温冷比分布
         console.log('📊 查询最近100期的热温冷比分布...\n');
 
-        const records = await DLT.find({})
+        const records = await hit_dlts.find({})
             .select('issue statistics.frontHotWarmColdRatio')
             .sort({ issue: -1 })
             .limit(100)

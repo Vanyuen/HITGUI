@@ -484,6 +484,63 @@ async function clearExpiredCache() {
     }
 }
 
+// 增量更新热温冷优化表
+async function updateHwcOptimizedIncremental() {
+    if (!confirm('确定要增量更新热温冷优化表吗？\n\n将删除推算期记录和最近10期数据，然后重新生成。')) {
+        return;
+    }
+
+    addLog('⚡ 开始增量更新热温冷优化表...', 'info');
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/dlt/hwc-optimized/update-incremental`, {
+            method: 'POST'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            addLog(`✅ 增量更新成功: ${result.message}`, 'success');
+            showAlert('热温冷优化表增量更新成功！', 'success');
+        } else {
+            addLog(`❌ 增量更新失败: ${result.message}`, 'error');
+            showAlert(`增量更新失败: ${result.message}`, 'error');
+        }
+    } catch (error) {
+        addLog(`❌ 网络错误: ${error.message}`, 'error');
+        showAlert('增量更新失败: 网络错误', 'error');
+    }
+}
+
+// 全量重建热温冷优化表
+async function rebuildHwcOptimizedAll() {
+    if (!confirm('⚠️ 确定要全量重建热温冷优化表吗？\n\n这将删除所有现有数据并重新生成全部2792条记录，预计需要5-10分钟。')) {
+        return;
+    }
+
+    addLog('🔄 开始全量重建热温冷优化表...', 'info');
+    addLog('预计需要5-10分钟，请耐心等待...', 'warning');
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/dlt/hwc-optimized/rebuild-all`, {
+            method: 'POST'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            addLog(`✅ 全量重建成功: ${result.message}`, 'success');
+            showAlert('热温冷优化表全量重建成功！', 'success');
+        } else {
+            addLog(`❌ 全量重建失败: ${result.message}`, 'error');
+            showAlert(`全量重建失败: ${result.message}`, 'error');
+        }
+    } catch (error) {
+        addLog(`❌ 网络错误: ${error.message}`, 'error');
+        showAlert('全量重建失败: 网络错误', 'error');
+    }
+}
+
 // 页面加载时自动刷新状态
 window.addEventListener('DOMContentLoaded', () => {
     addLog('管理后台已就绪', 'info');

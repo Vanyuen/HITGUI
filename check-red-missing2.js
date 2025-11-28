@@ -10,9 +10,9 @@ async function checkRedMissing() {
 
         console.log('\n检查红球遗漏数据:\n');
 
-        const sample1 = await db.collection('hit_dlt_redballmissing_histories').findOne();
+        const sample1 = await db.collection('hit_dlts').findOne();
         if (sample1) {
-            console.log('✅ hit_dlt_redballmissing_histories:');
+            console.log('✅ hit_dlts:');
             console.log(JSON.stringify(sample1, null, 2).substring(0, 500));
         }
 

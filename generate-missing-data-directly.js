@@ -8,7 +8,7 @@ async function generateMissingData() {
         console.log('🔌 连接MongoDB...\n');
         await mongoose.connect('mongodb://127.0.0.1:27017/lottery');
 
-        // 定义DLT Schema
+        // 定义hit_dlts Schema
         const dltSchema = new mongoose.Schema({
             ID: Number,
             Issue: Number,
@@ -18,10 +18,10 @@ async function generateMissingData() {
         });
 
         //⭐ 明确指定使用 hit_dlts 集合
-        const DLT = mongoose.model('HIT_DLT_DirectGen', dltSchema, 'hit_dlts');
+        const hit_dlts = mongoose.model('HIT_DLT_DirectGen', dltSchema, 'hit_dlts');
 
         console.log('📊 读取大乐透历史数据...');
-        const allRecords = await DLT.find({}).sort({ Issue: 1 }).lean();
+        const allRecords = await hit_dlts.find({}).sort({ Issue: 1 }).lean();
         console.log(`✅ 找到 ${allRecords.length} 期数据\n`);
 
         if (allRecords.length === 0) {
@@ -122,17 +122,17 @@ async function generateMissingData() {
         console.log(`\n🔄 替换旧数据...`);
         // 删除旧集合
         await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories').drop().catch(() => {});
-        await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').drop().catch(() => {});
+        await mongoose.connection.db.collection('hit_dlts').drop().catch(() => {});
 
         // 重命名临时集合为正式集合
         await mongoose.connection.db.collection(redTempCollection).rename('hit_dlt_basictrendchart_redballmissing_histories');
-        await mongoose.connection.db.collection(blueTempCollection).rename('hit_dlt_basictrendchart_blueballmissing_histories');
+        await mongoose.connection.db.collection(blueTempCollection).rename('hit_dlts');
 
         console.log('✅ 数据替换完成\n');
 
         // 验证
         const redCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories').countDocuments();
-        const blueCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').countDocuments();
+        const blueCount = await mongoose.connection.db.collection('hit_dlts').countDocuments();
 
         console.log('═══════════════════════════════════════\n');
         console.log('🎉 遗漏值表生成完成！\n');

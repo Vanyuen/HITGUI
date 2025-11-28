@@ -3,12 +3,12 @@ const mongoose = require('mongoose');
 mongoose.connect('mongodb://127.0.0.1:27017/lottery');
 
 const schema = new mongoose.Schema({}, { strict: false });
-const Model = mongoose.model('HIT_DLT_RedCombinations', schema);
+const Model = mongoose.model('hit_dlts', schema);
 
 Model.findOne({}).lean().then(doc => {
     console.log('\n========== 数据库Schema检查 ==========\n');
     console.log('✅ 成功连接到数据库');
-    console.log('\n📋 HIT_DLT_RedCombinations 集合的字段:');
+    console.log('\n📋 hit_dlts 集合的字段:');
     console.log(Object.keys(doc).sort().join(', '));
 
     console.log('\n\n🔍 AC值字段检查:');

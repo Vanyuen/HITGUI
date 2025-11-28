@@ -37,7 +37,7 @@ if (exclude_conditions.sum?.historical?.enabled) {
     const recentPeriods = exclude_conditions.sum.historical.count || 10;
 
     // ⭐ 关键：基于 basePeriodID（目标期-1的ID）倒推
-    const historicalRecords = await DLT.find({
+    const historicalRecords = await hit_dlts.find({
         ID: { $lte: basePeriodID }  // <= 目标期-1
     })
     .sort({ ID: -1 })
@@ -86,7 +86,7 @@ if (exclude_conditions.sum?.historical?.enabled) {
 if (exclude_conditions.span?.historical?.enabled) {
     const recentPeriods = exclude_conditions.span.historical.count || 10;
 
-    const historicalRecords = await DLT.find({
+    const historicalRecords = await hit_dlts.find({
         ID: { $lte: basePeriodID }  // ⭐ 动态基准
     })
     .sort({ ID: -1 })
@@ -156,7 +156,7 @@ if (exclude_conditions.hwc.historical && exclude_conditions.hwc.historical.enabl
 // getHistoricalHWCRatios 适配器（实例方法）
 // 约 server.js:12280-12295
 async getHistoricalHWCRatios(targetIssue, count) {
-    const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+    const targetRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
     if (!targetRecord) return [];
 
     // 调用全局函数，传入该期的ID
@@ -187,7 +187,7 @@ async getConflictPairs(targetIssue, conflictConfig) {
 
     // ⭐ 关键1：基于目标期号动态查询历史数据
     const targetIssueNum = parseInt(targetIssue);
-    const analysisData = await DLT.find({
+    const analysisData = await hit_dlts.find({
         Issue: { $lt: targetIssueNum }  // 小于目标期号
     })
     .sort({ Issue: -1 })
@@ -348,7 +348,7 @@ for (let ballNum = 1; ballNum <= 35; ballNum++) {
     let count = 0;
 
     while (count < periods && currentIssue > 0) {
-        const record = await DLT.findOne({ Issue: currentIssue });
+        const record = await hit_dlts.findOne({ Issue: currentIssue });
         if (record && record.Red包含该球号) {
             appearances.push({
                 issue: currentIssue,
@@ -461,7 +461,7 @@ const missingMap = globalCacheManager.getIssueMissingMap(previousIssue); // O(1)
 **原理**: 一次性查询所有需要的历史期号数据，运行时从缓存中动态提取
 ```javascript
 // 预加载：批量查询最小目标期之前的所有历史数据
-const historicalRecords = await DLT.find({
+const historicalRecords = await hit_dlts.find({
     Issue: { $lt: minTargetIssue }
 }).sort({ Issue: -1 }).limit(maxHistoricalPeriods + 100).lean();
 
@@ -514,7 +514,7 @@ const ratio = hwcCache.get(baseIssue)?.get(targetIssue)?.get(comboId); // O(1)
 **原理**: 批量查询所有期号的开奖数据，并行计算命中
 ```javascript
 // 批量查询开奖数据（单次查询）
-const winningData = await DLT.find({
+const winningData = await hit_dlts.find({
     Issue: { $in: allTargetIssues }
 }).lean();
 

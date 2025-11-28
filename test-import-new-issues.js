@@ -158,10 +158,10 @@ async function runTest() {
         console.log('\n步骤4: 验证数据是否已成功导入');
         const mongoose = require('mongoose');
         await mongoose.connect('mongodb://127.0.0.1:27017/lottery');
-        const DLT = mongoose.model('HIT_DLT', new mongoose.Schema({}, { strict: false, collection: 'HIT_DLT' }));
+        const hit_dlts = mongoose.model('hit_dlts', new mongoose.Schema({}, { strict: false, collection: 'hit_dlts' }));
 
-        const check122 = await DLT.findOne({ Issue: '25122' }).lean();
-        const check123 = await DLT.findOne({ Issue: '25123' }).lean();
+        const check122 = await hit_dlts.findOne({ Issue: '25122' }).lean();
+        const check123 = await hit_dlts.findOne({ Issue: '25123' }).lean();
 
         console.log('期号 25122:', check122 ? '✅ 已存在' : '❌ 不存在');
         console.log('期号 25123:', check123 ? '✅ 已存在' : '❌ 不存在');

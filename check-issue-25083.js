@@ -4,10 +4,10 @@ mongoose.connect('mongodb://localhost:27017/lottery', {
     useNewUrlParser: true,
     useUnifiedTopology: true
 }).then(async () => {
-    const DLT = mongoose.connection.db.collection('hit_dlts');
+    const hit_dlts = mongoose.connection.db.collection('hit_dlts');
 
     // 查找25083附近的期号
-    const nearby = await DLT.find({
+    const nearby = await hit_dlts.find({
         Issue: { $gte: '25080', $lte: '25090' }
     }).sort({ Issue: 1 }).toArray();
 
@@ -17,7 +17,7 @@ mongoose.connect('mongodb://localhost:27017/lottery', {
     });
 
     // 查找25083之前的期号
-    const before = await DLT.find({
+    const before = await hit_dlts.find({
         Issue: { $lt: '25083' }
     }).sort({ Issue: -1 }).limit(5).toArray();
 
@@ -27,7 +27,7 @@ mongoose.connect('mongodb://localhost:27017/lottery', {
     });
 
     // 查找25083之后的期号
-    const after = await DLT.find({
+    const after = await hit_dlts.find({
         Issue: { $gt: '25083' }
     }).sort({ Issue: 1 }).limit(5).toArray();
 

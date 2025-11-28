@@ -1,9 +1,9 @@
 const mongoose = require('mongoose');
 
 mongoose.connect('mongodb://127.0.0.1:27017/lottery').then(async () => {
-    const DLT = mongoose.model('HIT_DLT', new mongoose.Schema({}, { strict: false, collection: 'HIT_DLT' }));
+    const hit_dlts = mongoose.model('hit_dlts', new mongoose.Schema({}, { strict: false, collection: 'hit_dlts' }));
 
-    const records = await DLT.find({ Issue: { $in: ['25120', '25121'] } }).sort({ Issue: -1 }).lean();
+    const records = await hit_dlts.find({ Issue: { $in: ['25120', '25121'] } }).sort({ Issue: -1 }).lean();
 
     console.log('找到', records.length, '条记录:\n');
 

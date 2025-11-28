@@ -29,7 +29,7 @@ const predictionTaskSchema = new mongoose.Schema({}, { strict: false, collection
 const predictionTaskResultSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlt_predictiontaskresults' });
 const dltRedCombinationsSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlt_redcombinations' });
 const dltBlueCombinationsSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlt_bluecombinations' });
-const dltRedMissingSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlt_redballmissing_histories' });
+const dltRedMissingSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlts' });
 const dltSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlts' });
 
 const PredictionTask = mongoose.model('PredictionTask', predictionTaskSchema);
@@ -37,7 +37,7 @@ const PredictionTaskResult = mongoose.model('PredictionTaskResult', predictionTa
 const DLTRedCombinations = mongoose.model('DLTRedCombinations', dltRedCombinationsSchema);
 const DLTBlueCombinations = mongoose.model('DLTBlueCombinations', dltBlueCombinationsSchema);
 const DLTRedMissing = mongoose.model('DLTRedMissing', dltRedMissingSchema);
-const DLT = mongoose.model('DLT', dltSchema);
+const hit_dlts = mongoose.model('hit_dlts', dltSchema);
 
 // 计算热温冷比
 function calculateHotWarmColdRatio(redBalls, missingData) {
@@ -145,7 +145,7 @@ async function exportPeriodDataAsExcel(taskId, period, options = {}) {
 
         // 6. 查询开奖号码
         console.log('⏳ 正在查询开奖号码...');
-        const drawResult = await DLT.findOne({ Issue: parseInt(period) }).lean();
+        const drawResult = await hit_dlts.findOne({ Issue: parseInt(period) }).lean();
         const winningNumbers = drawResult ? {
             red: [drawResult.Red1, drawResult.Red2, drawResult.Red3, drawResult.Red4, drawResult.Red5],
             blue: [drawResult.Blue1, drawResult.Blue2]

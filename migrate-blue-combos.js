@@ -1,5 +1,5 @@
 /**
- * 将蓝球组合从 HIT_DLT_BlueCombinations 迁移到 hit_dlt_bluecombinations
+ * 将蓝球组合从 hit_dlts 迁移到 hit_dlt_bluecombinations
  */
 
 const { MongoClient } = require('mongodb');
@@ -11,9 +11,9 @@ const { MongoClient } = require('mongodb');
   console.log('=== 迁移蓝球组合数据 ===\n');
 
   // 源集合（大写）
-  const sourceCollection = db.collection('HIT_DLT_BlueCombinations');
+  const sourceCollection = db.collection('hit_dlts');
   const sourceCount = await sourceCollection.countDocuments();
-  console.log(`源集合 (HIT_DLT_BlueCombinations): ${sourceCount}条记录`);
+  console.log(`源集合 (hit_dlts): ${sourceCount}条记录`);
 
   // 目标集合（小写）
   const targetCollection = db.collection('hit_dlt_bluecombinations');
@@ -64,7 +64,7 @@ const { MongoClient } = require('mongodb');
   });
 
   console.log('\n✅ 迁移完成！');
-  console.log(`   源集合 (HIT_DLT_BlueCombinations): ${sourceCount}条`);
+  console.log(`   源集合 (hit_dlts): ${sourceCount}条`);
   console.log(`   目标集合 (hit_dlt_bluecombinations): ${targetCountAfter}条`);
 
   await client.close();

@@ -24,7 +24,7 @@ const DLTSchema = new mongoose.Schema({
     Blue2: Number
 }, { collection: 'hit_dlts' });
 
-const DLT = mongoose.model('DLT_CoOccurTest', DLTSchema);
+const hit_dlts = mongoose.model('DLT_CoOccurTest', DLTSchema);
 
 /**
  * 从红球数组生成组合
@@ -83,7 +83,7 @@ async function testCoOccurrenceHistoricalExclusion() {
         console.log(`基准期号（目标期-1）: ${baseIssue1}`);
 
         // 查找基准期记录
-        const baseRecord1 = await DLT.findOne({ Issue: baseIssue1 });
+        const baseRecord1 = await hit_dlts.findOne({ Issue: baseIssue1 });
         if (!baseRecord1) {
             console.log(`❌ 基准期${baseIssue1}不存在，测试失败`);
             return;
@@ -92,7 +92,7 @@ async function testCoOccurrenceHistoricalExclusion() {
         console.log(`基准期ID: ${baseRecord1.ID}\n`);
 
         // 从基准期倒推N期
-        const historicalRecords1 = await DLT.find({ ID: { $lte: baseRecord1.ID } })
+        const historicalRecords1 = await hit_dlts.find({ ID: { $lte: baseRecord1.ID } })
             .sort({ ID: -1 })
             .limit(lookbackCount)
             .lean();
@@ -198,13 +198,13 @@ async function testCoOccurrenceHistoricalExclusion() {
         console.log('========================================');
 
         // 使用 $lt（不包含基准期）
-        const recordsWithLt = await DLT.find({ ID: { $lt: baseRecord1.ID } })
+        const recordsWithLt = await hit_dlts.find({ ID: { $lt: baseRecord1.ID } })
             .sort({ ID: -1 })
             .limit(lookbackCount)
             .lean();
 
         // 使用 $lte（包含基准期）
-        const recordsWithLte = await DLT.find({ ID: { $lte: baseRecord1.ID } })
+        const recordsWithLte = await hit_dlts.find({ ID: { $lte: baseRecord1.ID } })
             .sort({ ID: -1 })
             .limit(lookbackCount)
             .lean();

@@ -11,7 +11,7 @@ async function checkRedMissing() {
         console.log('\n检查红球遗漏数据集合:\n');
 
         const collections = [
-            'hit_dlt_redballmissing_histories',
+            'hit_dlts',
             'hit_dlt_basictrendchart_redballmissing_histories'
         ];
 

@@ -6,13 +6,40 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+const http = require('http');  // ⭐ 2025-11-15: 添加HTTP模块用于Socket.IO
+const { Server } = require('socket.io');  // ⭐ 2025-11-15: 添加Socket.IO
 
 // 🆕 v3.0: 超高速数据引擎
 const UltraFastDataEngine = require('./engines/UltraFastDataEngine');
 const { BitIndexEngine, BitSet } = require('./engines/BitIndexEngine');
 const ExcelJS = require('exceljs');
+const pLimit = require('p-limit');  // ⚡ 2025-11-14: 控制并发数，避免连接池耗尽
 
 const app = express();
+
+// ⭐ 2025-11-15: 创建HTTP服务器用于Socket.IO
+const httpServer = http.createServer(app);
+
+// ⭐ 2025-11-15: 初始化Socket.IO服务器
+const io = new Server(httpServer, {
+    cors: {
+        origin: "*",  // 允许所有来源（开发环境）
+        methods: ["GET", "POST"]
+    }
+});
+
+// ⭐ 2025-11-15: Socket.IO全局变量，供其他模块使用
+let globalSocketIO = io;
+
+// ⭐ 2025-11-15: Socket.IO连接处理
+io.on('connection', (socket) => {
+    log(`🔌 Socket.IO客户端已连接: ${socket.id}`);
+
+    socket.on('disconnect', () => {
+        log(`🔌 Socket.IO客户端已断开: ${socket.id}`);
+    });
+});
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));  // ⚡ 增加请求体大小限制到50MB
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -63,7 +90,17 @@ app.use((req, res, next) => {
 });
 
 // Electron环境下提供静态文件服务
-app.use(express.static(path.join(__dirname, '../renderer')));
+// ⭐ 2025-11-14修复: 禁用缓存，确保前端代码更新后立即生效
+app.use(express.static(path.join(__dirname, '../renderer'), {
+    maxAge: 0,
+    etag: false,
+    lastModified: false,
+    setHeaders: (res, path) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+    }
+}));
 
 // MongoDB连接配置
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/lottery';
@@ -232,7 +269,7 @@ const dltSchema = new mongoose.Schema({
     updatedAt: { type: Date }                          // 统计数据最后更新时间
 });
 
-const DLT = mongoose.model('HIT_DLT', dltSchema, 'hit_dlts');
+const hit_dlts = mongoose.model('hit_dlts', dltSchema, 'hit_dlts');
 
 // ===== 大乐透组合特征表（用于同出排除优化） =====
 const dltComboFeaturesSchema = new mongoose.Schema({
@@ -402,7 +439,7 @@ dltRedCombinationsSchema.index({ ac_value: 1 });
 dltRedCombinationsSchema.index({ consecutive_groups: 1 });
 dltRedCombinationsSchema.index({ max_consecutive_length: 1 });
 
-const DLTRedCombinations = mongoose.model('HIT_DLT_RedCombinations', dltRedCombinationsSchema);
+const DLTRedCombinations = mongoose.model('DLTRedCombinations', dltRedCombinationsSchema, 'hit_dlt_redcombinations');
 
 // 2. 蓝球组合表
 const dltBlueCombinationsSchema = new mongoose.Schema({
@@ -412,13 +449,13 @@ const dltBlueCombinationsSchema = new mongoose.Schema({
     sum_value: { type: Number, required: true, min: 3, max: 23 },
     created_at: { type: Date, default: Date.now }
 }, {
-    collection: 'HIT_DLT_BlueCombinations'  // ⭐ 明确指定集合名称
+    collection: 'hit_dlt_bluecombinations'  // ⭐ 明确指定集合名称
 });
 
 dltBlueCombinationsSchema.index({ sum_value: 1 });
 dltBlueCombinationsSchema.index({ combination_id: 1 });
 
-const DLTBlueCombinations = mongoose.model('HIT_DLT_BlueCombinations', dltBlueCombinationsSchema);
+const DLTBlueCombinations = mongoose.model('DLTBlueCombinations', dltBlueCombinationsSchema, 'hit_dlt_bluecombinations');
 
 // 3. 红球组合热温冷分析表 - 优化版压缩存储
 const dltRedCombinationsHotWarmColdOptimizedSchema = new mongoose.Schema({
@@ -432,7 +469,7 @@ const dltRedCombinationsHotWarmColdOptimizedSchema = new mongoose.Schema({
         required: true
     },
     total_combinations: { type: Number, required: true }, // 总组合数，用于快速统计
-    
+
     // 红球命中分析数据（新增）
     hit_analysis: {
         target_winning_reds: [Number], // 目标期号实际开奖红球 [1,2,3,4,5]
@@ -451,7 +488,7 @@ const dltRedCombinationsHotWarmColdOptimizedSchema = new mongoose.Schema({
         },
         is_drawn: { type: Boolean, default: false } // 目标期号是否已开奖
     },
-    
+
     statistics: {
         ratio_counts: {
             type: Map,
@@ -459,6 +496,8 @@ const dltRedCombinationsHotWarmColdOptimizedSchema = new mongoose.Schema({
         }
     },
     created_at: { type: Date, default: Date.now }
+}, {
+    collection: 'hit_dlt_redcombinationshotwarmcoldoptimizeds'  // ⭐ 2025-11-15修复: 手动指定collection名称
 });
 
 // 优化的索引策略
@@ -1026,12 +1065,27 @@ const dltExclusionDetailsSchema = new mongoose.Schema({
     excluded_combination_ids: [{ type: Number }],                  // 该步骤排除的组合ID列表
     excluded_count: { type: Number, required: true },              // 排除数量（冗余，便于统计）
 
-    // 分片支持（当排除ID过多时，分片存储）
-    is_partial: { type: Boolean, default: false },                 // 是否为分片数据
+    // ⭐ 智能混合存储策略字段（2025-11-12）
+    storage_strategy: {
+        type: String,
+        enum: ['inline', 'compressed', 'chunked'],
+        default: 'inline'
+    },  // 存储策略：inline(直接), compressed(压缩), chunked(分片)
+
+    // 压缩存储字段（strategy='compressed'时使用）
+    is_compressed: { type: Boolean, default: false },              // 是否为压缩数据
+    compressed_data: { type: Buffer },                             // 压缩后的二进制数据
+    original_size: { type: Number },                               // 原始大小（字节）
+    compressed_size: { type: Number },                             // 压缩后大小（字节）
+    compression_ratio: { type: Number },                           // 压缩比
+
+    // 分片支持（strategy='chunked'时使用）
+    is_partial: { type: Boolean, default: false },                 // 是否为分片数据（兼容旧字段）
+    is_chunked: { type: Boolean, default: false },                 // 是否为分片数据（新字段）
     chunk_index: { type: Number },                                 // 分片索引（0, 1, 2...）
     total_chunks: { type: Number },                                // 总分片数
 
-    // ⭐ 新增：详细排除原因映射（2025-01-11）
+    // ⭐ 详细排除原因映射（2025-01-11）
     exclusion_details_map: {
         type: Map,
         of: mongoose.Schema.Types.Mixed,
@@ -1045,6 +1099,33 @@ const dltExclusionDetailsSchema = new mongoose.Schema({
     //     "description": "包含相克对: 02-27, 15-33"
     //   }
     // }
+
+    // ⭐ 排除条件元数据（2025-11-14）
+    // 记录每个排除条件的配置参数和实际排除数据，便于追溯和验证
+    metadata: {
+        // 相克对排除元数据
+        conflict_pairs: {
+            analysis_periods: { type: Number },           // 分析期数 (如 270)
+            topN: { type: Number },                       // Top N (如 68，含并列)
+            pairs: [[{ type: Number }]],                  // 实际排除的相克对列表 [[1,27], [3,15], ...]
+            hot_numbers: [{ type: Number }],              // 热号保护列表 (如果启用) [7, 12, 19]
+            total_pairs_count: { type: Number }           // 实际相克对数量（含并列）
+        },
+
+        // 同现比排除元数据
+        cooccurrence: {
+            mode: { type: String },                       // 模式: 'perball' 或 'byissues'
+            periods: { type: Number },                    // 分析期数
+            analyzed_balls: [{ type: Number }],           // 分析了哪些红球 (perball模式)
+            analyzed_issues: [{ type: String }],          // 分析了哪些期号 (byissues模式)
+            excluded_features: {
+                combo_2: [{ type: String }],              // 排除的2球组合 ["01-03", "05-12", ...]
+                combo_3: [{ type: String }],              // 排除的3球组合
+                combo_4: [{ type: String }]               // 排除的4球组合
+            },
+            total_features_count: { type: Number }        // 总特征数量
+        }
+    },
 
     // 元数据
     created_at: { type: Date, default: Date.now, index: true }
@@ -1076,7 +1157,7 @@ const hwcPositivePredictionTaskSchema = new mongoose.Schema({
 
     // 正选条件配置
     positive_selection: {
-        hwc_ratios: [mongoose.Schema.Types.Mixed], // 热温冷比例列表 [{hot:4,warm:1,cold:0}, ...]
+        red_hot_warm_cold_ratios: [mongoose.Schema.Types.Mixed], // ⭐ 2025-11-14修复: 字段名统一为red_hot_warm_cold_ratios
         zone_ratios: [mongoose.Schema.Types.Mixed], // 区间比列表 [{zone1:2,zone2:1,zone3:2}, ...]
         sum_ranges: [mongoose.Schema.Types.Mixed], // 和值范围列表 [{min:65,max:95}, ...]
         span_ranges: [mongoose.Schema.Types.Mixed], // 跨度范围列表 [{min:10,max:25}, ...]
@@ -1556,7 +1637,7 @@ async function ensureDatabaseIndexes() {
     try {
         console.log('\n📊 开始检查数据库索引（性能优化）...');
 
-        // DLT主表索引 - 先检查再创建
+        // hit_dlts主表索引 - 先检查再创建
         const dltIndexes = [
             { ID: 1 },
             { ID: -1 },
@@ -1566,12 +1647,12 @@ async function ensureDatabaseIndexes() {
 
         let dltCreated = 0;
         for (const indexSpec of dltIndexes) {
-            if (!(await indexExists(DLT.collection, indexSpec))) {
-                await DLT.collection.createIndex(indexSpec, { background: true });
+            if (!(await indexExists(hit_dlts.collection, indexSpec))) {
+                await hit_dlts.collection.createIndex(indexSpec, { background: true });
                 dltCreated++;
             }
         }
-        console.log(`  ✓ DLT主表索引: ${dltCreated > 0 ? `创建${dltCreated}个` : '全部已存在'}`);
+        console.log(`  ✓ hit_dlts主表索引: ${dltCreated > 0 ? `创建${dltCreated}个` : '全部已存在'}`);
 
         // DLTRedMissing表索引
         const redMissingIndexes = [
@@ -2345,9 +2426,9 @@ async function convertDLTIssueRangeToIDRange(startIssue, endIssue) {
         const normalizedEnd = parseInt(normalizeDLTIssueNumber(endIssue));
         
         // 查找起始期号对应的ID（Issue字段在数据库中是数字类型）
-        const startRecord = await DLT.findOne({Issue: {$gte: normalizedStart}}).sort({Issue: 1}).select('ID');
+        const startRecord = await hit_dlts.findOne({Issue: {$gte: normalizedStart}}).sort({Issue: 1}).select('ID');
         // 查找结束期号对应的ID
-        const endRecord = await DLT.findOne({Issue: {$lte: normalizedEnd}}).sort({Issue: -1}).select('ID');
+        const endRecord = await hit_dlts.findOne({Issue: {$lte: normalizedEnd}}).sort({Issue: -1}).select('ID');
         
         if (!startRecord || !endRecord) {
             return null; // 没有找到对应的数据
@@ -2359,7 +2440,7 @@ async function convertDLTIssueRangeToIDRange(startIssue, endIssue) {
             query: { ID: { $gte: startRecord.ID, $lte: endRecord.ID } }
         };
     } catch (error) {
-        console.error('Error converting DLT issue range to ID range:', error);
+        console.error('Error converting hit_dlts issue range to ID range:', error);
         return null;
     }
 }
@@ -3036,7 +3117,7 @@ function generateConflictExcelData(matrix) {
 // 大乐透历史数据接口
 app.get('/api/dlt/history', async (req, res) => {
     try {
-        console.log('Fetching DLT history data...');
+        console.log('Fetching hit_dlts history data...');
         const { page = 1, limit = 20, startIssue, endIssue } = req.query;
         
         let data, total;
@@ -3055,24 +3136,24 @@ app.get('/api/dlt/history', async (req, res) => {
                 }
             };
             
-            total = await DLT.countDocuments(query);
+            total = await hit_dlts.countDocuments(query);
             
-            data = await DLT.find(query)
+            data = await hit_dlts.find(query)
                 .sort({ Issue: -1 })
                 .limit(parseInt(limit))
                 .skip((parseInt(page) - 1) * parseInt(limit));
             
             console.log(`Range query found ${total} records, returning ${data.length} for page ${page} (issues: ${normalizedStart} to ${normalizedEnd})`);
         } else {
-            data = await DLT.find({})
+            data = await hit_dlts.find({})
                 .sort({ Issue: -1 })
                 .limit(parseInt(limit))
                 .skip((parseInt(page) - 1) * parseInt(limit));
                 
-            total = await DLT.countDocuments({});
+            total = await hit_dlts.countDocuments({});
         }
         
-        console.log(`Successfully fetched ${data.length} DLT history records`);
+        console.log(`Successfully fetched ${data.length} hit_dlts history records`);
         
         res.json({
             success: true,
@@ -3086,7 +3167,7 @@ app.get('/api/dlt/history', async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Error fetching DLT history:', error);
+        console.error('Error fetching hit_dlts history:', error);
         res.status(500).json({ 
             success: false, 
             message: error.message 
@@ -3097,7 +3178,7 @@ app.get('/api/dlt/history', async (req, res) => {
 // 大乐透走势图数据接口 - 使用预存储遗漏值数据
 app.get('/api/dlt/trendchart', async (req, res) => {
     try {
-        log('Received DLT trend chart request with query: ' + JSON.stringify(req.query));
+        log('Received hit_dlts trend chart request with query: ' + JSON.stringify(req.query));
         
         let query = {};
         let limit = 0;
@@ -3120,13 +3201,13 @@ app.get('/api/dlt/trendchart', async (req, res) => {
             }
             
             query = idRange.query;
-            log(`Fetching DLT trend chart data from ID ${idRange.startID} to ${idRange.endID} (issues: ${req.query.startIssue} to ${req.query.endIssue})`);
+            log(`Fetching hit_dlts trend chart data from ID ${idRange.startID} to ${idRange.endID} (issues: ${req.query.startIssue} to ${req.query.endIssue})`);
         }
 
-        // ===== 优化：同时获取DLT主表（包含statistics预处理数据）和遗漏值数据 =====
+        // ===== 优化：同时获取hit_dlts主表（包含statistics预处理数据）和遗漏值数据 =====
 
         // 获取大乐透主表数据（包含预处理的statistics字段）
-        let dltMainData = await DLT.find(query).sort({ ID: 1 }).lean();
+        let dltMainData = await hit_dlts.find(query).sort({ ID: 1 }).lean();
 
         if (limit > 0) {
             dltMainData = dltMainData.slice(-limit);
@@ -3141,21 +3222,21 @@ app.get('/api/dlt/trendchart', async (req, res) => {
         }
 
         if (!dltRedData || dltRedData.length === 0) {
-            log('No DLT red data found');
+            log('No hit_dlts red data found');
             return res.status(404).json({
                 success: false,
                 error: '未找到前区数据'
             });
         }
 
-        log(`Found ${dltRedData.length} records for DLT red balls, ${dltMainData.length} records from main table`);
+        log(`Found ${dltRedData.length} records for hit_dlts red balls, ${dltMainData.length} records from main table`);
         
         // 调试：显示前3条和后3条记录的ID和期号
         if (dltRedData.length > 0) {
             const first3 = dltRedData.slice(0, 3);
             const last3 = dltRedData.slice(-3);
-            log(`DLT Red data order check - First 3: ${first3.map(r => `ID:${r.ID},Issue:${r.Issue}`).join(' | ')}`);
-            log(`DLT Red data order check - Last 3: ${last3.map(r => `ID:${r.ID},Issue:${r.Issue}`).join(' | ')}`);
+            log(`hit_dlts Red data order check - First 3: ${first3.map(r => `ID:${r.ID},Issue:${r.Issue}`).join(' | ')}`);
+            log(`hit_dlts Red data order check - Last 3: ${last3.map(r => `ID:${r.ID},Issue:${r.Issue}`).join(' | ')}`);
         }
 
         // 获取大乐透后区遗漏值数据，始终按ID升序排列
@@ -3167,18 +3248,18 @@ app.get('/api/dlt/trendchart', async (req, res) => {
         }
 
         if (!dltBlueData || dltBlueData.length === 0) {
-            log('No DLT blue data found');
+            log('No hit_dlts blue data found');
             return res.status(404).json({
                 success: false,
                 error: '未找到后区数据'
             });
         }
 
-        log(`Found ${dltBlueData.length} records for DLT blue balls`);
+        log(`Found ${dltBlueData.length} records for hit_dlts blue balls`);
 
         // 验证数据长度匹配
         if (dltRedData.length !== dltBlueData.length) {
-            log('Data length mismatch between DLT red and blue balls');
+            log('Data length mismatch between hit_dlts red and blue balls');
             return res.status(500).json({
                 success: false,
                 error: '前区后区数据不一致'
@@ -3198,7 +3279,7 @@ app.get('/api/dlt/trendchart', async (req, res) => {
 
             // 验证记录的完整性
             if (!redRecord || !blueRecord || !redRecord.Issue || !blueRecord.Issue || redRecord.Issue !== blueRecord.Issue) {
-                log(`DLT data integrity issue at index ${index}`);
+                log(`hit_dlts data integrity issue at index ${index}`);
                 throw new Error('大乐透数据完整性错误');
             }
 
@@ -3281,15 +3362,15 @@ app.get('/api/dlt/trendchart', async (req, res) => {
             };
         });
 
-        log(`Successfully prepared DLT trend chart data with ${trendChartData.length} records`);
+        log(`Successfully prepared hit_dlts trend chart data with ${trendChartData.length} records`);
 
         res.json({
             success: true,
             data: trendChartData
         });
     } catch (error) {
-        log(`Error in DLT trend chart API: ${error.message}`);
-        console.error('Error fetching DLT trend chart data:', error);
+        log(`Error in hit_dlts trend chart API: ${error.message}`);
+        console.error('Error fetching hit_dlts trend chart data:', error);
         res.status(500).json({
             success: false,
             error: error.message || '服务器内部错误'
@@ -3330,8 +3411,8 @@ app.get('/api/dlt/stats-relation', async (req, res) => {
         } else if (periods) {
             const limit = parseInt(periods);
 
-            // 从DLT主表获取最近N期的期号
-            const recentRecords = await DLT.find({})
+            // 从hit_dlts主表获取最近N期的期号
+            const recentRecords = await hit_dlts.find({})
                 .select('Issue')
                 .sort({ Issue: -1 })
                 .limit(limit)
@@ -3348,26 +3429,26 @@ app.get('/api/dlt/stats-relation', async (req, res) => {
 
         // ===== 优化2: 查询符合热温冷比的数据（带回退机制） =====
         let records = [];
-        let dataSource = 'DLT主表';
+        let dataSource = 'hit_dlts主表';
 
         try {
-            // 优先使用DLT主表（有完整统计字段）
+            // 优先使用hit_dlts主表（有完整统计字段）
             const query = {
                 Issue: issueQuery,
                 'statistics.frontHotWarmColdRatio': { $in: ratioList }
             };
 
-            records = await DLT.find(query)
+            records = await hit_dlts.find(query)
                 .select('Issue Red1 Red2 Red3 Red4 Red5 statistics')
                 .sort({ Issue: -1 })
                 .lean()
                 .maxTimeMS(10000);
 
-            console.log(`✅ DLT主表查询成功: ${records.length}条记录`);
+            console.log(`✅ hit_dlts主表查询成功: ${records.length}条记录`);
 
         } catch (mainTableError) {
             // 回退到DLTRedMissing表
-            console.warn(`⚠️  DLT主表查询失败，回退到遗漏值表: ${mainTableError.message}`);
+            console.warn(`⚠️  hit_dlts主表查询失败，回退到遗漏值表: ${mainTableError.message}`);
             dataSource = 'DLTRedMissing表(回退)';
 
             try {
@@ -3389,8 +3470,8 @@ app.get('/api/dlt/stats-relation', async (req, res) => {
                 const matchedIssues = missingRecords.map(r => r.Issue);
 
                 if (matchedIssues.length > 0) {
-                    // 从DLT主表获取完整开奖数据和统计信息
-                    records = await DLT.find({ Issue: { $in: matchedIssues } })
+                    // 从hit_dlts主表获取完整开奖数据和统计信息
+                    records = await hit_dlts.find({ Issue: { $in: matchedIssues } })
                         .select('Issue Red1 Red2 Red3 Red4 Red5 statistics')
                         .sort({ Issue: -1 })
                         .lean()
@@ -3420,26 +3501,48 @@ app.get('/api/dlt/stats-relation', async (req, res) => {
         console.log(`   - 符合热温冷比的期数: ${records.length} 期`);
         console.log(`   - 匹配率: ${(records.length / totalRecords * 100).toFixed(1)}%`);
 
-        // ===== 优化3: 统计分析（增加更多维度） =====
+        // ===== 优化3: 统计分析（主维度+组合维度） =====
+        // 主维度：热温冷比
+        // 组合维度：热温冷比-和值、热温冷比-跨度、热温冷比-区间比、热温冷比-AC值、热温冷比-奇偶比
         const stats = {
-            frontSum: {},
-            frontSpan: {},
-            hwcRatio: {},
-            zoneRatio: {},
-            acValue: {},
-            oddEvenRatio: {}
+            hwcRatio: {},               // 主维度统计
+            hwcRatio_frontSum: {},      // 组合统计
+            hwcRatio_frontSpan: {},
+            hwcRatio_zoneRatio: {},
+            hwcRatio_acValue: {},
+            hwcRatio_oddEvenRatio: {}
         };
 
         const detailRecords = records.map(record => {
             const s = record.statistics || {};
+            const hwc = s.frontHotWarmColdRatio;
 
-            // 统计各维度的频率
-            if (s.frontSum) stats.frontSum[s.frontSum] = (stats.frontSum[s.frontSum] || 0) + 1;
-            if (s.frontSpan) stats.frontSpan[s.frontSpan] = (stats.frontSpan[s.frontSpan] || 0) + 1;
-            if (s.frontHotWarmColdRatio) stats.hwcRatio[s.frontHotWarmColdRatio] = (stats.hwcRatio[s.frontHotWarmColdRatio] || 0) + 1;
-            if (s.frontZoneRatio) stats.zoneRatio[s.frontZoneRatio] = (stats.zoneRatio[s.frontZoneRatio] || 0) + 1;
-            if (s.frontAcValue !== undefined) stats.acValue[s.frontAcValue] = (stats.acValue[s.frontAcValue] || 0) + 1;
-            if (s.frontOddEvenRatio) stats.oddEvenRatio[s.frontOddEvenRatio] = (stats.oddEvenRatio[s.frontOddEvenRatio] || 0) + 1;
+            // 统计主维度
+            if (hwc) {
+                stats.hwcRatio[hwc] = (stats.hwcRatio[hwc] || 0) + 1;
+
+                // 统计组合维度（格式：主维度-其他维度）
+                if (s.frontSum) {
+                    const key = `${hwc}-${s.frontSum}`;
+                    stats.hwcRatio_frontSum[key] = (stats.hwcRatio_frontSum[key] || 0) + 1;
+                }
+                if (s.frontSpan) {
+                    const key = `${hwc}-${s.frontSpan}`;
+                    stats.hwcRatio_frontSpan[key] = (stats.hwcRatio_frontSpan[key] || 0) + 1;
+                }
+                if (s.frontZoneRatio) {
+                    const key = `${hwc}-${s.frontZoneRatio}`;
+                    stats.hwcRatio_zoneRatio[key] = (stats.hwcRatio_zoneRatio[key] || 0) + 1;
+                }
+                if (s.frontAcValue !== undefined) {
+                    const key = `${hwc}-${s.frontAcValue}`;
+                    stats.hwcRatio_acValue[key] = (stats.hwcRatio_acValue[key] || 0) + 1;
+                }
+                if (s.frontOddEvenRatio) {
+                    const key = `${hwc}-${s.frontOddEvenRatio}`;
+                    stats.hwcRatio_oddEvenRatio[key] = (stats.hwcRatio_oddEvenRatio[key] || 0) + 1;
+                }
+            }
 
             return {
                 issue: record.Issue,
@@ -3453,11 +3556,11 @@ app.get('/api/dlt/stats-relation', async (req, res) => {
             };
         });
 
-        // 获取TOP3（增加百分比）
-        const getTop3 = (obj) => {
+        // 获取TOP6（增加百分比）
+        const getTop6 = (obj) => {
             return Object.entries(obj)
                 .sort((a, b) => b[1] - a[1])
-                .slice(0, 3)
+                .slice(0, 6)
                 .map(([value, count]) => ({
                     value,
                     count,
@@ -3474,12 +3577,12 @@ app.get('/api/dlt/stats-relation', async (req, res) => {
             matchRate: ((records.length / totalRecords) * 100).toFixed(1),
             hwcRatios: ratioList,
             topStats: {
-                frontSum: getTop3(stats.frontSum),
-                frontSpan: getTop3(stats.frontSpan),
-                hwcRatio: getTop3(stats.hwcRatio),
-                zoneRatio: getTop3(stats.zoneRatio),
-                acValue: getTop3(stats.acValue),
-                oddEvenRatio: getTop3(stats.oddEvenRatio)
+                hwcRatio: getTop6(stats.hwcRatio),                          // 热温冷比
+                hwcRatio_frontSum: getTop6(stats.hwcRatio_frontSum),        // 热温冷比-和值
+                hwcRatio_frontSpan: getTop6(stats.hwcRatio_frontSpan),      // 热温冷比-跨度
+                hwcRatio_zoneRatio: getTop6(stats.hwcRatio_zoneRatio),      // 热温冷比-区间比
+                hwcRatio_acValue: getTop6(stats.hwcRatio_acValue),          // 热温冷比-AC值
+                hwcRatio_oddEvenRatio: getTop6(stats.hwcRatio_oddEvenRatio) // 热温冷比-奇偶比
             },
             allStats: stats,
             detailRecords
@@ -3497,9 +3600,175 @@ app.get('/api/dlt/stats-relation', async (req, res) => {
     }
 });
 
+// 大乐透区间比统计关系分析接口
+app.get('/api/dlt/zone-ratio-stats-relation', async (req, res) => {
+    try {
+        const { zoneRatios, startIssue, endIssue, periods } = req.query;
+
+        if (!zoneRatios) {
+            return res.status(400).json({ error: '缺少区间比参数' });
+        }
+
+        const ratioList = zoneRatios.split(',').map(r => r.trim());
+        console.log('📊 区间比统计分析请求:', {
+            zoneRatios: ratioList,
+            startIssue,
+            endIssue,
+            periods
+        });
+
+        // 确定期号范围
+        let issueQuery = {};
+        let issueRange = '';
+        let totalRecords = 0;
+
+        if (startIssue && endIssue) {
+            const start = parseInt(startIssue);
+            const end = parseInt(endIssue);
+            issueQuery = { $gte: start, $lte: end };
+            issueRange = `${start} - ${end}`;
+            totalRecords = end - start + 1;
+            console.log(`   期号范围: ${issueRange} (${totalRecords}期)`);
+        } else if (periods) {
+            const limit = parseInt(periods);
+
+            // 从hit_dlts主表获取最近N期的期号
+            const recentRecords = await hit_dlts.find({})
+                .select('Issue')
+                .sort({ Issue: -1 })
+                .limit(limit)
+                .lean()
+                .maxTimeMS(5000);
+
+            const issues = recentRecords.map(r => r.Issue);
+            issueQuery = { $in: issues };
+            issueRange = `最近${limit}期`;
+            totalRecords = issues.length;
+            console.log(`   最近${limit}期: ${issues.length}期数据`);
+        } else {
+            return res.status(400).json({ error: '请提供期数范围或自定义期号' });
+        }
+
+        // 查询符合区间比的数据
+        const query = {
+            Issue: issueQuery,
+            'statistics.frontZoneRatio': { $in: ratioList }
+        };
+
+        const records = await hit_dlts.find(query)
+            .select('Issue Red1 Red2 Red3 Red4 Red5 statistics')
+            .sort({ Issue: -1 })
+            .lean()
+            .maxTimeMS(10000);
+
+        console.log(`✅ 查询成功: ${records.length}条记录`);
+        console.log(`📈 查询汇总:`);
+        console.log(`   - 分析范围: ${totalRecords} 期`);
+        console.log(`   - 符合区间比的期数: ${records.length} 期`);
+        console.log(`   - 匹配率: ${(records.length / totalRecords * 100).toFixed(1)}%`);
+
+        // 统计分析（主维度+组合维度）
+        // 主维度：区间比
+        // 组合维度：区间比-热温冷比、区间比-和值、区间比-跨度、区间比-AC值、区间比-奇偶比
+        const stats = {
+            zoneRatio: {},               // 主维度统计
+            zoneRatio_hwcRatio: {},      // 组合统计
+            zoneRatio_frontSum: {},
+            zoneRatio_frontSpan: {},
+            zoneRatio_acValue: {},
+            zoneRatio_oddEvenRatio: {}
+        };
+
+        // 构建详细记录数组
+        const detailRecords = records.map(record => {
+            const s = record.statistics || {};
+            const zone = s.frontZoneRatio;
+
+            // 统计主维度
+            if (zone) {
+                stats.zoneRatio[zone] = (stats.zoneRatio[zone] || 0) + 1;
+
+                // 统计组合维度（格式：主维度-其他维度）
+                if (s.frontHotWarmColdRatio) {
+                    const key = `${zone}-${s.frontHotWarmColdRatio}`;
+                    stats.zoneRatio_hwcRatio[key] = (stats.zoneRatio_hwcRatio[key] || 0) + 1;
+                }
+                if (s.frontSum) {
+                    const key = `${zone}-${s.frontSum}`;
+                    stats.zoneRatio_frontSum[key] = (stats.zoneRatio_frontSum[key] || 0) + 1;
+                }
+                if (s.frontSpan) {
+                    const key = `${zone}-${s.frontSpan}`;
+                    stats.zoneRatio_frontSpan[key] = (stats.zoneRatio_frontSpan[key] || 0) + 1;
+                }
+                if (s.frontAcValue !== undefined) {
+                    const key = `${zone}-${s.frontAcValue}`;
+                    stats.zoneRatio_acValue[key] = (stats.zoneRatio_acValue[key] || 0) + 1;
+                }
+                if (s.frontOddEvenRatio) {
+                    const key = `${zone}-${s.frontOddEvenRatio}`;
+                    stats.zoneRatio_oddEvenRatio[key] = (stats.zoneRatio_oddEvenRatio[key] || 0) + 1;
+                }
+            }
+
+            return {
+                issue: record.Issue,
+                frontBalls: [record.Red1, record.Red2, record.Red3, record.Red4, record.Red5],
+                frontSum: s.frontSum,
+                frontSpan: s.frontSpan,
+                hwcRatio: s.frontHotWarmColdRatio,
+                zoneRatio: s.frontZoneRatio,
+                acValue: s.frontAcValue,
+                oddEvenRatio: s.frontOddEvenRatio
+            };
+        });
+
+        // 获取TOP10（带百分比）
+        const getTop10 = (obj) => {
+            return Object.entries(obj)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10)
+                .map(([value, count]) => ({
+                    value,
+                    count,
+                    percentage: ((count / records.length) * 100).toFixed(1)
+                }));
+        };
+
+        // 构造返回结果
+        const result = {
+            success: true,
+            issueRange,
+            totalRecords: totalRecords,  // 统一字段名
+            matchedRecords: records.length,
+            matchRate: ((records.length / totalRecords) * 100).toFixed(1),
+            selectedRatios: ratioList,
+            topStats: {
+                zoneRatio: getTop10(stats.zoneRatio),                          // 区间比
+                zoneRatio_hwcRatio: getTop10(stats.zoneRatio_hwcRatio),        // 区间比-热温冷比
+                zoneRatio_frontSum: getTop10(stats.zoneRatio_frontSum),        // 区间比-和值
+                zoneRatio_frontSpan: getTop10(stats.zoneRatio_frontSpan),      // 区间比-跨度
+                zoneRatio_acValue: getTop10(stats.zoneRatio_acValue),          // 区间比-AC值
+                zoneRatio_oddEvenRatio: getTop10(stats.zoneRatio_oddEvenRatio) // 区间比-奇偶比
+            },
+            detailRecords  // 添加详细记录
+        };
+
+        res.json(result);
+
+    } catch (error) {
+        console.error('❌ 区间比统计分析失败:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+
 app.get('/api/dlt/frequency', async (req, res) => {
     try {
-        console.log('Fetching DLT frequency data...');
+        console.log('Fetching hit_dlts frequency data...');
 
         res.json({
             success: true,
@@ -3507,7 +3776,7 @@ app.get('/api/dlt/frequency', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error fetching DLT frequency:', error);
+        console.error('Error fetching hit_dlts frequency:', error);
         res.status(500).json({
             success: false,
             message: error.message
@@ -3574,7 +3843,7 @@ function calculateDLTOddEvenRatio(numbers) {
 // ===== 大乐透同出数据接口 =====
 app.get('/api/dlt/cooccurrence', async (req, res) => {
     try {
-        log('Received DLT co-occurrence data request with query: ' + JSON.stringify(req.query));
+        log('Received hit_dlts co-occurrence data request with query: ' + JSON.stringify(req.query));
         
         let query = {};
         let filename = '';
@@ -3595,20 +3864,20 @@ app.get('/api/dlt/cooccurrence', async (req, res) => {
             
             query = idRange.query;
             filename = `大乐透同出数据_${startIssue}至${endIssue}.xlsx`;
-            log(`Fetching DLT co-occurrence data from ID ${idRange.startID} to ${idRange.endID} (issues: ${startIssue} to ${endIssue})`);
+            log(`Fetching hit_dlts co-occurrence data from ID ${idRange.startID} to ${idRange.endID} (issues: ${startIssue} to ${endIssue})`);
         } else {
             // 处理最近期数筛选
             const limit = parseInt(req.query.periods) || 30;
             filename = `大乐透同出数据_最近${limit}期.xlsx`;
-            log(`Fetching DLT co-occurrence data for most recent ${limit} periods`);
+            log(`Fetching hit_dlts co-occurrence data for most recent ${limit} periods`);
         }
 
         let data;
         if (req.query.startIssue && req.query.endIssue) {
-            data = await DLT.find(query).sort({ Issue: 1 });
+            data = await hit_dlts.find(query).sort({ Issue: 1 });
         } else {
             const limit = parseInt(req.query.periods) || 30;
-            data = await DLT.find({}).sort({ Issue: -1 }).limit(limit);
+            data = await hit_dlts.find({}).sort({ Issue: -1 }).limit(limit);
             data = data.reverse(); // 转为升序
         }
 
@@ -3619,7 +3888,7 @@ app.get('/api/dlt/cooccurrence', async (req, res) => {
             });
         }
 
-        log(`Found ${data.length} records for DLT co-occurrence calculation`);
+        log(`Found ${data.length} records for hit_dlts co-occurrence calculation`);
 
         // 计算同出数据
         const cooccurrenceMatrix = calculateDLTCooccurrenceMatrix(data);
@@ -3627,7 +3896,7 @@ app.get('/api/dlt/cooccurrence', async (req, res) => {
         // 生成统计报告
         const statistics = generateDLTCooccurrenceStatistics(cooccurrenceMatrix, data);
         
-        log(`Successfully calculated DLT co-occurrence data for ${data.length} records`);
+        log(`Successfully calculated hit_dlts co-occurrence data for ${data.length} records`);
         
         res.json({
             success: true,
@@ -3643,8 +3912,8 @@ app.get('/api/dlt/cooccurrence', async (req, res) => {
         });
         
     } catch (error) {
-        log(`Error in DLT co-occurrence API: ${error.message}`);
-        console.error('Error calculating DLT co-occurrence data:', error);
+        log(`Error in hit_dlts co-occurrence API: ${error.message}`);
+        console.error('Error calculating hit_dlts co-occurrence data:', error);
         res.status(500).json({
             success: false,
             message: error.message || '计算同出数据失败'
@@ -3655,7 +3924,7 @@ app.get('/api/dlt/cooccurrence', async (req, res) => {
 // 大乐透同出数据Excel导出
 app.get('/api/dlt/cooccurrence/excel', async (req, res) => {
     try {
-        log('Received DLT co-occurrence Excel export request: ' + JSON.stringify(req.query));
+        log('Received hit_dlts co-occurrence Excel export request: ' + JSON.stringify(req.query));
         
         let query = {};
         let filename = '';
@@ -3683,10 +3952,10 @@ app.get('/api/dlt/cooccurrence/excel', async (req, res) => {
 
         let data;
         if (req.query.startIssue && req.query.endIssue) {
-            data = await DLT.find(query).sort({ Issue: 1 });
+            data = await hit_dlts.find(query).sort({ Issue: 1 });
         } else {
             const limit = parseInt(req.query.periods) || 30;
-            data = await DLT.find({}).sort({ Issue: -1 }).limit(limit);
+            data = await hit_dlts.find({}).sort({ Issue: -1 }).limit(limit);
             data = data.reverse();
         }
 
@@ -3712,8 +3981,8 @@ app.get('/api/dlt/cooccurrence/excel', async (req, res) => {
         });
         
     } catch (error) {
-        log(`Error in DLT co-occurrence Excel export API: ${error.message}`);
-        console.error('Error generating DLT co-occurrence Excel data:', error);
+        log(`Error in hit_dlts co-occurrence Excel export API: ${error.message}`);
+        console.error('Error generating hit_dlts co-occurrence Excel data:', error);
         res.status(500).json({
             success: false,
             message: error.message || '大乐透同出数据Excel导出失败'
@@ -3724,7 +3993,7 @@ app.get('/api/dlt/cooccurrence/excel', async (req, res) => {
 // ===== 大乐透相克数据接口 =====
 app.get('/api/dlt/conflict', async (req, res) => {
     try {
-        log('Received DLT conflict data request with query: ' + JSON.stringify(req.query));
+        log('Received hit_dlts conflict data request with query: ' + JSON.stringify(req.query));
         
         let query = {};
         let filename = '';
@@ -3745,29 +4014,29 @@ app.get('/api/dlt/conflict', async (req, res) => {
             
             query = idRange.query;
             filename = `大乐透相克数据_${startIssue}至${endIssue}.xlsx`;
-            log(`Fetching DLT conflict data from ID ${idRange.startID} to ${idRange.endID} (issues: ${startIssue} to ${endIssue})`);
+            log(`Fetching hit_dlts conflict data from ID ${idRange.startID} to ${idRange.endID} (issues: ${startIssue} to ${endIssue})`);
         } else {
             // 处理最近期数筛选
             const limit = parseInt(req.query.periods) || 30;
             filename = `大乐透相克数据_最近${limit}期.xlsx`;
-            log(`Fetching DLT conflict data for most recent ${limit} periods`);
+            log(`Fetching hit_dlts conflict data for most recent ${limit} periods`);
         }
 
         let data;
         if (req.query.startIssue && req.query.endIssue) {
             // 由于Issue字段是字符串，我们需要使用正确的查询方式
-            data = await DLT.find(query).sort({ Issue: 1 });
+            data = await hit_dlts.find(query).sort({ Issue: 1 });
             
             // 如果没有数据，打印调试信息
             if (!data || data.length === 0) {
                 log(`No data found for query: ${JSON.stringify(query)}`);
                 // 尝试查看数据库中的实际数据
-                const sampleData = await DLT.find({}).sort({ Issue: -1 }).limit(5).select('Issue');
+                const sampleData = await hit_dlts.find({}).sort({ Issue: -1 }).limit(5).select('Issue');
                 log(`Sample recent issues: ${JSON.stringify(sampleData.map(d => d.Issue))}`);
             }
         } else {
             const limit = parseInt(req.query.periods) || 30;
-            data = await DLT.find({}).sort({ Issue: -1 }).limit(limit);
+            data = await hit_dlts.find({}).sort({ Issue: -1 }).limit(limit);
             data = data.reverse(); // 转为升序
         }
 
@@ -3778,7 +4047,7 @@ app.get('/api/dlt/conflict', async (req, res) => {
             });
         }
 
-        log(`Found ${data.length} records for DLT conflict calculation`);
+        log(`Found ${data.length} records for hit_dlts conflict calculation`);
 
         // 计算相克数据
         const conflictMatrix = calculateDLTConflictMatrix(data);
@@ -3786,7 +4055,7 @@ app.get('/api/dlt/conflict', async (req, res) => {
         // 生成统计报告
         const statistics = generateDLTConflictStatistics(conflictMatrix, data);
         
-        log(`Successfully calculated DLT conflict data for ${data.length} records`);
+        log(`Successfully calculated hit_dlts conflict data for ${data.length} records`);
         
         res.json({
             success: true,
@@ -3802,8 +4071,8 @@ app.get('/api/dlt/conflict', async (req, res) => {
         });
         
     } catch (error) {
-        log(`Error in DLT conflict API: ${error.message}`);
-        console.error('Error calculating DLT conflict data:', error);
+        log(`Error in hit_dlts conflict API: ${error.message}`);
+        console.error('Error calculating hit_dlts conflict data:', error);
         res.status(500).json({
             success: false,
             message: error.message || '计算相克数据失败'
@@ -3814,7 +4083,7 @@ app.get('/api/dlt/conflict', async (req, res) => {
 // 大乐透相克数据Excel导出
 app.get('/api/dlt/conflict/excel', async (req, res) => {
     try {
-        log('Received DLT conflict Excel export request: ' + JSON.stringify(req.query));
+        log('Received hit_dlts conflict Excel export request: ' + JSON.stringify(req.query));
         
         let query = {};
         let filename = '';
@@ -3842,10 +4111,10 @@ app.get('/api/dlt/conflict/excel', async (req, res) => {
 
         let data;
         if (req.query.startIssue && req.query.endIssue) {
-            data = await DLT.find(query).sort({ Issue: 1 });
+            data = await hit_dlts.find(query).sort({ Issue: 1 });
         } else {
             const limit = parseInt(req.query.periods) || 30;
-            data = await DLT.find({}).sort({ Issue: -1 }).limit(limit);
+            data = await hit_dlts.find({}).sort({ Issue: -1 }).limit(limit);
             data = data.reverse();
         }
 
@@ -3871,8 +4140,8 @@ app.get('/api/dlt/conflict/excel', async (req, res) => {
         });
         
     } catch (error) {
-        log(`Error in DLT conflict Excel export API: ${error.message}`);
-        console.error('Error generating DLT conflict Excel data:', error);
+        log(`Error in hit_dlts conflict Excel export API: ${error.message}`);
+        console.error('Error generating hit_dlts conflict Excel data:', error);
         res.status(500).json({
             success: false,
             message: error.message || '大乐透相克数据Excel导出失败'
@@ -3899,7 +4168,7 @@ app.get('/api/dlt/conflict-topn', async (req, res) => {
         const includeBack = includeBackBalls === 'true';
 
         // 先查找目标期号对应的ID
-        const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+        const targetRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
         if (!targetRecord) {
             return res.json({
                 success: false,
@@ -3913,7 +4182,7 @@ app.get('/api/dlt/conflict-topn', async (req, res) => {
         log(`目标期号${targetIssue}对应ID=${targetID}, 分析ID范围: ${startID} ~ ${targetID - 1}`);
 
         // 查询指定ID范围的数据（目标期往前推N期）
-        const data = await DLT.find({
+        const data = await hit_dlts.find({
             ID: {
                 $gte: startID,
                 $lt: targetID
@@ -4231,7 +4500,7 @@ app.get('/api/dlt/conflict-per-ball', async (req, res) => {
         const topNCount = parseInt(topN) || 5;
 
         // 先查找目标期号对应的ID
-        const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+        const targetRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
         if (!targetRecord) {
             return res.json({
                 success: false,
@@ -4245,7 +4514,7 @@ app.get('/api/dlt/conflict-per-ball', async (req, res) => {
         log(`目标期号${targetIssue}对应ID=${targetID}, 分析ID范围: ${startID} ~ ${targetID - 1}`);
 
         // 查询指定ID范围的数据（目标期往前推N期）
-        const data = await DLT.find({
+        const data = await hit_dlts.find({
             ID: {
                 $gte: startID,
                 $lt: targetID
@@ -4744,7 +5013,7 @@ function generateDLTConflictStatistics(matrix, data) {
 // 大乐透专家和值预测API
 app.get('/api/dlt/sum-prediction', async (req, res) => {
     try {
-        log('Received DLT sum prediction request: ' + JSON.stringify(req.query));
+        log('Received hit_dlts sum prediction request: ' + JSON.stringify(req.query));
         
         const periodGroup = parseInt(req.query.periodGroup) || 30; // 期数分组，默认30期
         const maPeriod = parseInt(req.query.maPeriod) || 20; // MA周期，默认20期
@@ -4781,7 +5050,7 @@ app.get('/api/dlt/sum-prediction', async (req, res) => {
             const expandedEndIssue = endIssue + periodGroup; // 往后扩展periodGroup期
             
             // 根据扩展的期号范围查询
-            recentData = await DLT.find({
+            recentData = await hit_dlts.find({
                 Issue: { $gte: expandedStartIssue, $lte: expandedEndIssue }
             }).sort({ Issue: 1 }); // 按期号升序排列
             
@@ -4795,11 +5064,11 @@ app.get('/api/dlt/sum-prediction', async (req, res) => {
                 targetPeriods: endIssue - startIssue + 1
             };
             
-            log(`Querying DLT data by expanded issue range: ${expandedStartIssue} - ${expandedEndIssue} (target: ${startIssue} - ${endIssue}), found ${recentData.length} records`);
+            log(`Querying hit_dlts data by expanded issue range: ${expandedStartIssue} - ${expandedEndIssue} (target: ${startIssue} - ${endIssue}), found ${recentData.length} records`);
             
         } else if (req.query.analyzeAll === 'true') {
             // 从最开始分析所有数据（优化：只选择需要的字段）
-            recentData = await DLT.find()
+            recentData = await hit_dlts.find()
                 .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 Date')
                 .sort({ ID: 1 })  // ID连续且按Issue升序
                 .lean();
@@ -4809,24 +5078,24 @@ app.get('/api/dlt/sum-prediction', async (req, res) => {
                 totalPeriods: recentData.length
             };
             
-            log(`Querying all DLT data from beginning, found ${recentData.length} records`);
+            log(`Querying all hit_dlts data from beginning, found ${recentData.length} records`);
             
         } else if (req.query.startFrom) {
             // 从最近第N期开始分析（优化：先获取总数，避免查询全部数据）
             const startFrom = parseInt(req.query.startFrom);
 
             // 先获取总记录数
-            const totalCount = await DLT.countDocuments();
+            const totalCount = await hit_dlts.countDocuments();
 
             if (totalCount <= startFrom) {
                 // 如果请求的期数超过总期数，则使用所有数据
-                recentData = await DLT.find()
+                recentData = await hit_dlts.find()
                     .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 Date')
                     .sort({ ID: 1 })  // 升序
                     .lean();
             } else {
                 // 只查询最近的startFrom期数据
-                recentData = await DLT.find()
+                recentData = await hit_dlts.find()
                     .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 Date')
                     .sort({ ID: -1 })  // 降序取前startFrom条
                     .limit(startFrom)
@@ -4841,12 +5110,12 @@ app.get('/api/dlt/sum-prediction', async (req, res) => {
                 availableTotal: totalCount
             };
 
-            log(`Querying DLT data starting from recent ${startFrom}th period, found ${recentData.length} records`);
+            log(`Querying hit_dlts data starting from recent ${startFrom}th period, found ${recentData.length} records`);
             
         } else {
             // 使用期数限制查询（向后兼容，优化性能）
             const limit = parseInt(req.query.limit) || 100;
-            recentData = await DLT.find()
+            recentData = await hit_dlts.find()
                 .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 Date')
                 .sort({ ID: -1 })
                 .limit(limit)
@@ -4858,7 +5127,7 @@ app.get('/api/dlt/sum-prediction', async (req, res) => {
                 totalPeriods: recentData.length
             };
             
-            log(`Querying DLT data by limit: ${limit} periods, found ${recentData.length} records`);
+            log(`Querying hit_dlts data by limit: ${limit} periods, found ${recentData.length} records`);
         }
         
         if (recentData.length === 0) {
@@ -4926,8 +5195,8 @@ app.get('/api/dlt/sum-prediction', async (req, res) => {
         });
         
     } catch (error) {
-        log(`Error in DLT sum prediction API: ${error.message}`);
-        console.error('Error generating DLT sum prediction:', error);
+        log(`Error in hit_dlts sum prediction API: ${error.message}`);
+        console.error('Error generating hit_dlts sum prediction:', error);
         res.status(500).json({
             success: false,
             message: error.message || '生成和值预测失败'
@@ -4944,7 +5213,7 @@ app.get('/api/dlt/group-validation', async (req, res) => {
         const testPeriods = parseInt(req.query.testPeriods) || 200;
         
         // 获取测试数据
-        const allData = await DLT.find({}).sort({ Issue: -1 }).limit(testPeriods);
+        const allData = await hit_dlts.find({}).sort({ Issue: -1 }).limit(testPeriods);
         const sortedData = allData.reverse(); // 转为升序
         
         log(`获取到 ${sortedData.length} 期数据，期号范围: ${sortedData[0].Issue} - ${sortedData[sortedData.length - 1].Issue}`);
@@ -5813,11 +6082,11 @@ const AdvancedTechnicalAnalyzer = require('./advancedTechnicalAnalysis');
 
 app.get('/api/dlt/technical-analysis', async (req, res) => {
     try {
-        log('Received DLT technical analysis request');
+        log('Received hit_dlts technical analysis request');
         
         // 获取历史数据
         const limit = parseInt(req.query.periods) || 200; // 默认使用200期数据
-        const data = await DLT.find({}).sort({ Issue: -1 }).limit(limit);
+        const data = await hit_dlts.find({}).sort({ Issue: -1 }).limit(limit);
         
         if (!data || data.length === 0) {
             return res.status(404).json({
@@ -6095,7 +6364,7 @@ function generateCacheKey(targetIssue, filters, excludeConditions) {
         }
 
         // 获取历史数据用于排除分析（优化：只选择需要的字段）
-        const allData = await DLT.find()
+        const allData = await hit_dlts.find()
             .select('ID Issue Red1 Red2 Red3 Red4 Red5')
             .sort({ ID: -1 })  // ID连续且按Issue降序
             .lean();
@@ -6839,7 +7108,7 @@ async function generatePredictionWithProgress(sessionId, targetIssue, filters) {
         updateProgress(sessionId, 'loading-data', 60, '加载历史数据进行分析...');
 
         // 获取历史数据用于过滤分析（优化：只选择需要的字段）
-        const allData = await DLT.find()
+        const allData = await hit_dlts.find()
             .select('ID Issue Red1 Red2 Red3 Red4 Red5')
             .sort({ ID: -1 })  // ID连续且按Issue降序
             .lean();
@@ -9313,7 +9582,7 @@ app.post('/api/dlt/generate-recent-periods', async (req, res) => {
         log(`开始批量生成最近${periods}期的热温冷分析数据...`);
         
         // 获取最近的期号列表
-        const recentIssues = await DLT.find({})
+        const recentIssues = await hit_dlts.find({})
             .select('Issue')
             .sort({ Issue: -1 })
             .limit(periods + 1)  // 多取一期作为基准期
@@ -9358,7 +9627,7 @@ app.post('/api/dlt/generate-recent-periods', async (req, res) => {
 app.get('/api/dlt/generation-progress', async (req, res) => {
     try {
         // 获取最近200期期号
-        const recentIssues = await DLT.find({})
+        const recentIssues = await hit_dlts.find({})
             .select('Issue')
             .sort({ Issue: -1 })
             .limit(201)  // 多取一期作为基准期
@@ -9476,7 +9745,7 @@ app.get('/api/dlt/available-issues', async (req, res) => {
 app.get('/api/dlt/issues', async (req, res) => {
     try {
         // 获取最近50期的期号，降序排列
-        const issues = await DLT.find({})
+        const issues = await hit_dlts.find({})
             .select('Issue')
             .sort({ Issue: -1 })
             .limit(50)
@@ -9503,7 +9772,7 @@ app.get('/api/dlt/issues', async (req, res) => {
 async function getRecentPeriodSumValues(targetIssue, periods) {
     try {
         // 1. 先查询目标期对应的ID（确保不使用目标期数据）
-        const targetRecord = await DLT.findOne({ Issue: targetIssue.toString() }).lean();
+        const targetRecord = await hit_dlts.findOne({ Issue: targetIssue.toString() }).lean();
         if (!targetRecord) {
             log(`未找到期号${targetIssue}的开奖数据`);
             return [];
@@ -9516,7 +9785,7 @@ async function getRecentPeriodSumValues(targetIssue, periods) {
         log(`查询ID范围: ${startID} - ${previousID} (目标期${targetIssue}对应ID=${targetID}, 不使用目标期数据)`);
 
         // 2. 基于ID查询历史开奖数据中的和值
-        const recentData = await DLT.find({
+        const recentData = await hit_dlts.find({
             ID: {
                 $gte: startID,
                 $lte: previousID
@@ -9551,7 +9820,7 @@ app.get('/api/dlt/debug-recent-sums', async (req, res) => {
         const startIssue = targetIssueNum - parseInt(periods);
         
         // 查询历史开奖数据
-        const recentData = await DLT.find({
+        const recentData = await hit_dlts.find({
             Issue: {
                 $gt: startIssue,
                 $lt: targetIssueNum
@@ -9866,7 +10135,7 @@ app.get('/api/dlt/new-combination-prediction', async (req, res) => {
                 const excludeSettings = JSON.parse(excludeZoneRecentPeriods);
                 if (excludeSettings.enabled && excludeSettings.periods > 0) {
                     // 获取最近N期的区间比数据
-                    const recentResults = await DLT.find({
+                    const recentResults = await hit_dlts.find({
                         Issue: { $lt: parseInt(targetIssue) }
                     }).sort({ Issue: -1 }).limit(excludeSettings.periods);
                     
@@ -9950,7 +10219,7 @@ app.get('/api/dlt/new-combination-prediction', async (req, res) => {
                 const excludeSettings = JSON.parse(excludeHwcRecentPeriods);
                 if (excludeSettings.enabled && excludeSettings.periods > 0) {
                     // 获取最近N期的热温冷比数据
-                    const recentResults = await DLT.find({
+                    const recentResults = await hit_dlts.find({
                         Issue: { $lt: parseInt(targetIssue) }
                     }).sort({ Issue: -1 }).limit(excludeSettings.periods);
                     
@@ -10036,7 +10305,7 @@ app.get('/api/dlt/new-combination-prediction', async (req, res) => {
         );
         
         // 获取目标期号的开奖数据用于命中分析
-        const targetDrawResult = await DLT.findOne({ Issue: parseInt(targetIssue) }).select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2');
+        const targetDrawResult = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2');
         log(`🎯 获取目标期号${targetIssue}的开奖数据用于命中分析: ${targetDrawResult ? '已开奖' : '未开奖'}`);
         
         // 为组合添加命中分析
@@ -10386,7 +10655,7 @@ app.get('/api/dlt/new-combination-prediction', async (req, res) => {
         
         // 获取历史开奖数据（用于计算命中数）
         log('🔍 开始查询历史开奖数据...');
-        const historyData = await DLT.find({})
+        const historyData = await hit_dlts.find({})
             .sort({ Issue: -1 })
             .select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 DrawDate')
             .lean();
@@ -10536,7 +10805,7 @@ app.get('/api/dlt/hot-warm-cold-stats/:baseIssue', async (req, res) => {
  */
 app.get('/api/dlt/latest-issues', async (req, res) => {
     try {
-        const latestIssues = await DLT.find({})
+        const latestIssues = await hit_dlts.find({})
             .sort({ Issue: -1 })
             .limit(5)
             .select('Issue DrawDate');
@@ -10560,7 +10829,7 @@ app.get('/api/dlt/latest-issues', async (req, res) => {
  */
 app.get('/api/dlt/recent-data', async (req, res) => {
     try {
-        const recentData = await DLT.find({})
+        const recentData = await hit_dlts.find({})
             .sort({ Issue: -1 })
             .limit(50)
             .select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 DrawDate');
@@ -10637,7 +10906,7 @@ app.post('/api/dlt/resolve-issue-range', async (req, res) => {
  * @returns {Number|null} 最新期号
  */
 async function getLatestIssue() {
-    const latest = await DLT.findOne({})
+    const latest = await hit_dlts.findOne({})
         .sort({ Issue: -1 })
         .select('Issue')
         .lean();
@@ -10658,13 +10927,23 @@ async function predictNextIssue() {
  * @param {Object} rangeConfig 期号范围配置
  * @returns {Array} 期号列表
  */
+/**
+ * 检查期号是否为有效的历史期号
+ * @param {Number} issue - 待检查的期号
+ * @returns {Promise<boolean>} 是否为历史期号
+ */
+async function isHistoricalIssue(issue) {
+    const existingIssue = await hit_dlts.findOne({ Issue: issue });
+    return !!existingIssue;
+}
+
 async function resolveIssueRangeInternal(rangeConfig) {
     const { rangeType, recentCount, startIssue, endIssue } = rangeConfig;
 
     switch (rangeType) {
         case 'all':
             // 全部历史期号 - 获取所有已开奖期号
-            const allData = await DLT.find({})
+            const allData = await hit_dlts.find({})
                 .sort({ Issue: 1 })
                 .select('Issue')
                 .lean();
@@ -10675,7 +10954,7 @@ async function resolveIssueRangeInternal(rangeConfig) {
             const requestedCount = parseInt(recentCount) || 100;
 
             // 按ID顺序（Issue降序）取最近N条记录
-            const recentData = await DLT.find({})
+            const recentData = await hit_dlts.find({})
                 .sort({ Issue: -1 })
                 .limit(requestedCount)  // 🔹 取N期已开奖记录
                 .select('Issue')
@@ -10695,7 +10974,7 @@ async function resolveIssueRangeInternal(rangeConfig) {
             return issues;
 
         case 'custom':
-            // ⭐ 修改：自定义范围，支持推算下一期
+            // ⭐ 修改：自定义范围，严格控制返回的期号
             if (!startIssue || !endIssue) {
                 throw new Error('自定义范围需要指定起始期号和结束期号');
             }
@@ -10716,7 +10995,7 @@ async function resolveIssueRangeInternal(rangeConfig) {
 
             // 🔹 查询已开奖期号范围
             const actualEndIssue = Math.min(normalizedEnd, latestIssue);
-            const customData = await DLT.find({
+            const customData = await hit_dlts.find({
                 Issue: {
                     $gte: normalizedStart,
                     $lte: actualEndIssue
@@ -10728,13 +11007,13 @@ async function resolveIssueRangeInternal(rangeConfig) {
 
             const customIssues = customData.map(record => record.Issue.toString());
 
-            // 🔹 如果用户请求的结束期号超出已开奖范围，追加推算的下一期
+            // 🔹 如果用户请求的结束期号超出已开奖范围，仅追加推算的下一期
             if (normalizedEnd > latestIssue) {
                 const nextIssue = await predictNextIssue();
                 if (nextIssue) {
                     customIssues.push(nextIssue.toString());
                     log(`⚠️ 自定义范围包含未开奖期号: 用户请求${normalizedStart}-${normalizedEnd}，` +
-                        `实际返回${normalizedStart}-${actualEndIssue}（已开奖）+ ${nextIssue}（推算下一期），共${customIssues.length}期`);
+                        `实际返回${customIssues[0]}-${customIssues[customIssues.length - 1]}（已开奖）+ ${nextIssue}（推算下一期），共${customIssues.length}期`);
                 } else {
                     log(`⚠️ 自定义范围超出已开奖数据，且无法推算下一期，仅返回${customIssues.length}期已开奖数据`);
                 }
@@ -11381,7 +11660,7 @@ class GlobalCacheManager {
 
                 // 3. 历史开奖数据
                 enableValidation ?
-                    DLT.find({}).select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2').lean().then(data => {
+                    hit_dlts.find({}).select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2').lean().then(data => {
                         log(`  ✅ [GlobalCache] 历史开奖: ${data.length}期`);
                         return data;
                     }) :
@@ -11410,7 +11689,7 @@ class GlobalCacheManager {
                     Promise.resolve([]),
 
                 // 6. 🆕 v3.0优化: 预加载ID-Issue映射
-                DLT.find({}).select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2').lean().then(data => {
+                hit_dlts.find({}).select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2').lean().then(data => {
                     log(`  ✅ [GlobalCache] ID-Issue映射: ${data.length}期`);
                     return data;
                 })
@@ -11796,7 +12075,7 @@ class GlobalCacheManager {
             log(`  📊 [GlobalCache] 历史数据范围: Issue < ${minTargetIssue}, 最多${maxHistoricalPeriods + 100}期`);
 
             // 3. 批量查询历史数据（多查一些确保覆盖）
-            const historicalRecords = await DLT.find({
+            const historicalRecords = await hit_dlts.find({
                 Issue: { $lt: minTargetIssue }
             })
             .sort({ Issue: -1 })
@@ -12722,7 +13001,7 @@ class StreamBatchPredictor {
             log(`⚔️ [${this.sessionId}] 相克配置检查: conflictExclude存在=${!!filters.conflictExclude}, enabled=${filters.conflictExclude?.enabled}`);
 
             // ✅ 修复推算期BUG：检查期号是否存在，如果不存在则为推算期
-            let issueRecord = await DLT.findOne({ Issue: issue });
+            let issueRecord = await hit_dlts.findOne({ Issue: issue });
             let currentPeriodID;
             let isPredictedPeriod = false;
 
@@ -12735,7 +13014,7 @@ class StreamBatchPredictor {
                 log(`⭐ [${this.sessionId}] 期号${issue}不存在，判定为推算期，使用上一期数据`);
                 isPredictedPeriod = true;
 
-                const previousIssue = await DLT.findOne({ Issue: parseInt(issue) - 1 });
+                const previousIssue = await hit_dlts.findOne({ Issue: parseInt(issue) - 1 });
                 if (!previousIssue) {
                     throw new Error(`推算期${issue}的上一期(Issue=${parseInt(issue) - 1})不存在`);
                 }
@@ -12750,7 +13029,7 @@ class StreamBatchPredictor {
                 currentPeriodID = issueRecord.ID;
 
                 // ⭐ 已开奖期的历史排除：需要找到目标期-1的ID
-                const previousIssueForHistory = await DLT.findOne({ Issue: parseInt(issue) - 1 });
+                const previousIssueForHistory = await hit_dlts.findOne({ Issue: parseInt(issue) - 1 });
                 if (previousIssueForHistory) {
                     basePeriodIDForHistory = previousIssueForHistory.ID;
                     log(`✅ [${this.sessionId}] 已开奖期${issue}使用当前期ID=${currentPeriodID}进行过滤`);
@@ -13163,7 +13442,7 @@ class StreamBatchPredictor {
 
                         // 查找前一期作为基准期号
                         const targetIssueNum = parseInt(issue);
-                        const previousIssue = await DLT.findOne({ Issue: { $lt: targetIssueNum } })
+                        const previousIssue = await hit_dlts.findOne({ Issue: { $lt: targetIssueNum } })
                             .sort({ Issue: -1 })
                             .lean();
 
@@ -13297,7 +13576,7 @@ class StreamBatchPredictor {
     async getHistoricalHWCRatios(targetIssue, count) {
         try {
             // 获取目标期号的记录
-            const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+            const targetRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
             if (!targetRecord) {
                 log(`⚠️ [${this.sessionId}] 未找到期号 ${targetIssue}`);
                 return [];
@@ -13364,7 +13643,7 @@ class StreamBatchPredictor {
             log(`🎯 [${this.sessionId}] 开始获取待排除特征 - 期号:${targetIssue}, 每个红球最近${periods}期`);
 
             // 1. 获取目标期号的ID
-            const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+            const targetRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
             if (!targetRecord) {
                 log(`⚠️ [${this.sessionId}] 未找到目标期号 ${targetIssue}`);
                 return { combo_2: [], combo_3: [], combo_4: [] };
@@ -13542,7 +13821,7 @@ class StreamBatchPredictor {
             log(`🎯 [${this.sessionId}] 获取待排除特征(按期号) - 期号:${targetIssue}, 最近${periods}期`);
 
             // 1. 获取目标期号的ID
-            const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+            const targetRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
             if (!targetRecord) {
                 log(`⚠️ [${this.sessionId}] 未找到目标期号 ${targetIssue}`);
                 return {
@@ -13554,7 +13833,7 @@ class StreamBatchPredictor {
 
             // 2. 获取最近N期的ID（连续期号）
             const startID = targetRecord.ID - periods;
-            const recentRecords = await DLT.find({
+            const recentRecords = await hit_dlts.find({
                 ID: { $gte: startID, $lt: targetRecord.ID }
             }).select('ID Issue').sort({ ID: 1 }).lean();
 
@@ -13953,7 +14232,7 @@ class StreamBatchPredictor {
 
             // 获取目标期号的前N期数据来分析相克关系
             const targetIssueNum = parseInt(targetIssue);
-            const analysisData = await DLT.find({
+            const analysisData = await hit_dlts.find({
                 Issue: { $lt: targetIssueNum }
             })
                 .sort({ Issue: -1 })
@@ -14177,7 +14456,7 @@ class StreamBatchPredictor {
             // 缓存未命中，回退到数据库查询
             if (!actualResult) {
                 log(`⚠️ [${this.sessionId}] 缓存未命中，从数据库查询期号${issue}开奖数据...`);
-                actualResult = await DLT.findOne({ Issue: parseInt(issue) }).lean();
+                actualResult = await hit_dlts.findOne({ Issue: parseInt(issue) }).lean();
             }
 
             // 🔮 推算期处理：如果找不到开奖数据，返回null（标识为推算期）
@@ -14276,7 +14555,7 @@ class StreamBatchPredictor {
 
         try {
             // 1. 批量查询所有期号的开奖数据（单次查询）
-            const winningData = await DLT.find({
+            const winningData = await hit_dlts.find({
                 Issue: { $in: issuesArray.map(i => parseInt(i)) }
             })
             .select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 FirstPrizeAmount SecondPrizeAmount')
@@ -14413,7 +14692,7 @@ class StreamBatchPredictor {
      * @param {Array} bluePairingIndices - 蓝球配对索引数组（仅unlimited模式需要）
      */
     async calculatePrizeStats(redHits, blueHits, actualResult, pairingMode = 'truly-unlimited', bluePairingIndices = null) {
-        // 从DLT表读取浮动奖金
+        // 从hit_dlts表读取浮动奖金
         const firstPrizeAmount = this.parsePrizeAmount(actualResult.FirstPrizeAmount) || 10000000;
         const secondPrizeAmount = this.parsePrizeAmount(actualResult.SecondPrizeAmount) || 100000;
 
@@ -14601,7 +14880,7 @@ class StreamBatchPredictor {
 
     /**
      * 🔧 新增：解析奖金金额字符串
-     * DLT表中奖金可能是 "1,234,567" 或 "1234567" 格式
+     * hit_dlts表中奖金可能是 "1,234,567" 或 "1234567" 格式
      */
     parsePrizeAmount(amountStr) {
         if (!amountStr) return 0;
@@ -14774,6 +15053,9 @@ class HwcPositivePredictor extends StreamBatchPredictor {
         // 热温冷优化表缓存: Map<"base_issue-target_issue", Map<hwc_ratio, [combo_ids]>>
         this.hwcOptimizedCache = null;
 
+        // 🆕 第一个期号的上一期缓存（基于ID-1查询）
+        this.firstIssuePreviousRecord = null;
+
         // 历史数据统计缓存 (用于排除条件)
         this.historicalStatsCache = {
             sums: null,           // Set<和值>
@@ -14805,7 +15087,18 @@ class HwcPositivePredictor extends StreamBatchPredictor {
             this.hwcOptimizedCache = new Map();
             for (const data of hwcDataList) {
                 const key = `${data.base_issue}-${data.target_issue}`;
-                this.hwcOptimizedCache.set(key, data.hwc_map);
+
+                // 🔧 修复: 数据库字段是 hot_warm_cold_data，不是 hwc_map
+                // 需要将普通对象转换为 Map 格式
+                if (data.hot_warm_cold_data) {
+                    const hwcMap = new Map();
+                    for (const [ratio, ids] of Object.entries(data.hot_warm_cold_data)) {
+                        hwcMap.set(ratio, ids);
+                    }
+                    this.hwcOptimizedCache.set(key, hwcMap);
+                } else {
+                    log(`⚠️ 期号对 ${key} 缺少 hot_warm_cold_data 字段`);
+                }
             }
 
             const elapsedTime = Date.now() - startTime;
@@ -14953,6 +15246,130 @@ class HwcPositivePredictor extends StreamBatchPredictor {
     }
 
     /**
+     * ⭐ 2025-11-14新增: 基于ID-1规则动态计算单个期号的历史统计
+     * @param {number} baseID - 基准ID (targetID - 1)
+     * @param {object} exclusionConditions - 排除条件配置
+     */
+    async calculateHistoricalStatsForIssue(baseID, exclusionConditions) {
+        try {
+            // 确定需要的最大历史期数
+            let maxPeriod = 0;
+            if (exclusionConditions.historicalSum?.enabled) {
+                maxPeriod = Math.max(maxPeriod, exclusionConditions.historicalSum.period || 10);
+            }
+            if (exclusionConditions.historicalSpan?.enabled) {
+                maxPeriod = Math.max(maxPeriod, exclusionConditions.historicalSpan.period || 10);
+            }
+            if (exclusionConditions.historicalHwc?.enabled) {
+                maxPeriod = Math.max(maxPeriod, exclusionConditions.historicalHwc.period || 10);
+            }
+            if (exclusionConditions.historicalZone?.enabled) {
+                maxPeriod = Math.max(maxPeriod, exclusionConditions.historicalZone.period || 10);
+            }
+            if (exclusionConditions.conflictPairs?.enabled) {
+                maxPeriod = Math.max(maxPeriod, 50); // 相克对统计50期
+            }
+
+            if (maxPeriod === 0) {
+                return; // 无需历史数据
+            }
+
+            // ⭐ 关键修复: 从baseID开始往前查询maxPeriod条记录
+            const historicalRecords = await hit_dlts.find({
+                ID: {
+                    $lte: baseID,  // ID <= baseID
+                    $gt: baseID - maxPeriod  // ID > baseID - maxPeriod
+                }
+            })
+                .sort({ ID: -1 })  // 按ID降序
+                .limit(maxPeriod)
+                .lean();
+
+            log(`  ✅ 查询历史数据: 从ID=${baseID}往前${maxPeriod}期，实际获取${historicalRecords.length}期`);
+
+            // 1. 计算历史和值
+            if (exclusionConditions.historicalSum?.enabled) {
+                const period = exclusionConditions.historicalSum.period || 10;
+                this.historicalStatsCache.sums = new Set(
+                    historicalRecords.slice(0, period).map(h =>
+                        h.Red1 + h.Red2 + h.Red3 + h.Red4 + h.Red5
+                    )
+                );
+                log(`    ✅ 历史和值统计: ${this.historicalStatsCache.sums.size}个不重复和值 (${period}期)`);
+            }
+
+            // 2. 计算历史跨度
+            if (exclusionConditions.historicalSpan?.enabled) {
+                const period = exclusionConditions.historicalSpan.period || 10;
+                this.historicalStatsCache.spans = new Set(
+                    historicalRecords.slice(0, period).map(h => {
+                        const reds = [h.Red1, h.Red2, h.Red3, h.Red4, h.Red5];
+                        return Math.max(...reds) - Math.min(...reds);
+                    })
+                );
+                log(`    ✅ 历史跨度统计: ${this.historicalStatsCache.spans.size}个不重复跨度 (${period}期)`);
+            }
+
+            // 3. 计算历史区间比
+            if (exclusionConditions.historicalZone?.enabled) {
+                const period = exclusionConditions.historicalZone.period || 10;
+                this.historicalStatsCache.zoneRatios = new Set(
+                    historicalRecords.slice(0, period).map(h => {
+                        const reds = [h.Red1, h.Red2, h.Red3, h.Red4, h.Red5];
+                        const zone1 = reds.filter(r => r >= 1 && r <= 12).length;
+                        const zone2 = reds.filter(r => r >= 13 && r <= 24).length;
+                        const zone3 = reds.filter(r => r >= 25 && r <= 35).length;
+                        return `${zone1}:${zone2}:${zone3}`;
+                    })
+                );
+                log(`    ✅ 历史区间比统计: ${this.historicalStatsCache.zoneRatios.size}个不重复区间比 (${period}期)`);
+            }
+
+            // 4. 相克对统计
+            const conflictConfig = exclusionConditions.conflictPairs;
+            if (conflictConfig && conflictConfig.enabled === true) {
+                const hasEnabledStrategy =
+                    conflictConfig.globalTop?.enabled ||
+                    conflictConfig.perBallTop?.enabled ||
+                    conflictConfig.threshold?.enabled;
+
+                if (hasEnabledStrategy) {
+                    let thresholdValue = 0;
+                    if (conflictConfig.threshold?.enabled) {
+                        thresholdValue = typeof conflictConfig.threshold.value === 'number'
+                            ? conflictConfig.threshold.value
+                            : 0;
+                    }
+
+                    // 统计所有球号对的同现次数
+                    const pairCounts = new Map();
+                    for (const issue of historicalRecords.slice(0, 50)) {
+                        const reds = [issue.Red1, issue.Red2, issue.Red3, issue.Red4, issue.Red5];
+                        for (let i = 0; i < reds.length - 1; i++) {
+                            for (let j = i + 1; j < reds.length; j++) {
+                                const key = reds[i] < reds[j] ? `${reds[i]}-${reds[j]}` : `${reds[j]}-${reds[i]}`;
+                                pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
+                            }
+                        }
+                    }
+
+                    // 找出相克对
+                    this.historicalStatsCache.conflictPairs = new Set();
+                    for (const [pair, count] of pairCounts) {
+                        if (count <= thresholdValue) {
+                            this.historicalStatsCache.conflictPairs.add(pair);
+                        }
+                    }
+                    log(`    ✅ 相克对统计: ${this.historicalStatsCache.conflictPairs.size}对 (阈值=${thresholdValue}, 统计50期)`);
+                }
+            }
+
+        } catch (error) {
+            log(`❌ [${this.sessionId}] 动态计算历史统计失败: ${error.message}`);
+        }
+    }
+
+    /**
      * ✨ 6步正选筛选 (核心优化,严格按照UI顺序)
      *
      * 步骤顺序:
@@ -14981,7 +15398,8 @@ class HwcPositivePredictor extends StreamBatchPredictor {
         // ============ Step 1: 热温冷比筛选 ============
         const hwcKey = `${baseIssue}-${targetIssue}`;
         const hwcMap = this.hwcOptimizedCache?.get(hwcKey);
-        const selectedHwcRatios = positiveSelection.hwc_ratios || [];
+        // ⭐ 2025-11-14修复点4: 字段名与前端/API验证保持一致
+        const selectedHwcRatios = positiveSelection.red_hot_warm_cold_ratios || [];
 
         if (selectedHwcRatios.length === 0) {
             throw new Error('至少选择1种热温冷比');
@@ -14991,9 +15409,19 @@ class HwcPositivePredictor extends StreamBatchPredictor {
 
         // 🔄 优先使用优化表，如果缺失则fallback到动态计算
         if (hwcMap) {
+            // ⭐ 2025-11-14修复: 将ratio对象转换为字符串格式 (与优化表的键格式一致)
+            // 🔧 兼容两种格式: 字符串 "4:1:0" 或对象 {hot:4, warm:1, cold:0}
+            const selectedRatioKeys = selectedHwcRatios.map(r => {
+                if (typeof r === 'string') {
+                    return r; // 字符串格式，直接使用
+                } else {
+                    return `${r.hot}:${r.warm}:${r.cold}`; // 对象格式，转换为字符串
+                }
+            });
+
             // 使用预计算的优化表（快速）
-            for (const ratio of selectedHwcRatios) {
-                const ids = hwcMap.get(ratio) || [];
+            for (const ratioKey of selectedRatioKeys) {
+                const ids = hwcMap.get(ratioKey) || [];
                 ids.forEach(id => candidateIds.add(id));
             }
             statistics.step1_count = candidateIds.size;  // ⭐ 记录统计
@@ -15003,7 +15431,8 @@ class HwcPositivePredictor extends StreamBatchPredictor {
             log(`  ⚠️ 缺少期号对 ${baseIssue}→${targetIssue} 的热温冷优化数据，fallback到动态计算...`);
 
             // 获取baseIssue的遗漏数据
-            const missingData = await DLTRedMissing.findOne({ Issue: parseInt(baseIssue) }).lean();
+            // ⚠️ 2025-11-26修复: 遗漏值表Issue字段是字符串类型，不能用parseInt
+            const missingData = await DLTRedMissing.findOne({ Issue: baseIssue.toString() }).lean();
             if (!missingData) {
                 throw new Error(`无法获取期号${baseIssue}的遗漏数据，无法计算热温冷比`);
             }
@@ -15049,9 +15478,11 @@ class HwcPositivePredictor extends StreamBatchPredictor {
         }
 
         // ============ Step 2-6: 使用缓存的红球组合数据逐步筛选 ============
-        const candidateArray = Array.from(candidateIds);
+        // 🚀 性能优化：使用Set.has() (O(1)) 代替 Array.includes() (O(n))
+        // 优化前: O(324,632 × 105,165) ≈ 340亿次比较 ≈ 21秒
+        // 优化后: O(324,632) ≈ 32万次操作 ≈ <100ms (加速200+倍)
         let filteredCombos = this.cachedRedCombinations.filter(c =>
-            candidateArray.includes(c.combination_id)
+            candidateIds.has(c.combination_id)
         );
         statistics.step1_count = filteredCombos.length;  // ⭐ 最终Step1结果
 
@@ -15085,15 +15516,21 @@ class HwcPositivePredictor extends StreamBatchPredictor {
             statistics.step2_retained_count = filteredCombos.length;  // ⭐ 记录统计
             log(`  ✅ Step2 区间比筛选: ${filteredCombos.length}个组合 (从${beforeCount}个) | 选择${positiveSelection.zone_ratios.length}种区间比`);
 
-            // 保存排除详情
-            if (excludedIds.length > 0) {
-                exclusionsToSave.push({
-                    step: 2,
-                    condition: 'positive_step2_zone_ratio',
-                    excludedIds: excludedIds,
-                    detailsMap: detailsMap
-                });
-            }
+            // ⭐ 2025-11-14: 始终保存排除详情（即使 excludedIds.length === 0），附带元数据
+            const metadata = {
+                zone_ratio: {
+                    excluded_ratios: positiveSelection.zone_ratios || [],
+                    total_ratios_checked: zoneSet.size
+                }
+            };
+
+            exclusionsToSave.push({
+                step: 2,
+                condition: 'positive_step2_zone_ratio',
+                excludedIds: excludedIds,
+                detailsMap: detailsMap,
+                metadata: metadata
+            });
         } else {
             statistics.step2_retained_count = filteredCombos.length;  // ⭐ 未筛选，保持不变
         }
@@ -15123,15 +15560,21 @@ class HwcPositivePredictor extends StreamBatchPredictor {
             statistics.step3_retained_count = filteredCombos.length;  // ⭐ 记录统计
             log(`  ✅ Step3 和值范围筛选: ${filteredCombos.length}个组合 (从${beforeCount}个) | 选择${positiveSelection.sum_ranges.length}个范围`);
 
-            // 保存排除详情
-            if (excludedIds.length > 0) {
-                exclusionsToSave.push({
-                    step: 3,
-                    condition: 'positive_step3_sum_range',
-                    excludedIds: excludedIds,
-                    detailsMap: detailsMap
-                });
-            }
+            // ⭐ 2025-11-14: 始终保存排除详情（即使 excludedIds.length === 0），附带元数据
+            const metadata = {
+                sum_range: {
+                    excluded_ranges: positiveSelection.sum_ranges || [],
+                    total_ranges_checked: positiveSelection.sum_ranges.length
+                }
+            };
+
+            exclusionsToSave.push({
+                step: 3,
+                condition: 'positive_step3_sum_range',
+                excludedIds: excludedIds,
+                detailsMap: detailsMap,
+                metadata: metadata
+            });
         } else {
             statistics.step3_retained_count = filteredCombos.length;  // ⭐ 未筛选，保持不变
         }
@@ -15161,15 +15604,21 @@ class HwcPositivePredictor extends StreamBatchPredictor {
             statistics.step4_retained_count = filteredCombos.length;  // ⭐ 记录统计
             log(`  ✅ Step4 跨度范围筛选: ${filteredCombos.length}个组合 (从${beforeCount}个) | 选择${positiveSelection.span_ranges.length}个范围`);
 
-            // 保存排除详情
-            if (excludedIds.length > 0) {
-                exclusionsToSave.push({
-                    step: 4,
-                    condition: 'positive_step4_span_range',
-                    excludedIds: excludedIds,
-                    detailsMap: detailsMap
-                });
-            }
+            // ⭐ 2025-11-14: 始终保存排除详情（即使 excludedIds.length === 0），附带元数据
+            const metadata = {
+                span_range: {
+                    excluded_ranges: positiveSelection.span_ranges || [],
+                    total_ranges_checked: positiveSelection.span_ranges.length
+                }
+            };
+
+            exclusionsToSave.push({
+                step: 4,
+                condition: 'positive_step4_span_range',
+                excludedIds: excludedIds,
+                detailsMap: detailsMap,
+                metadata: metadata
+            });
         } else {
             statistics.step4_retained_count = filteredCombos.length;  // ⭐ 未筛选，保持不变
         }
@@ -15204,15 +15653,21 @@ class HwcPositivePredictor extends StreamBatchPredictor {
             statistics.step5_retained_count = filteredCombos.length;  // ⭐ 记录统计
             log(`  ✅ Step5 奇偶比筛选: ${filteredCombos.length}个组合 (从${beforeCount}个) | 选择${positiveSelection.odd_even_ratios.length}种奇偶比`);
 
-            // 保存排除详情
-            if (excludedIds.length > 0) {
-                exclusionsToSave.push({
-                    step: 5,
-                    condition: 'positive_step5_odd_even_ratio',
-                    excludedIds: excludedIds,
-                    detailsMap: detailsMap
-                });
-            }
+            // ⭐ 2025-11-14: 始终保存排除详情（即使 excludedIds.length === 0），附带元数据
+            const metadata = {
+                odd_even_ratio: {
+                    excluded_ratios: positiveSelection.odd_even_ratios || [],
+                    total_ratios_checked: oeSet.size
+                }
+            };
+
+            exclusionsToSave.push({
+                step: 5,
+                condition: 'positive_step5_odd_even_ratio',
+                excludedIds: excludedIds,
+                detailsMap: detailsMap,
+                metadata: metadata
+            });
         } else {
             statistics.step5_retained_count = filteredCombos.length;  // ⭐ 未筛选，保持不变
         }
@@ -15240,15 +15695,21 @@ class HwcPositivePredictor extends StreamBatchPredictor {
             statistics.step6_retained_count = filteredCombos.length;  // ⭐ 记录统计
             log(`  ✅ Step6 AC值筛选: ${filteredCombos.length}个组合 (从${beforeCount}个) | 选择${positiveSelection.ac_values.length}种AC值`);
 
-            // 保存排除详情
-            if (excludedIds.length > 0) {
-                exclusionsToSave.push({
-                    step: 6,
-                    condition: 'positive_step6_ac_value',
-                    excludedIds: excludedIds,
-                    detailsMap: detailsMap
-                });
-            }
+            // ⭐ 2025-11-14: 始终保存排除详情（即使 excludedIds.length === 0），附带元数据
+            const metadata = {
+                ac_value: {
+                    excluded_values: positiveSelection.ac_values || [],
+                    total_values_checked: acSet.size
+                }
+            };
+
+            exclusionsToSave.push({
+                step: 6,
+                condition: 'positive_step6_ac_value',
+                excludedIds: excludedIds,
+                detailsMap: detailsMap,
+                metadata: metadata
+            });
         } else {
             statistics.step6_retained_count = filteredCombos.length;  // ⭐ 未筛选，保持不变
         }
@@ -15276,7 +15737,21 @@ class HwcPositivePredictor extends StreamBatchPredictor {
      *
      * @returns {Object} {combinations: Array, summary: Object, exclusionsToSave: Array}
      */
-    async applyExclusionConditions(baseIssue, combinations, exclusionConditions) {
+    async applyExclusionConditions(baseIssue, targetIssue, combinations, exclusionConditions) {
+        log(`🚫 [${this.sessionId}] 开始5步排除: ${baseIssue}→${targetIssue}, 初始组合=${combinations.length}个`);
+
+        // ⭐ 2025-11-14修复: 基于target_issue的ID-1规则计算历史统计起点
+        const targetIssueID = this.issueToIdMap.get(targetIssue.toString());
+        if (!targetIssueID) {
+            log(`⚠️ [${this.sessionId}] 无法获取期号${targetIssue}的ID，跳过历史统计`);
+        } else {
+            const baseID = targetIssueID - 1;  // ID-1规则
+            log(`  📍 预测期号${targetIssue}(ID=${targetIssueID}), 历史统计从ID=${baseID}开始`);
+
+            // 🔧 动态计算该期号的历史统计数据
+            await this.calculateHistoricalStatsForIssue(baseID, exclusionConditions);
+        }
+
         // ⭐ 新增：完整的排除统计对象（匹配Schema）
         const summary = {
             positive_selection_count: combinations.length,  // 输入的组合数（正选后）
@@ -15444,24 +15919,31 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                 filtered = batchedResults;
             } else {
                 // 数据量较小，直接处理
+                // ⭐ 2025-11-14: 修改为收集所有命中的相克对（而不是只记录第一个）
                 filtered = filtered.filter(c => {
                     const balls = c.balls || [c.red_ball_1, c.red_ball_2, c.red_ball_3, c.red_ball_4, c.red_ball_5];
+                    const hitPairs = [];  // 收集所有命中的相克对
 
                     // 检查组合中是否包含相克对
                     for (let i = 0; i < balls.length - 1; i++) {
                         for (let j = i + 1; j < balls.length; j++) {
                             const key = balls[i] < balls[j] ? `${balls[i]}-${balls[j]}` : `${balls[j]}-${balls[i]}`;
                             if (this.historicalStatsCache.conflictPairs.has(key)) {
-                                // 记录排除详情
-                                excludedIds.push(c.combination_id);
-                                detailsMap[c.combination_id] = {
-                                    conflict_pair: key,
-                                    balls: balls.join(','),
-                                    description: `包含相克对 ${key}`
-                                };
-                                return false; // 包含相克对,排除
+                                hitPairs.push([balls[i], balls[j]]);  // 记录命中的相克对
                             }
                         }
+                    }
+
+                    // 如果命中至少一个相克对，则排除并记录详情
+                    if (hitPairs.length > 0) {
+                        excludedIds.push(c.combination_id);
+                        const pairsStr = hitPairs.map(p => `${p[0]}-${p[1]}`).join(', ');
+                        detailsMap[c.combination_id] = {
+                            conflictPairs: hitPairs,  // ⭐ 保存所有命中的相克对数组
+                            balls: balls.join(','),
+                            description: `包含相克对 ${pairsStr}`
+                        };
+                        return false; // 包含相克对,排除
                     }
                     return true; // 不包含相克对,保留
                 });
@@ -15470,15 +15952,30 @@ class HwcPositivePredictor extends StreamBatchPredictor {
             excludeStats.conflictPairs = beforeCount - filtered.length;
             log(`  ✅ Exclude5 相克对排除: ${excludeStats.conflictPairs}个组合 (${beforeCount}→${filtered.length})`);
 
-            // 保存排除详情 (Step 9)
-            if (excludedIds.length > 0) {
-                exclusionsToSave.push({
-                    step: 9,
-                    condition: 'exclude_step9_conflict_pairs',
-                    excludedIds: excludedIds,
-                    detailsMap: detailsMap
-                });
-            }
+            // ⭐ 2025-11-14: 始终保存排除详情（即使 excludedIds.length === 0），附带元数据
+            // 🔍 构建相克对元数据
+            const conflictPairsArray = Array.from(this.historicalStatsCache.conflictPairs).map(pair => {
+                const [a, b] = pair.split('-').map(n => parseInt(n));
+                return [a, b];
+            });
+
+            const metadata = {
+                conflict_pairs: {
+                    analysis_periods: 50,  // 当前固定统计50期
+                    topN: null,            // 当前实现基于阈值，无TopN
+                    pairs: conflictPairsArray,
+                    hot_numbers: [],       // 当前实现无热号保护
+                    total_pairs_count: conflictPairsArray.length
+                }
+            };
+
+            exclusionsToSave.push({
+                step: 9,
+                condition: 'exclude_step9_conflict_pairs',
+                excludedIds: excludedIds,
+                detailsMap: detailsMap,
+                metadata: metadata  // ⭐ 元数据
+            });
         }
 
         // ============ Exclude 6: 连号组数排除 (Step 7) ============
@@ -15521,15 +16018,21 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                 excludeStats.consecutiveGroups = beforeCount - filtered.length;
                 log(`  ✅ Exclude6 连号组数排除: ${excludeStats.consecutiveGroups}个组合 (${beforeCount}→${filtered.length})`);
 
-                // 保存排除详情 (Step 7)
-                if (excludedIds.length > 0) {
-                    exclusionsToSave.push({
-                        step: 7,
-                        condition: 'exclude_step7_consecutive_groups',
-                        excludedIds: excludedIds,
-                        detailsMap: detailsMap
-                    });
-                }
+                // ⭐ 2025-11-14: 始终保存排除详情（即使 excludedIds.length === 0），附带元数据
+                const metadata = {
+                    consecutive_groups: {
+                        excluded_groups: groups || [],
+                        total_groups_checked: groups ? groups.length : 0
+                    }
+                };
+
+                exclusionsToSave.push({
+                    step: 7,
+                    condition: 'exclude_step7_consecutive_groups',
+                    excludedIds: excludedIds,
+                    detailsMap: detailsMap,
+                    metadata: metadata
+                });
             }
         }
 
@@ -15573,21 +16076,191 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                 excludeStats.maxConsecutiveLength = beforeCount - filtered.length;
                 log(`  ✅ Exclude7 最长连号长度排除: ${excludeStats.maxConsecutiveLength}个组合 (${beforeCount}→${filtered.length})`);
 
-                // 保存排除详情 (Step 8)
-                if (excludedIds.length > 0) {
-                    exclusionsToSave.push({
-                        step: 8,
-                        condition: 'exclude_step8_max_consecutive_length',
-                        excludedIds: excludedIds,
-                        detailsMap: detailsMap
-                    });
-                }
+                // ⭐ 2025-11-14: 始终保存排除详情（即使 excludedIds.length === 0），附带元数据
+                const metadata = {
+                    max_consecutive_length: {
+                        excluded_lengths: lengths || [],
+                        total_lengths_checked: lengths ? lengths.length : 0
+                    }
+                };
+
+                exclusionsToSave.push({
+                    step: 8,
+                    condition: 'exclude_step8_max_consecutive_length',
+                    excludedIds: excludedIds,
+                    detailsMap: detailsMap,
+                    metadata: metadata
+                });
             }
         }
 
-        // ============ Exclude 8: 同现比排除 ============
-        // TODO: 实现同现比排除逻辑
-        // 注: 此功能需要根据历史数据分析球号的同现概率，当前暂未实现
+        // ============ Exclude 8: 同现比排除 (Step 10) ============
+        // ⭐ 2025-11-14: 完整实现同现比排除逻辑
+        if (exclusionConditions.coOccurrence?.enabled) {
+            log(`  📊 Step 10: 同现比排除...`);
+
+            const beforeCount = filtered.length;
+            const excludedIds = [];
+            const detailsMap = {};
+
+            // 🔧 同现比配置说明：
+            // - mode: 'all' 或特定模式 'combo_2', 'combo_3', 'combo_4'
+            // - periods: 分析的历史期数（默认30期）
+            // 逻辑：排除在历史期号中出现过的特征组合
+
+            const mode = exclusionConditions.coOccurrence.mode || 'combo_2';
+            const periods = exclusionConditions.coOccurrence.periods || 30;
+
+            // 📝 注意：由于当前系统暂无 DLTComboFeatures 表，
+            // 我们采用简化实现：基于历史开奖号码直接构建特征集合
+
+            // ⭐ 2025-11-14修复: 基于ID-1规则获取历史期号列表
+            // 1. 获取targetIssue的ID，从ID-1开始往前查询periods期
+            const targetIssueID = this.issueToIdMap.get(targetIssue.toString());
+
+            // ⭐ 初始化变量（避免未定义错误）
+            const excludedFeatures = new Set();
+            const analyzedBalls = [];
+            const analyzedIssues = [];
+
+            if (!targetIssueID) {
+                log(`    ⚠️ 无法获取期号${targetIssue}的ID，跳过同现比排除`);
+            } else {
+                const baseID = targetIssueID - 1;  // ID-1规则
+                log(`    📍 预测期号${targetIssue}(ID=${targetIssueID}), 同现分析从ID=${baseID}开始往前${periods}期`);
+
+                // 2. 查询历史期号的开奖号码（从baseID往前查periods期）
+                const historicalDrawings = await hit_dlts.find({
+                    ID: {
+                        $lte: baseID,
+                        $gt: baseID - periods
+                    }
+                }).sort({ ID: -1 }).limit(periods).select('Issue ID Red1 Red2 Red3 Red4 Red5').lean();
+
+                log(`    ✅ 查询历史数据: 实际获取${historicalDrawings.length}期`);
+
+                // 3. 构建排除特征集合（基于历史开奖号码）
+                for (const drawing of historicalDrawings) {
+                    const balls = [drawing.Red1, drawing.Red2, drawing.Red3, drawing.Red4, drawing.Red5].sort((a, b) => a - b);
+                    analyzedBalls.push(...balls);
+                    analyzedIssues.push(drawing.Issue.toString());
+
+                    // 根据 mode 构建特征
+                    if (mode === 'combo_2' || mode === 'all') {
+                        // 2-球组合
+                        for (let i = 0; i < balls.length - 1; i++) {
+                            for (let j = i + 1; j < balls.length; j++) {
+                                excludedFeatures.add(`${balls[i]}-${balls[j]}`);
+                            }
+                        }
+                    }
+
+                    if (mode === 'combo_3' || mode === 'all') {
+                        // 3-球组合
+                        for (let i = 0; i < balls.length - 2; i++) {
+                            for (let j = i + 1; j < balls.length - 1; j++) {
+                                for (let k = j + 1; k < balls.length; k++) {
+                                    excludedFeatures.add(`${balls[i]}-${balls[j]}-${balls[k]}`);
+                                }
+                            }
+                        }
+                    }
+
+                    if (mode === 'combo_4' || mode === 'all') {
+                        // 4-球组合
+                        for (let i = 0; i < balls.length - 3; i++) {
+                            for (let j = i + 1; j < balls.length - 2; j++) {
+                                for (let k = j + 1; k < balls.length - 1; k++) {
+                                    for (let l = k + 1; l < balls.length; l++) {
+                                        excludedFeatures.add(`${balls[i]}-${balls[j]}-${balls[k]}-${balls[l]}`);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                log(`    📊 构建同现特征集合: ${excludedFeatures.size} 个特征 (模式: ${mode}, 分析: ${historicalIssues.length}期)`);
+
+                // 4. 检查每个组合并排除匹配的特征
+                filtered = filtered.filter(c => {
+                    const balls = c.balls || [c.red_ball_1, c.red_ball_2, c.red_ball_3, c.red_ball_4, c.red_ball_5];
+                    const comboFeatures = [];
+
+                    // 生成该组合的特征
+                    if (mode === 'combo_2' || mode === 'all') {
+                        for (let i = 0; i < balls.length - 1; i++) {
+                            for (let j = i + 1; j < balls.length; j++) {
+                                comboFeatures.push(`${balls[i]}-${balls[j]}`);
+                            }
+                        }
+                    }
+
+                    if (mode === 'combo_3' || mode === 'all') {
+                        for (let i = 0; i < balls.length - 2; i++) {
+                            for (let j = i + 1; j < balls.length - 1; j++) {
+                                for (let k = j + 1; k < balls.length; k++) {
+                                    comboFeatures.push(`${balls[i]}-${balls[j]}-${balls[k]}`);
+                                }
+                            }
+                        }
+                    }
+
+                    if (mode === 'combo_4' || mode === 'all') {
+                        for (let i = 0; i < balls.length - 3; i++) {
+                            for (let j = i + 1; j < balls.length - 2; j++) {
+                                for (let k = j + 1; k < balls.length - 1; k++) {
+                                    for (let l = k + 1; l < balls.length; l++) {
+                                        comboFeatures.push(`${balls[i]}-${balls[j]}-${balls[k]}-${balls[l]}`);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 检查是否有特征在历史期号中出现过
+                    const matchedFeatures = comboFeatures.filter(f => excludedFeatures.has(f));
+
+                    if (matchedFeatures.length > 0) {
+                        excludedIds.push(c.combination_id);
+                        detailsMap[c.combination_id] = {
+                            matchedFeatures: matchedFeatures,
+                            balls: balls.join(','),
+                            description: `包含历史同现特征 ${matchedFeatures.slice(0, 3).join(', ')}${matchedFeatures.length > 3 ? '...' : ''}`
+                        };
+                        return false;  // 排除
+                    }
+                    return true;  // 保留
+                });
+
+                excludeStats.cooccurrence = beforeCount - filtered.length;
+                log(`  ✅ Exclude8 同现比排除: ${excludeStats.cooccurrence}个组合 (${beforeCount}→${filtered.length})`);
+            }
+
+            // ⭐ 2025-11-14: 始终保存排除详情（即使 excludedIds.length === 0），附带元数据
+            const metadata = {
+                cooccurrence: {
+                    mode: mode,
+                    periods: periods,
+                    analyzed_balls: Array.from(new Set(analyzedBalls)).sort((a, b) => a - b),
+                    analyzed_issues: analyzedIssues,  // ⭐ 2025-11-14修复: 使用ID-1规则查询的期号列表
+                    excluded_features: {
+                        combo_2: mode === 'combo_2' || mode === 'all' ? Array.from(excludedFeatures).filter(f => f.split('-').length === 2) : [],
+                        combo_3: mode === 'combo_3' || mode === 'all' ? Array.from(excludedFeatures).filter(f => f.split('-').length === 3) : [],
+                        combo_4: mode === 'combo_4' || mode === 'all' ? Array.from(excludedFeatures).filter(f => f.split('-').length === 4) : []
+                    },
+                    total_features_count: excludedFeatures.size
+                }
+            };
+
+            exclusionsToSave.push({
+                step: 10,
+                condition: 'exclude_step10_cooccurrence',
+                excludedIds: excludedIds,
+                detailsMap: detailsMap,
+                metadata: metadata
+            });
+        }
 
         const elapsedTime = Date.now() - startTime;
         log(`✅ [${this.sessionId}] 8步排除完成: 耗时${elapsedTime}ms`);
@@ -15616,23 +16289,83 @@ class HwcPositivePredictor extends StreamBatchPredictor {
      * 🔄 重写preloadData方法,增加热温冷相关预加载
      */
     async preloadData(targetIssues, filters, exclude_conditions, maxRedCombinations, enableValidation) {
-        // 1. 调用父类的预加载方法 (加载红球、蓝球、历史数据、遗漏值等)
+        // 1. 调用父类的预加载方法
         await super.preloadData(targetIssues, filters, exclude_conditions, maxRedCombinations, enableValidation);
 
-        // 2. 生成期号对
+        // 2. 🔧 修复：基于ID生成准确的期号对
+        log(`📥 [${this.sessionId}] 基于ID生成期号对...`);
+
         const issuePairs = [];
-        for (let i = 1; i < targetIssues.length; i++) {
-            issuePairs.push({
-                base_issue: targetIssues[i - 1],
-                target_issue: targetIssues[i]
-            });
+
+        // 2.1 批量查询所有期号的ID（性能优化）
+        const issueNumbers = targetIssues.map(i => parseInt(i.toString ? i.toString() : String(i)));
+
+        // 查询第一个期号的上一期（ID-1）
+        const firstIssueNum = issueNumbers[0];
+        const firstIssueRecord = await hit_dlts.findOne({ Issue: firstIssueNum })
+            .select('Issue ID')
+            .lean();
+
+        if (!firstIssueRecord) {
+            log(`❌ [${this.sessionId}] 第一个期号${firstIssueNum}在数据库中不存在`);
+            return;
         }
+
+        // 查询所有期号（包括第一个期号的上一期）
+        const allIssueNums = [firstIssueRecord.ID - 1, ...issueNumbers];
+        const allRecords = await hit_dlts.find({
+            $or: [
+                { ID: { $in: allIssueNums } },
+                { Issue: { $in: issueNumbers } }
+            ]
+        })
+            .select('Issue ID')
+            .sort({ ID: 1 })
+            .lean();
+
+        // 构建ID→Record映射
+        const idToRecordMap = new Map(allRecords.map(r => [r.ID, r]));
+
+        // ⭐ 2025-11-14修复: 统一使用ID-1规则生成所有期号对
+        // 不再使用数组索引相邻配对，避免期号不连续时产生错误的配对
+        const issueRecords = allRecords.filter(r => issueNumbers.includes(r.Issue));
+
+        log(`  📋 共${issueRecords.length}个目标期号`);
+
+        for (const record of issueRecords) {
+            const targetID = record.ID;
+            const targetIssue = record.Issue.toString();
+
+            // 查询ID-1对应的基准期记录
+            const baseRecord = idToRecordMap.get(targetID - 1);
+
+            if (baseRecord) {
+                issuePairs.push({
+                    base_issue: baseRecord.Issue.toString(),
+                    target_issue: targetIssue
+                });
+
+                log(`  ✅ 期号对: ${baseRecord.Issue}→${targetIssue} (ID ${baseRecord.ID}→${targetID})`);
+            } else {
+                log(`  ⚠️ 期号${targetIssue}(ID=${targetID})的上一期(ID=${targetID - 1})不存在，跳过该期`);
+            }
+        }
+
+        log(`  ✅ 共生成${issuePairs.length}个期号对`);
+
+        // ⭐ 2025-11-14新增: 构建期号→ID映射（用于历史统计）
+        this.issueToIdMap = new Map();
+        for (const record of allRecords) {
+            this.issueToIdMap.set(record.Issue.toString(), record.ID);
+        }
+        log(`  ✅ 期号→ID映射已构建: ${this.issueToIdMap.size}个期号`);
 
         // 3. 预加载热温冷优化表
         await this.preloadHwcOptimizedData(issuePairs);
 
-        // 4. 预加载历史统计数据 (用于排除条件)
-        await this.preloadHistoricalStats(exclude_conditions);
+        // 4. ⭐ 2025-11-14修改: 移除全局历史统计预加载
+        // 改为在applyExclusionConditions中按期号动态计算
+        // await this.preloadHistoricalStats(exclude_conditions);  // 已废弃
     }
 
     /**
@@ -15693,7 +16426,45 @@ class HwcPositivePredictor extends StreamBatchPredictor {
 
         for (let i = 0; i < issueToIDArray.length; i++) {
             const { issue: targetIssue, id: targetID } = issueToIDArray[i];
-            const { issue: baseIssue, id: baseID } = i === 0 ? issueToIDArray[i] : issueToIDArray[i - 1];
+
+            // 🔧 修复：基于缓存的上一期确定正确的baseIssue
+            let baseIssue, baseID;
+
+            if (i === 0) {
+                // 第一个期号：使用预加载时缓存的上一期（ID-1）
+                if (this.firstIssuePreviousRecord) {
+                    baseIssue = this.firstIssuePreviousRecord.issue;
+                    baseID = this.firstIssuePreviousRecord.id;
+                    log(`  📌 [${this.sessionId}] 期号${targetIssue}使用上一期${baseIssue} (ID ${baseID}→${targetID})`);
+                } else {
+                    // 如果没有上一期，跳过该期
+                    log(`  ⚠️ [${this.sessionId}] 期号${targetIssue}没有上一期，跳过`);
+
+                    // 添加错误记录
+                    batchResults.push({
+                        target_issue: targetIssue,
+                        base_issue: null,
+                        is_predicted: true,
+                        red_combinations: [],
+                        blue_combinations: [],
+                        pairing_mode: combinationMode || 'truly-unlimited',
+                        error: '没有上一期数据',
+                        winning_numbers: null,
+                        hit_analysis: {},
+                        exclusion_summary: {},
+                        positive_selection_details: {},
+                        exclusions_to_save: [],
+                        red_count: 0,
+                        blue_count: 0
+                    });
+
+                    continue;
+                }
+            } else {
+                // 其余期号：使用数组中的前一个记录
+                baseIssue = issueToIDArray[i - 1].issue;
+                baseID = issueToIDArray[i - 1].id;
+            }
 
             try {
                 // 1. 6步正选筛选 ⭐ 解构返回的统计信息和排除详情
@@ -15709,6 +16480,7 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                 // 2. 5步排除条件 ⭐ 解构返回的统计信息和排除详情
                 const exclusionResult = await this.applyExclusionConditions(
                     baseIssue,
+                    targetIssue,
                     redCombinations,
                     exclude_conditions
                 );
@@ -15727,10 +16499,16 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                 let winningNumbers = null;
                 let isPredicted = false;
 
-                if (enableValidation) {
-                    const targetData = this.cachedHistoryData.find(h => h.Issue.toString() === targetIssue.toString());
-                    if (targetData) {
-                        // 已开奖,计算命中分析
+                // ⭐ 2025-11-15修复: 始终查询数据库判断是否开奖，确保is_predicted字段准确性
+                // 即使enableValidation=false，也要正确标记开奖/推算状态
+                const targetData = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
+
+                if (targetData) {
+                    // 已开奖
+                    isPredicted = false;
+
+                    if (enableValidation) {
+                        // 启用命中分析：计算完整命中统计
                         const hitInfo = await this.calculateHitAnalysisForIssue(
                             targetIssue,
                             redCombinations,
@@ -15738,11 +16516,20 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                             combinationMode
                         );
                         hitAnalysis = hitInfo.hitAnalysis;
-                        winningNumbers = hitInfo.winningNumbers;  // ⭐ 添加开奖号码
-                        isPredicted = false;
+                        winningNumbers = hitInfo.winningNumbers;
+                        log(`  ✅ 期号${targetIssue}: 已开奖, is_predicted=false, 命中分析已计算`);
                     } else {
-                        isPredicted = true;
+                        // 未启用命中分析：仅保存开奖号码
+                        winningNumbers = {
+                            red: [targetData.Red1, targetData.Red2, targetData.Red3, targetData.Red4, targetData.Red5],
+                            blue: [targetData.Blue1, targetData.Blue2]
+                        };
+                        log(`  ✅ 期号${targetIssue}: 已开奖, is_predicted=false, 未计算命中分析`);
                     }
+                } else {
+                    // 未开奖
+                    isPredicted = true;
+                    log(`  🔮 期号${targetIssue}: 未开奖(推算), is_predicted=true`);
                 }
 
                 batchResults.push({
@@ -17187,24 +17974,36 @@ async function processHwcPositiveTask(taskId) {
             }
         );
 
-        // 2. 解析期号范围（重新解析）
+        // ⭐ 2025-11-15: Socket.IO实时推送 - 任务开始
+        io.emit('hwc-task-started', {
+            task_id: taskId,
+            status: 'processing',
+            message: '任务已开始处理'
+        });
+
+        // 2. 解析期号范围（使用任务配置中已存储的范围）
         log(`📅 解析期号范围配置...`);
         let issue_range;
-        if (task.period_range.type === 'all') {
-            issue_range = await resolveIssueRangeInternal({ rangeType: 'all' });
-        } else if (task.period_range.type === 'recent') {
-            issue_range = await resolveIssueRangeInternal({
-                rangeType: 'recent',
-                recentCount: task.period_range.total
-            });
-        } else if (task.period_range.type === 'custom') {
+
+        // ⭐ 2025-11-16修复: 直接使用任务配置中存储的期号范围
+        // 避免重新计算导致期号不一致（Issue不连续性会导致范围漂移）
+        // 修复问题: 任务配置25119-25125(7期)，但重新计算返回25118-25125(8期)
+        if (task.period_range.start && task.period_range.end) {
+            // 使用自定义范围逻辑，基于已存储的start和end
             issue_range = await resolveIssueRangeInternal({
                 rangeType: 'custom',
                 startIssue: task.period_range.start,
                 endIssue: task.period_range.end
             });
+            log(`✅ 使用任务配置的期号范围: ${task.period_range.start}-${task.period_range.end} (共${issue_range.length}期)`);
+        } else if (task.period_range.type === 'all') {
+            // 全部历史期号模式
+            issue_range = await resolveIssueRangeInternal({ rangeType: 'all' });
+            log(`✅ 使用全部历史期号 (共${issue_range.length}期)`);
+        } else {
+            // 兜底：缺少期号范围信息
+            throw new Error(`任务配置缺少期号范围信息: ${JSON.stringify(task.period_range)}`);
         }
-        log(`✅ 期号范围解析完成: 共${issue_range.length}期`);
 
         // 3. ⚡ 使用HwcPositivePredictor批量处理
         const predictor = new HwcPositivePredictor(taskId, taskId);
@@ -17235,10 +18034,20 @@ async function processHwcPositiveTask(taskId) {
             ).exec();
 
             log(`📊 任务进度: ${progressPercent}% (${progress.processedCount}/${progress.totalCount}期)`);
+
+            // ⭐ 2025-11-15: Socket.IO实时推送 - 进度更新
+            io.emit('hwc-task-progress', {
+                task_id: taskId,
+                current: progress.processedCount,
+                total: progress.totalCount,
+                percentage: progressPercent,
+                message: `正在处理第 ${progress.processedCount}/${progress.totalCount} 期`
+            });
         });
 
         // 4. 保存结果到数据库
         log(`💾 保存结果到数据库: ${result.data.length}条记录...`);
+        const exclusionSavePromises = [];  // ⭐ 2025-11-14: 收集排除详情保存Promise，避免并发耗尽连接池
         let savedCount = 0;
 
         for (const periodResult of result.data) {
@@ -17310,26 +18119,44 @@ async function processHwcPositiveTask(taskId) {
             // ⭐ 新增：保存排除详情到DLTExclusionDetails集合
             const exclusionsToSave = periodResult.exclusions_to_save || [];
             if (exclusionsToSave.length > 0) {
-                log(`    💾 正在保存排除详情 (${exclusionsToSave.length}个步骤)...`);
-                try {
-                    await Promise.all(
-                        exclusionsToSave.map(exclusion =>
-                            saveExclusionDetails(
-                                taskId,
-                                resultId,
-                                periodResult.target_issue,
-                                exclusion.step,
-                                exclusion.condition,
-                                exclusion.excludedIds,
-                                exclusion.detailsMap
-                            )
-                        )
-                    );
-                    log(`    ✅ 排除详情保存完成（共 ${exclusionsToSave.length} 个步骤）`);
-                } catch (error) {
-                    log(`    ⚠️ 排除详情保存失败: ${error.message}`);
-                }
+                log(`    💾 准备保存排除详情 (${exclusionsToSave.length}个步骤)...`);
+                // ⚡ 2025-11-14: 收集保存函数（而非Promise），使用p-limit控制并发
+                exclusionSavePromises.push({
+                    period: periodResult.target_issue,
+                    saveFn: () => saveExclusionDetailsBatch(
+                        taskId,
+                        resultId,
+                        periodResult.target_issue,
+                        exclusionsToSave
+                    ),
+                    count: exclusionsToSave.length
+                });
             }
+        }
+
+        // ⚡ 2025-11-14: 使用p-limit控制并发数（最大3并发），避免耗尽MongoDB连接池
+        if (exclusionSavePromises.length > 0) {
+            log(`📥 开始受控并发保存排除详情: 共${exclusionSavePromises.length}期 (最大并发3)...`);
+            const limit = pLimit(3);  // 限制最大3个并发操作
+
+            const results = await Promise.allSettled(
+                exclusionSavePromises.map(task =>
+                    limit(async () => {
+                        try {
+                            await task.saveFn();
+                            log(`    ✅ 期号${task.period}排除详情保存成功 (${task.count}个步骤)`);
+                            return { success: true, period: task.period };
+                        } catch (error) {
+                            log(`    ⚠️ 期号${task.period}排除详情保存失败: ${error.message}`);
+                            return { success: false, period: task.period, error: error.message };
+                        }
+                    })
+                )
+            );
+
+            const successCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+            const failedCount = results.filter(r => r.status === 'fulfilled' && !r.value.success).length;
+            log(`✅ 排除详情保存完成: ${successCount}成功, ${failedCount}失败 (共${exclusionSavePromises.length}期)`);
         }
 
         // 5. 计算任务统计数据
@@ -17393,6 +18220,19 @@ async function processHwcPositiveTask(taskId) {
 
         log(`✅ [${taskId}] 任务完成！共处理${issue_range.length}期, 保存${savedCount}条结果, 总组合数${totalCombinations}`);
 
+        // ⭐ 2025-11-15: Socket.IO实时推送 - 任务完成
+        io.emit('hwc-task-completed', {
+            task_id: taskId,
+            status: 'completed',
+            total_periods: result.data.length,
+            total_combinations: totalCombinations,
+            message: `任务完成！共处理${issue_range.length}期`
+        });
+
+        // ⚡ 性能优化: 清理任务特定缓存（HWC + 历史数据），释放内存
+        globalCacheManager.clearTaskSpecificCache();
+        log(`🧹 [${taskId}] 任务特定缓存已清理，内存已释放`);
+
     } catch (error) {
         log(`❌ [${taskId}] 任务失败: ${error.message}`);
         console.error(error);
@@ -17406,6 +18246,18 @@ async function processHwcPositiveTask(taskId) {
                 }
             }
         );
+
+        // ⭐ 2025-11-15: Socket.IO实时推送 - 任务失败
+        io.emit('hwc-task-error', {
+            task_id: taskId,
+            status: 'failed',
+            error: error.message,
+            message: `任务失败: ${error.message}`
+        });
+
+        // ⚡ 性能优化: 即使失败也要清理缓存，避免内存泄漏
+        globalCacheManager.clearTaskSpecificCache();
+        log(`🧹 [${taskId}] 任务失败后缓存已清理`);
     }
 }
 
@@ -17425,32 +18277,8 @@ app.get('/api/dlt/exclusion-details/:taskId', async (req, res) => {
         if (step) query.step = parseInt(step);
         if (condition) query.condition = condition;
 
-        const details = await DLTExclusionDetails.find(query)
-            .sort({ period: 1, step: 1, chunk_index: 1 })
-            .lean();
-
-        // 合并分片数据
-        const mergedDetails = {};
-        for (const detail of details) {
-            const key = `${detail.period}_${detail.step}_${detail.condition}`;
-            if (!mergedDetails[key]) {
-                mergedDetails[key] = {
-                    task_id: detail.task_id,
-                    result_id: detail.result_id,
-                    period: detail.period,
-                    step: detail.step,
-                    condition: detail.condition,
-                    excluded_combination_ids: [],
-                    excluded_count: 0,
-                    is_partial: detail.is_partial,
-                    total_chunks: detail.total_chunks || 1
-                };
-            }
-            mergedDetails[key].excluded_combination_ids.push(...detail.excluded_combination_ids);
-            mergedDetails[key].excluded_count += detail.excluded_count;
-        }
-
-        const result = Object.values(mergedDetails);
+        // ⭐ 使用智能查询函数（自动处理 inline/compressed/chunked 三种策略）
+        const result = await getExclusionDetailsSmart(query);
 
         res.json({
             success: true,
@@ -17813,21 +18641,22 @@ app.get('/api/dlt/export-exclusion-details/:taskId/:period', async (req, res) =>
         const retainedIds = result.red_combinations || [];
         log(`📊 保留组合数: ${retainedIds.length}`);
 
-        // 3. 查询各排除条件的详情
-        const exclusionDetails = await DLTExclusionDetails.find({
+        // 3. ⭐ 使用智能查询函数查询各排除条件的详情
+        const exclusionDetails = await getExclusionDetailsSmart({
             task_id: taskId,
             period: period
-        }).lean();
+        });
 
         log(`📊 查询到 ${exclusionDetails.length} 条排除详情记录`);
 
-        // 4. 按条件分组排除的组合ID
+        // 4. 按条件分组排除的组合ID（智能查询已处理分片/压缩）
         const excludedByCondition = {};
         for (const detail of exclusionDetails) {
             const condition = detail.condition;
             if (!excludedByCondition[condition]) {
                 excludedByCondition[condition] = [];
             }
+            // 智能查询返回的数据已经合并，直接使用
             excludedByCondition[condition].push(...detail.excluded_combination_ids);
         }
 
@@ -17932,15 +18761,15 @@ app.get('/api/dlt/export-exclusion-details/:taskId/:period', async (req, res) =>
         // ⭐ 诊断日志：检查查询结果
         if (allBlueCombos.length === 0 && blueComboIds.length > 0) {
             log(`   ❌ 警告：blueComboIds有${blueComboIds.length}个，但数据库查询结果为0！`);
-            log(`   → 检查 HIT_DLT_BlueCombinations 集合是否有数据...`);
+            log(`   → 检查 hit_dlts 集合是否有数据...`);
             const totalBlueCount = await DLTBlueCombinations.countDocuments();
-            log(`   → HIT_DLT_BlueCombinations 集合总记录数: ${totalBlueCount}`);
+            log(`   → hit_dlts 集合总记录数: ${totalBlueCount}`);
         } else if (allBlueCombos.length > 0) {
             log(`   ✅ 蓝球组合样本: ID=${allBlueCombos[0].combination_id}, 蓝球=[${allBlueCombos[0].blue_ball_1}, ${allBlueCombos[0].blue_ball_2}]`);
         }
 
         // 查询实际开奖数据（用于中奖分析）
-        const actualDraw = await DLT.findOne({ Issue: period }).lean();
+        const actualDraw = await hit_dlts.findOne({ Issue: period }).lean();
         const actualRed = actualDraw ? [
             actualDraw.Red1,
             actualDraw.Red2,
@@ -17950,6 +18779,151 @@ app.get('/api/dlt/export-exclusion-details/:taskId/:period', async (req, res) =>
         ] : [];
         const actualBlue = actualDraw ? [actualDraw.Blue1, actualDraw.Blue2] : [];
         log(`📊 实际开奖 - 红球: ${actualRed.join(',')}, 蓝球: ${actualBlue.join(',')}`);
+
+        // ⭐ 2025-11-14: 新增排除详情汇总表（Sheet 2）
+        log(`📊 正在生成排除详情汇总表...`);
+
+        // ⭐ 修复：重新查询排除详情，使用正确的参数（包含step、metadata等字段）
+        const summaryExclusionRecords = await getExclusionDetailsSmart({
+            task_id: taskId,
+            period: period.toString(),
+            step: { $in: [2, 3, 4, 5, 6, 7, 8, 9, 10] }
+        });
+
+        // 按step分组统计排除详情
+        const stepSummary = {};
+        const stepNames = {
+            2: 'Step 2: 区间比排除',
+            3: 'Step 3: 和值范围排除',
+            4: 'Step 4: 跨度范围排除',
+            5: 'Step 5: 奇偶比排除',
+            6: 'Step 6: AC值排除',
+            7: 'Step 7: 连号组数排除',
+            8: 'Step 8: 最长连号排除',
+            9: 'Step 9: 相克对排除',
+            10: 'Step 10: 同现比排除'
+        };
+
+        for (const record of summaryExclusionRecords) {
+            const step = record.step;
+            if (!stepSummary[step]) {
+                stepSummary[step] = {
+                    step: step,
+                    name: stepNames[step] || `Step ${step}`,
+                    total_excluded: 0,
+                    metadata: record.metadata || {}
+                };
+            }
+            stepSummary[step].total_excluded += record.excluded_count || 0;
+
+            // 合并metadata（保留第一个有效的metadata）
+            if (record.metadata && Object.keys(record.metadata).length > 0) {
+                stepSummary[step].metadata = record.metadata;
+            }
+        }
+
+        // 创建汇总表
+        const summarySheet = workbook.addWorksheet('排除详情汇总');
+        summarySheet.columns = [
+            { header: '排除步骤', key: 'step_name', width: 30 },
+            { header: '执行状态', key: 'status', width: 20 },
+            { header: '排除数量', key: 'excluded_count', width: 15 },
+            { header: '元数据概要', key: 'metadata_summary', width: 80 }
+        ];
+
+        // 生成汇总行数据
+        const summaryRows = [];
+        for (let step = 2; step <= 10; step++) {
+            const summary = stepSummary[step];
+
+            if (!summary) {
+                // 该步骤没有执行
+                summaryRows.push({
+                    step_name: stepNames[step] || `Step ${step}`,
+                    status: '未执行',
+                    excluded_count: 0,
+                    metadata_summary: '-'
+                });
+                continue;
+            }
+
+            const excludedCount = summary.total_excluded;
+            const status = excludedCount > 0 ? '✅ 已执行' : '✅ 已执行，无匹配';
+            let metadataSummary = '';
+
+            // 根据步骤类型生成元数据概要
+            const metadata = summary.metadata;
+
+            if (step === 2 && metadata.zone_ratio) {
+                // 区间比排除
+                const zr = metadata.zone_ratio;
+                metadataSummary = `排除范围: ${zr.excluded_ratios ? zr.excluded_ratios.join(', ') : '-'}`;
+            } else if (step === 3 && metadata.sum_range) {
+                // 和值范围排除
+                const sr = metadata.sum_range;
+                metadataSummary = `排除范围: ${sr.excluded_ranges ? sr.excluded_ranges.map(r => `[${r.min}-${r.max}]`).join(', ') : '-'}`;
+            } else if (step === 4 && metadata.span_range) {
+                // 跨度范围排除
+                const sr = metadata.span_range;
+                metadataSummary = `排除范围: ${sr.excluded_ranges ? sr.excluded_ranges.map(r => `[${r.min}-${r.max}]`).join(', ') : '-'}`;
+            } else if (step === 5 && metadata.odd_even_ratio) {
+                // 奇偶比排除
+                const oer = metadata.odd_even_ratio;
+                metadataSummary = `排除比例: ${oer.excluded_ratios ? oer.excluded_ratios.join(', ') : '-'}`;
+            } else if (step === 6 && metadata.ac_value) {
+                // AC值排除
+                const acv = metadata.ac_value;
+                metadataSummary = `排除AC值: ${acv.excluded_values ? acv.excluded_values.join(', ') : '-'}`;
+            } else if (step === 7 && metadata.consecutive_groups) {
+                // 连号组数排除
+                const cg = metadata.consecutive_groups;
+                metadataSummary = `排除组数: ${cg.excluded_groups ? cg.excluded_groups.join(', ') : '-'}`;
+            } else if (step === 8 && metadata.max_consecutive_length) {
+                // 最长连号排除
+                const mcl = metadata.max_consecutive_length;
+                metadataSummary = `排除长度: ${mcl.excluded_lengths ? mcl.excluded_lengths.join(', ') : '-'}`;
+            } else if (step === 9 && metadata.conflict_pairs) {
+                // 相克对排除
+                const cp = metadata.conflict_pairs;
+                const pairsCount = cp.total_pairs_count || 0;
+                const analysisInfo = cp.analysis_periods ? `分析期数:${cp.analysis_periods}期` : '';
+                const topNInfo = cp.topN ? `Top ${cp.topN}` : '全部相克对';
+                metadataSummary = excludedCount > 0
+                    ? `${analysisInfo}, ${topNInfo}, 相克对数:${pairsCount}`
+                    : `已检查，无匹配。${analysisInfo}, 相克对数:${pairsCount}`;
+            } else if (step === 10 && metadata.cooccurrence) {
+                // 同现比排除
+                const co = metadata.cooccurrence;
+                const mode = co.mode || 'combo_2';
+                const periods = co.periods || 0;
+                const featuresCount = co.total_features_count || 0;
+                metadataSummary = excludedCount > 0
+                    ? `模式:${mode}, 分析期数:${periods}期, 特征数:${featuresCount}`
+                    : `已检查，无匹配。模式:${mode}, 分析期数:${periods}期`;
+            } else {
+                metadataSummary = excludedCount > 0 ? '已执行排除' : '已检查，无匹配';
+            }
+
+            summaryRows.push({
+                step_name: summary.name,
+                status: status,
+                excluded_count: excludedCount,
+                metadata_summary: metadataSummary
+            });
+        }
+
+        // 添加行到工作表
+        summarySheet.addRows(summaryRows);
+
+        // 设置表头样式
+        summarySheet.getRow(1).font = { bold: true };
+        summarySheet.getRow(1).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFD9E1F2' }
+        };
+
+        log(`📊 排除详情汇总表生成完成: ${summaryRows.length}行`);
 
         // 6. Sheet1: 保留的组合（含配对蓝球和中奖分析）
         log(`📊 正在生成Sheet1: 保留的组合...`);
@@ -18432,7 +19406,7 @@ async function streamPeriodDetailCSV(res, taskId, period) {
         }).lean();
 
         // 6. 查询该期的开奖号码（如果已开奖）
-        const drawResult = await DLT.findOne({ Issue: parseInt(period) }).lean();
+        const drawResult = await hit_dlts.findOne({ Issue: parseInt(period) }).lean();
         const winningNumbers = drawResult ? {
             red: [drawResult.Red1, drawResult.Red2, drawResult.Red3, drawResult.Red4, drawResult.Red5],
             blue: [drawResult.Blue1, drawResult.Blue2]
@@ -19195,7 +20169,7 @@ async function executePredictionTask(taskId) {
 
         // 9. 获取所有历史期号数据（用于查询开奖号码）
         log(`📊 [${sessionId}] 获取历史期号数据...`);
-        const issues = await DLT.find({
+        const issues = await hit_dlts.find({
             Issue: { $in: targetIssues.map(i => parseInt(i)) }
         }).select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2').lean();
 
@@ -19376,7 +20350,7 @@ async function getHistoricalSumValues(recentCount, beforePeriodID) {
     try {
         // ⚡ 优化C: 优先从缓存获取历史数据
         // 需要先将ID转换为Issue
-        const basePeriodRecord = await DLT.findOne({ ID: beforePeriodID }).select('Issue').lean();
+        const basePeriodRecord = await hit_dlts.findOne({ ID: beforePeriodID }).select('Issue').lean();
 
         if (basePeriodRecord && globalCacheManager.historicalIssuesCache) {
             // 使用缓存的动态构建方法
@@ -19391,7 +20365,7 @@ async function getHistoricalSumValues(recentCount, beforePeriodID) {
         }
 
         // ⚠️ 回退方案：缓存不可用时查询数据库
-        const issues = await DLT.find({ ID: { $lte: beforePeriodID } })
+        const issues = await hit_dlts.find({ ID: { $lte: beforePeriodID } })
             .sort({ ID: -1 })
             .limit(recentCount)
             .lean();
@@ -19430,7 +20404,7 @@ async function getHistoricalSumValues(recentCount, beforePeriodID) {
 async function getHistoricalSpanValues(recentCount, beforePeriodID) {
     try {
         // ⚡ 优化C: 优先从缓存获取历史数据
-        const basePeriodRecord = await DLT.findOne({ ID: beforePeriodID }).select('Issue').lean();
+        const basePeriodRecord = await hit_dlts.findOne({ ID: beforePeriodID }).select('Issue').lean();
 
         if (basePeriodRecord && globalCacheManager.historicalIssuesCache) {
             const targetIssue = (basePeriodRecord.Issue + 1).toString();
@@ -19444,7 +20418,7 @@ async function getHistoricalSpanValues(recentCount, beforePeriodID) {
         }
 
         // ⚠️ 回退方案：缓存不可用时查询数据库
-        const issues = await DLT.find({ ID: { $lte: beforePeriodID } })
+        const issues = await hit_dlts.find({ ID: { $lte: beforePeriodID } })
             .sort({ ID: -1 })
             .limit(recentCount)
             .lean();
@@ -19480,7 +20454,7 @@ async function getHistoricalSpanValues(recentCount, beforePeriodID) {
  */
 async function getHistoricalACValues(recentCount, beforePeriodID) {
     try {
-        const issues = await DLT.find({ ID: { $lt: beforePeriodID } })
+        const issues = await hit_dlts.find({ ID: { $lt: beforePeriodID } })
             .sort({ ID: -1 })
             .limit(recentCount)
             .lean();
@@ -19535,7 +20509,7 @@ async function getHistoricalHWCRatios(recentCount, beforePeriodID) {
 async function getHistoricalZoneRatios(recentCount, beforePeriodID) {
     try {
         // ⚡ 优化C: 优先从缓存获取历史数据
-        const basePeriodRecord = await DLT.findOne({ ID: beforePeriodID }).select('Issue').lean();
+        const basePeriodRecord = await hit_dlts.findOne({ ID: beforePeriodID }).select('Issue').lean();
 
         if (basePeriodRecord && globalCacheManager.historicalIssuesCache) {
             const targetIssue = (basePeriodRecord.Issue + 1).toString();
@@ -19549,7 +20523,7 @@ async function getHistoricalZoneRatios(recentCount, beforePeriodID) {
         }
 
         // ⚠️ 回退方案：缓存不可用时查询数据库
-        const issues = await DLT.find({ ID: { $lt: beforePeriodID } })
+        const issues = await hit_dlts.find({ ID: { $lt: beforePeriodID } })
             .sort({ ID: -1 })
             .limit(recentCount)
             .lean();
@@ -19579,7 +20553,7 @@ async function getHistoricalZoneRatios(recentCount, beforePeriodID) {
  */
 async function getHistoricalOddEvenRatios(recentCount, beforePeriodID) {
     try {
-        const issues = await DLT.find({ ID: { $lt: beforePeriodID } })
+        const issues = await hit_dlts.find({ ID: { $lt: beforePeriodID } })
             .sort({ ID: -1 })
             .limit(recentCount)
             .lean();
@@ -19616,7 +20590,7 @@ async function getHistoricalCoOccurrenceCombos(recentCount, beforePeriodID, opti
         const { combo2, combo3, combo4 } = options;
 
         // ⭐ 修复：使用 $lte 而非 $lt，确保包含基准期（目标期-1）
-        const issues = await DLT.find({ ID: { $lte: beforePeriodID } })
+        const issues = await hit_dlts.find({ ID: { $lte: beforePeriodID } })
             .sort({ ID: -1 })
             .limit(recentCount)
             .lean();
@@ -19770,7 +20744,7 @@ async function filterComboIdsByHistoricalCoOccurrence(comboIds, historicalCombos
 async function getTopHotNumbers(baseIssueID, period, top) {
     try {
         // 从基准期倒推period期
-        const historicalRecords = await DLT.find({ ID: { $lte: baseIssueID } })
+        const historicalRecords = await hit_dlts.find({ ID: { $lte: baseIssueID } })
             .sort({ ID: -1 })
             .limit(period)
             .lean();
@@ -19812,7 +20786,7 @@ async function getTopHotNumbers(baseIssueID, period, top) {
 async function getGlobalConflictTopPairs(baseIssueID, period, top, protectedNumbers = []) {
     try {
         // 从基准期倒推period期
-        const historicalRecords = await DLT.find({ ID: { $lte: baseIssueID } })
+        const historicalRecords = await hit_dlts.find({ ID: { $lte: baseIssueID } })
             .sort({ ID: -1 })
             .limit(period)
             .lean();
@@ -19873,7 +20847,7 @@ async function getGlobalConflictTopPairs(baseIssueID, period, top, protectedNumb
 async function getPerBallConflictTopPairs(baseIssueID, period, top, protectedNumbers = []) {
     try {
         // 从基准期倒推period期
-        const historicalRecords = await DLT.find({ ID: { $lte: baseIssueID } })
+        const historicalRecords = await hit_dlts.find({ ID: { $lte: baseIssueID } })
             .sort({ ID: -1 })
             .limit(period)
             .lean();
@@ -20489,6 +21463,17 @@ app.post('/api/dlt/hwc-positive-tasks/create', async (req, res) => {
         log(`📅 期号范围参数: ${JSON.stringify(period_range)}`);
         log(`⚙️ 输出配置: ${JSON.stringify(output_config)}`);
 
+        // ⭐ 2025-11-14: 验证热温冷比不能为空
+        if (!positive_selection || !positive_selection.red_hot_warm_cold_ratios || positive_selection.red_hot_warm_cold_ratios.length === 0) {
+            log(`❌ 热温冷比为空，任务创建失败`);
+            return res.json({
+                success: false,
+                message: '热温冷比不能为空，请至少选择一个热温冷比例'
+            });
+        }
+
+        log(`✅ 热温冷比验证通过: ${positive_selection.red_hot_warm_cold_ratios.length}个比例`);
+
         // 生成任务ID
         const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
         const randomSuffix = Math.random().toString(36).substring(2, 5);
@@ -20555,7 +21540,8 @@ app.post('/api/dlt/hwc-positive-tasks/create', async (req, res) => {
         };
 
         // 创建任务记录
-        const task = new HwcPositivePredictionTask({
+        log(`🔍 准备创建任务对象...`);
+        const taskData = {
             task_id,
             task_name: finalTaskName,
             task_type: 'hwc-positive-batch',
@@ -20570,9 +21556,32 @@ app.post('/api/dlt/hwc-positive-tasks/create', async (req, res) => {
                 percentage: 0
             },
             created_at: new Date()
-        });
+        };
 
-        await task.save();
+        log(`📋 任务数据结构: ${JSON.stringify({
+            task_id,
+            task_name: finalTaskName,
+            task_type: taskData.task_type,
+            period_range_type: periodRange.type,
+            status: taskData.status,
+            has_positive_selection: !!positive_selection,
+            has_exclusion_conditions: !!safeExclusionConditions,
+            has_output_config: !!safeOutputConfig
+        })}`);
+
+        const task = new HwcPositivePredictionTask(taskData);
+
+        log(`🔍 开始保存任务到数据库...`);
+
+        try {
+            await task.save();
+            log(`✅ 任务保存成功: ${task_id}`);
+        } catch (saveError) {
+            log(`❌ 任务保存失败: ${saveError.message}`);
+            log(`❌ 错误栈: ${saveError.stack}`);
+            log(`❌ 验证错误: ${JSON.stringify(saveError.errors)}`);
+            throw saveError;
+        }
 
         log(`✅ 热温冷正选批量预测任务创建成功: ${task_id}`);
 
@@ -20983,15 +21992,15 @@ app.get('/api/dlt/hwc-positive-tasks/:task_id/period/:period/export', async (req
         };
         sheet2.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
 
-        // ⭐ 查询排除条件（Step 2-10）的详情
-        const exclusionRecords = await DLTExclusionDetails.find({
+        // ⭐ 使用智能查询函数查询排除条件（Step 2-10）的详情
+        const exclusionRecords = await getExclusionDetailsSmart({
             task_id: task_id,
             period: period.toString(),
             step: { $in: [2, 3, 4, 5, 6, 7, 8, 9, 10] }
-        }).sort({ step: 1, chunk_index: 1 }).lean();
+        });
 
         if (exclusionRecords.length > 0) {
-            // 按 step 分组并合并 detailsMap
+            // 按 step 分组
             const stepGroups = {
                 2: { name: '区间比排除', excludedIds: [], detailsMap: {} },
                 3: { name: '和值范围排除', excludedIds: [], detailsMap: {} },
@@ -21004,19 +22013,14 @@ app.get('/api/dlt/hwc-positive-tasks/:task_id/period/:period/export', async (req
                 10: { name: '同现比排除', excludedIds: [], detailsMap: {} }
             };
 
-            // 合并分片数据
+            // 智能查询已经处理了分片/压缩，直接使用返回的数据
+            // ⭐ 2025-11-14: 增加 metadata 提取以支持排除详情元数据展示
             for (const record of exclusionRecords) {
                 const step = record.step;
                 if (stepGroups[step]) {
-                    stepGroups[step].excludedIds.push(...(record.excluded_combination_ids || []));
-
-                    // 合并 exclusion_details_map
-                    if (record.exclusion_details_map) {
-                        const mapObj = record.exclusion_details_map instanceof Map
-                            ? Object.fromEntries(record.exclusion_details_map)
-                            : record.exclusion_details_map;
-                        Object.assign(stepGroups[step].detailsMap, mapObj);
-                    }
+                    stepGroups[step].excludedIds = record.excluded_combination_ids || [];
+                    stepGroups[step].detailsMap = record.exclusion_details_map || {};
+                    stepGroups[step].metadata = record.metadata || {}; // ⭐ 新增：保存元数据
                 }
             }
 
@@ -21039,47 +22043,130 @@ app.get('/api/dlt/hwc-positive-tasks/:task_id/period/:period/export', async (req
                 sheet2.mergeCells(currentRow, 1, currentRow, 14);
                 currentRow++;
 
-                // 查询被排除的红球组合详情（批量查询，优化性能）
-                const excludedCombos = await DLTRedCombinations.find({
-                    combination_id: { $in: group.excludedIds }
-                }).lean();
+                // 🚀 性能优化：分批查询，避免一次性加载6万+条记录导致内存溢出
+                // 优化前: 一次查询67,439条 × 500字节 ≈ 34MB → 可能导致OOM
+                // 优化后: 每批5,000条 × 500字节 ≈ 2.5MB → 内存稳定
+                const BATCH_SIZE = 5000; // 每批5000条
+                const totalIds = group.excludedIds.length;
 
-                // 按组合ID排序
-                excludedCombos.sort((a, b) => a.combination_id - b.combination_id);
+                // 先对ID排序，保证输出顺序一致
+                group.excludedIds.sort((a, b) => a - b);
 
-                // 添加数据行
-                for (const combo of excludedCombos) {
-                    const detailInfo = group.detailsMap[combo.combination_id] || {};
-                    const excludeReason = detailInfo.description || '未记录详细原因';
+                log(`    📦 分批查询: ${totalIds}条记录，每批${BATCH_SIZE}条，共${Math.ceil(totalIds / BATCH_SIZE)}批`);
 
-                    const rowData = {
-                        red1: combo.red_ball_1,
-                        red2: combo.red_ball_2,
-                        red3: combo.red_ball_3,
-                        red4: combo.red_ball_4,
-                        red5: combo.red_ball_5,
-                        sum: combo.sum_value,
-                        span: combo.span_value,
-                        zone_ratio: combo.zone_ratio,
-                        odd_even: combo.odd_even_ratio,
-                        hwc_ratio: combo.hot_warm_cold_ratio || '-',
-                        ac: combo.ac_value,
-                        consecutive_groups: combo.consecutive_groups !== undefined ? combo.consecutive_groups : '-',
-                        max_consecutive_length: combo.max_consecutive_length !== undefined ? combo.max_consecutive_length : '-',
-                        exclude_reason: excludeReason
-                    };
+                // 分批查询和写入
+                for (let batchIndex = 0; batchIndex < totalIds; batchIndex += BATCH_SIZE) {
+                    const batchEnd = Math.min(batchIndex + BATCH_SIZE, totalIds);
+                    const batchIds = group.excludedIds.slice(batchIndex, batchEnd);
 
-                    const dataRow = sheet2.addRow(rowData);
+                    // 查询本批数据
+                    const excludedCombos = await DLTRedCombinations.find({
+                        combination_id: { $in: batchIds }
+                    }).lean();
 
-                    // 斑马纹效果（奇偶行不同颜色）
-                    if ((currentRow - 1) % 2 === 0) {
-                        dataRow.fill = {
-                            type: 'pattern',
-                            pattern: 'solid',
-                            fgColor: { argb: 'FFF5F5F5' }
+                    // 按组合ID排序（保持顺序）
+                    excludedCombos.sort((a, b) => a.combination_id - b.combination_id);
+
+                    // 添加数据行
+                    for (const combo of excludedCombos) {
+                        const detailInfo = group.detailsMap[combo.combination_id] || {};
+                        let excludeReason = detailInfo.description || '未记录详细原因';
+
+                        // ⭐ 2025-11-14: 根据 metadata 增强排除原因描述
+                        if (step === 2 && group.metadata && group.metadata.zone_ratio) {
+                            // 区间比排除
+                            const zrMeta = group.metadata.zone_ratio;
+                            if (zrMeta.excluded_ratios && zrMeta.excluded_ratios.length > 0) {
+                                excludeReason += ` | 排除区间比: ${zrMeta.excluded_ratios.join(', ')} | 检查范围数: ${zrMeta.total_ratios_checked || 0}`;
+                            }
+                        } else if (step === 3 && group.metadata && group.metadata.sum_range) {
+                            // 和值范围排除
+                            const srMeta = group.metadata.sum_range;
+                            if (srMeta.excluded_ranges && srMeta.excluded_ranges.length > 0) {
+                                const rangesStr = srMeta.excluded_ranges.map(r => `[${r.min}-${r.max}]`).join(', ');
+                                excludeReason += ` | 排除和值范围: ${rangesStr}`;
+                            }
+                        } else if (step === 4 && group.metadata && group.metadata.span_range) {
+                            // 跨度范围排除
+                            const spMeta = group.metadata.span_range;
+                            if (spMeta.excluded_ranges && spMeta.excluded_ranges.length > 0) {
+                                const rangesStr = spMeta.excluded_ranges.map(r => `[${r.min}-${r.max}]`).join(', ');
+                                excludeReason += ` | 排除跨度范围: ${rangesStr}`;
+                            }
+                        } else if (step === 5 && group.metadata && group.metadata.odd_even_ratio) {
+                            // 奇偶比排除
+                            const oeMeta = group.metadata.odd_even_ratio;
+                            if (oeMeta.excluded_ratios && oeMeta.excluded_ratios.length > 0) {
+                                excludeReason += ` | 排除奇偶比: ${oeMeta.excluded_ratios.join(', ')} | 检查范围数: ${oeMeta.total_ratios_checked || 0}`;
+                            }
+                        } else if (step === 6 && group.metadata && group.metadata.ac_value) {
+                            // AC值排除
+                            const acMeta = group.metadata.ac_value;
+                            if (acMeta.excluded_values && acMeta.excluded_values.length > 0) {
+                                excludeReason += ` | 排除AC值: ${acMeta.excluded_values.join(', ')} | 检查范围数: ${acMeta.total_values_checked || 0}`;
+                            }
+                        } else if (step === 7 && group.metadata && group.metadata.consecutive_groups) {
+                            // 连号组数排除
+                            const cgMeta = group.metadata.consecutive_groups;
+                            if (cgMeta.excluded_groups && cgMeta.excluded_groups.length > 0) {
+                                excludeReason += ` | 排除连号组数: ${cgMeta.excluded_groups.join(', ')}`;
+                            }
+                        } else if (step === 8 && group.metadata && group.metadata.max_consecutive_length) {
+                            // 最长连号排除
+                            const mclMeta = group.metadata.max_consecutive_length;
+                            if (mclMeta.excluded_lengths && mclMeta.excluded_lengths.length > 0) {
+                                excludeReason += ` | 排除最长连号: ${mclMeta.excluded_lengths.join(', ')}`;
+                            }
+                        } else if (step === 9 && group.metadata && group.metadata.conflict_pairs) {
+                            // 相克对排除：展示命中的相克对信息
+                            const cpMeta = group.metadata.conflict_pairs;
+                            if (detailInfo.conflictPairs && detailInfo.conflictPairs.length > 0) {
+                                const pairsStr = detailInfo.conflictPairs.map(p => `(${p[0]}-${p[1]})`).join(', ');
+                                excludeReason += ` | 命中相克对: ${pairsStr} | 分析期数: ${cpMeta.analysis_periods || 50}期 | 总相克对数: ${cpMeta.total_pairs_count || 0}`;
+                            }
+                        } else if (step === 10 && group.metadata && group.metadata.cooccurrence) {
+                            // 同现比排除：展示同现比元数据
+                            const coMeta = group.metadata.cooccurrence;
+                            let coInfo = `模式: ${coMeta.mode || '-'} | 分析期数: ${coMeta.periods || '-'}`;
+                            if (coMeta.total_features_count) {
+                                coInfo += ` | 总排除特征数: ${coMeta.total_features_count}`;
+                            }
+                            if (detailInfo.matchedFeatures && detailInfo.matchedFeatures.length > 0) {
+                                const featuresStr = detailInfo.matchedFeatures.slice(0, 3).join(', ');
+                                coInfo += ` | 命中特征: ${featuresStr}${detailInfo.matchedFeatures.length > 3 ? '...' : ''}`;
+                            }
+                            excludeReason += ` | ${coInfo}`;
+                        }
+
+                        const rowData = {
+                            red1: combo.red_ball_1,
+                            red2: combo.red_ball_2,
+                            red3: combo.red_ball_3,
+                            red4: combo.red_ball_4,
+                            red5: combo.red_ball_5,
+                            sum: combo.sum_value,
+                            span: combo.span_value,
+                            zone_ratio: combo.zone_ratio,
+                            odd_even: combo.odd_even_ratio,
+                            hwc_ratio: combo.hot_warm_cold_ratio || '-',
+                            ac: combo.ac_value,
+                            consecutive_groups: combo.consecutive_groups !== undefined ? combo.consecutive_groups : '-',
+                            max_consecutive_length: combo.max_consecutive_length !== undefined ? combo.max_consecutive_length : '-',
+                            exclude_reason: excludeReason
                         };
+
+                        const dataRow = sheet2.addRow(rowData);
+
+                        // 斑马纹效果（奇偶行不同颜色）
+                        if ((currentRow - 1) % 2 === 0) {
+                            dataRow.fill = {
+                                type: 'pattern',
+                                pattern: 'solid',
+                                fgColor: { argb: 'FFF5F5F5' }
+                            };
+                        }
+                        currentRow++;
                     }
-                    currentRow++;
                 }
             }
 
@@ -21314,11 +22401,11 @@ app.get('/api/dlt/hwc-positive-tasks/:task_id/period/:period/step-statistics', a
 
         const details = result.positive_selection_details || {};
 
-        // 2. 获取排除详情
-        const exclusions = await DLTExclusionDetails.find({
+        // 2. ⭐ 使用智能查询函数获取排除详情（确保分片数据的 excluded_count 正确合并）
+        const exclusions = await getExclusionDetailsSmart({
             task_id,
             period: period.toString()
-        }).select('step excluded_count condition').lean();
+        });
 
         // 3. 构建统计数据
         const statistics = {
@@ -21418,7 +22505,12 @@ app.post('/api/dlt/hwc-positive-tasks/batch-delete', async (req, res) => {
 });
 
 /**
- * ⭐ 新增: 保存排除详情到 DLTExclusionDetails 表（带详细原因）
+ * ⭐ 智能混合存储: 保存排除详情（方案E）
+ * 根据数据大小自动选择最优存储策略：
+ * - 小数据(<5MB): inline 直接存储
+ * - 中等数据(5-16MB): compressed 压缩存储
+ * - 大数据(>16MB): chunked 分片存储
+ *
  * @param {String} task_id - 任务ID
  * @param {String} result_id - 结果ID
  * @param {String} period - 期号
@@ -21432,11 +22524,29 @@ async function saveExclusionDetails(task_id, result_id, period, step, condition,
         return; // 无排除，不保存
     }
 
-    const CHUNK_SIZE = 50000; // 每个分片最多5万个ID
+    const zlib = require('zlib');
+    const util = require('util');
+    const gzip = util.promisify(zlib.gzip);
 
     try {
-        if (excludedIds.length <= CHUNK_SIZE) {
-            // 单个文档保存
+        // 1. 序列化数据并计算大小
+        const dataToStore = {
+            excluded_combination_ids: excludedIds,
+            exclusion_details_map: detailsMap
+        };
+        const dataStr = JSON.stringify(dataToStore);
+        const dataSize = Buffer.byteLength(dataStr, 'utf8');
+        const dataSizeMB = dataSize / 1024 / 1024;
+
+        // 2. 策略选择阈值
+        const INLINE_THRESHOLD = 5 * 1024 * 1024;  // 5MB
+        const COMPRESSION_THRESHOLD = 16 * 1024 * 1024;  // 16MB
+        const CHUNK_SIZE = 50000;  // 每片50000个ID
+
+        // 3. 根据数据大小选择存储策略
+        if (dataSize < INLINE_THRESHOLD) {
+            // ✅ 策略1: inline 直接存储（小数据，<5MB）
+            log(`    📦 [${period}] Step${step} 使用直接存储 (${dataSizeMB.toFixed(2)}MB)`);
             await DLTExclusionDetails.create({
                 task_id,
                 result_id,
@@ -21445,43 +22555,398 @@ async function saveExclusionDetails(task_id, result_id, period, step, condition,
                 condition,
                 excluded_combination_ids: excludedIds,
                 excluded_count: excludedIds.length,
-                exclusion_details_map: detailsMap,  // ⭐ 新增：保存详细原因
-                is_partial: false
+                exclusion_details_map: detailsMap,
+                storage_strategy: 'inline',
+                is_partial: false,
+                is_chunked: false,
+                is_compressed: false
             });
-        } else {
-            // 分片保存
-            const totalChunks = Math.ceil(excludedIds.length / CHUNK_SIZE);
-            for (let i = 0; i < totalChunks; i++) {
-                const chunkIds = excludedIds.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
 
-                // ⭐ 为分片提取对应的详细原因
-                const chunkDetailsMap = {};
-                for (const id of chunkIds) {
-                    if (detailsMap[id]) {
-                        chunkDetailsMap[id] = detailsMap[id];
-                    }
-                }
+        } else if (dataSize < COMPRESSION_THRESHOLD) {
+            // ✅ 策略2: compressed 压缩存储（中等数据，5-16MB）
+            log(`    🗜️  [${period}] Step${step} 尝试压缩存储 (${dataSizeMB.toFixed(2)}MB)`);
 
+            const compressedBuffer = await gzip(dataStr);
+            const compressedSize = compressedBuffer.length;
+            const compressedSizeMB = compressedSize / 1024 / 1024;
+            const compressionRatio = compressedSize / dataSize;
+
+            // 检查压缩后是否仍超限
+            if (compressedSize < 15 * 1024 * 1024) {  // 15MB（预留1MB安全空间）
+                log(`    ✅ 压缩效果: ${dataSizeMB.toFixed(2)}MB → ${compressedSizeMB.toFixed(2)}MB (压缩比: ${(compressionRatio * 100).toFixed(1)}%)`);
                 await DLTExclusionDetails.create({
                     task_id,
                     result_id,
                     period: period.toString(),
                     step,
                     condition,
-                    excluded_combination_ids: chunkIds,
-                    excluded_count: chunkIds.length,
-                    exclusion_details_map: chunkDetailsMap,  // ⭐ 新增：保存分片的详细原因
-                    is_partial: true,
-                    chunk_index: i,
-                    total_chunks: totalChunks
+                    excluded_count: excludedIds.length,
+                    storage_strategy: 'compressed',
+                    is_compressed: true,
+                    compressed_data: compressedBuffer,
+                    original_size: dataSize,
+                    compressed_size: compressedSize,
+                    compression_ratio: compressionRatio,
+                    is_partial: false,
+                    is_chunked: false
                 });
+            } else {
+                // 压缩后仍超限，改用分片策略
+                log(`    ⚠️  压缩后仍超限 (${compressedSizeMB.toFixed(2)}MB > 15MB)，切换到分片存储`);
+                await saveExclusionDetailsChunked(task_id, result_id, period, step, condition, excludedIds, detailsMap, CHUNK_SIZE);
             }
+
+        } else {
+            // ✅ 策略3: chunked 分片存储（大数据，>16MB）
+            log(`    📦 [${period}] Step${step} 使用分片存储 (${dataSizeMB.toFixed(2)}MB)`);
+            await saveExclusionDetailsChunked(task_id, result_id, period, step, condition, excludedIds, detailsMap, CHUNK_SIZE);
         }
 
         log(`    💾 Step ${step} 排除详情已保存: ${excludedIds.length} 个组合`);
     } catch (error) {
         log(`    ⚠️ 保存排除详情失败 (Step ${step}): ${error.message}`);
         // 不阻断主流程，仅记录错误
+    }
+}
+
+/**
+ * ⭐ 分片存储: 保存大型排除详情数据
+ * 将大数据分割成多个小块，每块单独存储一个文档
+ *
+ * @param {String} task_id - 任务ID
+ * @param {String} result_id - 结果ID
+ * @param {String} period - 期号
+ * @param {Number} step - 步骤序号
+ * @param {String} condition - 条件类型
+ * @param {Array<Number>} excludedIds - 排除的组合ID列表
+ * @param {Object} detailsMap - 详细原因映射
+ * @param {Number} chunkSize - 每片大小（ID数量）
+ */
+async function saveExclusionDetailsChunked(task_id, result_id, period, step, condition, excludedIds, detailsMap, chunkSize, metadata = {}) {  // ⭐ 添加metadata参数
+    try {
+        const totalChunks = Math.ceil(excludedIds.length / chunkSize);
+        log(`    📦 开始分片存储: ${excludedIds.length} 个ID → ${totalChunks} 片 (每片 ${chunkSize} 个)`);
+
+        // ⭐ 优化点1: 批量插入 - 先收集所有文档，然后一次性插入
+        const documentsToInsert = [];
+
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * chunkSize;
+            const end = Math.min(start + chunkSize, excludedIds.length);
+            const chunkIds = excludedIds.slice(start, end);
+
+            // 提取此片对应的详情
+            const chunkDetailsMap = {};
+            if (detailsMap && Object.keys(detailsMap).length > 0) {
+                chunkIds.forEach(id => {
+                    if (detailsMap[id]) {
+                        chunkDetailsMap[id] = detailsMap[id];
+                    }
+                });
+            }
+
+            // 收集文档（不立即插入）
+            documentsToInsert.push({
+                task_id,
+                result_id,
+                period: period.toString(),
+                step,
+                condition,
+                excluded_combination_ids: chunkIds,
+                excluded_count: chunkIds.length,
+                exclusion_details_map: chunkDetailsMap,
+                storage_strategy: 'chunked',
+                is_chunked: true,
+                chunk_index: i,
+                total_chunks: totalChunks,
+                is_partial: false,
+                is_compressed: false,
+                metadata: metadata  // ⭐ 添加元数据
+            });
+        }
+
+        // ⭐ 批量插入所有分片（30x性能提升）
+        if (documentsToInsert.length > 0) {
+            await DLTExclusionDetails.insertMany(documentsToInsert, { ordered: false });
+        }
+
+        log(`    💾 分片存储完成: 共 ${totalChunks} 片 (批量插入)`);
+    } catch (error) {
+        log(`    ❌ 分片存储失败: ${error.message}`);
+        throw error; // 向上抛出，让调用者处理
+    }
+}
+
+/**
+ * ⭐ 辅助函数：估算文档大小（字节）
+ */
+function estimateDocumentSize(doc) {
+    const jsonStr = JSON.stringify(doc);
+    return Buffer.byteLength(jsonStr, 'utf8');
+}
+
+/**
+ * ⭐ 批量保存排除详情（智能存储策略版）
+ * 自动检测文档大小并选择最优存储策略：
+ * - < 5MB: inline 直接存储
+ * - 5-16MB: compressed 压缩存储
+ * - > 16MB: chunked 分片存储
+ *
+ * @param {String} task_id - 任务ID
+ * @param {String} result_id - 结果ID
+ * @param {String} period - 期号
+ * @param {Array} exclusionsToSave - 排除详情数组 [{step, condition, excludedIds, detailsMap}, ...]
+ */
+async function saveExclusionDetailsBatch(task_id, result_id, period, exclusionsToSave) {
+    if (!exclusionsToSave || exclusionsToSave.length === 0) {
+        return;
+    }
+
+    try {
+        const zlib = require('zlib');
+        const util = require('util');
+        const gzip = util.promisify(zlib.gzip);
+
+        const documentsToInsert = [];
+        const largeDocsTasks = []; // 需要分片存储的大文档
+
+        const SIZE_5MB = 5 * 1024 * 1024;
+        const SIZE_16MB = 16 * 1024 * 1024;
+
+        // 遍历所有步骤，智能选择存储策略
+        for (const exclusion of exclusionsToSave) {
+            const { step, condition, excludedIds, detailsMap = {}, metadata = {} } = exclusion;  // ⭐ 提取metadata
+
+            if (!excludedIds || excludedIds.length === 0) {
+                continue; // 跳过空数据
+            }
+
+            // 构建临时文档用于大小估算
+            const tempDoc = {
+                task_id,
+                result_id,
+                period: period.toString(),
+                step,
+                condition,
+                excluded_combination_ids: excludedIds,
+                excluded_count: excludedIds.length,
+                exclusion_details_map: detailsMap,
+                metadata: metadata  // ⭐ 添加元数据
+            };
+
+            const docSize = estimateDocumentSize(tempDoc);
+
+            if (docSize < SIZE_5MB) {
+                // 策略1: inline 直接存储（< 5MB）
+                documentsToInsert.push({
+                    ...tempDoc,  // ⭐ 已包含metadata
+                    storage_strategy: 'inline',
+                    is_partial: false,
+                    is_chunked: false,
+                    is_compressed: false
+                });
+            } else if (docSize < SIZE_16MB) {
+                // 策略2: compressed 压缩存储（5-16MB）
+                const dataToCompress = JSON.stringify({
+                    excluded_combination_ids: excludedIds,
+                    exclusion_details_map: detailsMap
+                });
+
+                const compressedData = await gzip(dataToCompress);
+                const compressedSize = compressedData.length;
+                const compressionRatio = (compressedSize / docSize * 100).toFixed(2);
+
+                documentsToInsert.push({
+                    task_id,
+                    result_id,
+                    period: period.toString(),
+                    step,
+                    condition,
+                    excluded_count: excludedIds.length,
+                    storage_strategy: 'compressed',
+                    is_compressed: true,
+                    compressed_data: compressedData,
+                    original_size: docSize,
+                    compressed_size: compressedSize,
+                    compression_ratio: parseFloat(compressionRatio),
+                    is_partial: false,
+                    is_chunked: false,
+                    metadata: metadata  // ⭐ 添加元数据（压缩策略）
+                });
+
+                log(`    🗜️ Step${step} 使用压缩存储: ${(docSize / 1024 / 1024).toFixed(2)}MB → ${(compressedSize / 1024 / 1024).toFixed(2)}MB (${compressionRatio}%)`);
+            } else {
+                // 策略3: chunked 分片存储（> 16MB）
+                largeDocsTasks.push({
+                    step,
+                    condition,
+                    excludedIds,
+                    detailsMap,
+                    docSize,
+                    metadata: metadata  // ⭐ 传递元数据到分片函数
+                });
+
+                log(`    📦 Step${step} 需要分片存储: ${(docSize / 1024 / 1024).toFixed(2)}MB`);
+            }
+        }
+
+        // ⭐ 批量插入小文档和压缩文档
+        if (documentsToInsert.length > 0) {
+            await DLTExclusionDetails.insertMany(documentsToInsert, { ordered: false });
+            log(`    💾 批量保存完成: ${documentsToInsert.length} 个步骤 (inline + compressed)`);
+        }
+
+        // ⭐ 分片存储大文档
+        for (const largeDoc of largeDocsTasks) {
+            await saveExclusionDetailsChunked(
+                task_id,
+                result_id,
+                period,
+                largeDoc.step,
+                largeDoc.condition,
+                largeDoc.excludedIds,
+                largeDoc.detailsMap,
+                50000,  // chunk size
+                largeDoc.metadata  // ⭐ 传递元数据
+            );
+        }
+
+    } catch (error) {
+        log(`❌ 批量保存排除详情失败: ${error.message}`);
+    }
+}
+
+/**
+ * ⭐ 智能查询: 根据存储策略查询排除详情（方案E）
+ * 自动处理三种存储策略的数据读取：
+ * - inline: 直接返回
+ * - compressed: 解压缩后返回
+ * - chunked: 合并所有分片后返回
+ *
+ * @param {Object} query - MongoDB查询条件（如 { task_id, period, step }）
+ * @returns {Array} - 解析后的排除详情列表，每个元素包含完整的 excluded_combination_ids 和 exclusion_details_map
+ */
+async function getExclusionDetailsSmart(query) {
+    try {
+        const zlib = require('zlib');
+        const util = require('util');
+        const gunzip = util.promisify(zlib.gunzip);
+
+        // 1. 查询所有匹配的文档（可能包含多个分片）
+        const rawDocs = await DLTExclusionDetails.find(query)
+            .sort({ period: 1, step: 1, chunk_index: 1 })
+            .lean();
+
+        if (rawDocs.length === 0) {
+            return []; // 无数据
+        }
+
+        // 2. 按 (task_id, period, step, condition) 分组处理
+        const groupedMap = {};
+
+        for (const doc of rawDocs) {
+            const key = `${doc.task_id}_${doc.period}_${doc.step}_${doc.condition}`;
+
+            if (!groupedMap[key]) {
+                groupedMap[key] = {
+                    task_id: doc.task_id,
+                    result_id: doc.result_id,
+                    period: doc.period,
+                    step: doc.step,
+                    condition: doc.condition,
+                    storage_strategy: doc.storage_strategy,
+                    docs: []
+                };
+            }
+
+            groupedMap[key].docs.push(doc);
+        }
+
+        // 3. 处理每组数据
+        const results = [];
+
+        for (const groupKey in groupedMap) {
+            const group = groupedMap[groupKey];
+            const { storage_strategy, docs } = group;
+            let mergedIds = [];
+            let mergedDetailsMap = {};
+
+            if (storage_strategy === 'inline') {
+                // ✅ 策略1: inline 直接读取
+                const doc = docs[0]; // inline 只有单个文档
+                mergedIds = doc.excluded_combination_ids || [];
+                mergedDetailsMap = doc.exclusion_details_map || {};
+
+            } else if (storage_strategy === 'compressed') {
+                // ✅ 策略2: compressed 解压缩
+                const doc = docs[0]; // compressed 只有单个文档
+
+                if (!doc.compressed_data) {
+                    log(`    ⚠️ 压缩数据缺失: ${groupKey}`);
+                    continue;
+                }
+
+                try {
+                    // 🔧 修复: MongoDB Binary类型需要转换为 Buffer
+                    const compressedBuffer = doc.compressed_data.buffer
+                        ? Buffer.from(doc.compressed_data.buffer)
+                        : doc.compressed_data;
+
+                    const decompressedBuffer = await gunzip(compressedBuffer);
+                    const decompressedStr = decompressedBuffer.toString('utf8');
+                    const decompressedData = JSON.parse(decompressedStr);
+
+                    mergedIds = decompressedData.excluded_combination_ids || [];
+                    mergedDetailsMap = decompressedData.exclusion_details_map || {};
+
+                    log(`    🗜️  解压缩成功: ${doc.original_size} → ${doc.compressed_size} bytes (${group.period} Step${group.step})`);
+                } catch (decompressError) {
+                    log(`    ❌ 解压缩失败: ${groupKey} - ${decompressError.message}`);
+                    continue;
+                }
+
+            } else if (storage_strategy === 'chunked') {
+                // ✅ 策略3: chunked 合并分片
+                for (const doc of docs) {
+                    mergedIds.push(...(doc.excluded_combination_ids || []));
+
+                    // 合并 detailsMap
+                    if (doc.exclusion_details_map) {
+                        Object.assign(mergedDetailsMap, doc.exclusion_details_map);
+                    }
+                }
+
+                log(`    📦 合并分片: ${docs.length} 片 → ${mergedIds.length} 个ID (${group.period} Step${group.step})`);
+
+            } else {
+                // 未知策略，尝试直接读取
+                log(`    ⚠️ 未知存储策略: ${storage_strategy}，尝试直接读取`);
+                const doc = docs[0];
+                mergedIds = doc.excluded_combination_ids || [];
+                mergedDetailsMap = doc.exclusion_details_map || {};
+            }
+
+            // 4. 添加到结果
+            results.push({
+                task_id: group.task_id,
+                result_id: group.result_id,
+                period: group.period,
+                step: group.step,
+                condition: group.condition,
+                excluded_combination_ids: mergedIds,
+                excluded_count: mergedIds.length,
+                exclusion_details_map: mergedDetailsMap,
+                storage_strategy: storage_strategy,
+                is_partial: docs[0].is_partial || false,
+                total_chunks: storage_strategy === 'chunked' ? docs.length : 1
+            });
+        }
+
+        return results;
+
+    } catch (error) {
+        log(`    ❌ 智能查询失败: ${error.message}`);
+        throw error;
     }
 }
 
@@ -21570,7 +23035,8 @@ async function processHwcPositivePredictionTask(task_id, issues, positive_select
                 let candidateIds = new Set();
                 const hwcData = hwcRecord.hot_warm_cold_data || {};
 
-                (positive_selection.hwc_ratios || []).forEach(ratio => {
+                // ⭐ 2025-11-14修复点4: 字段名与前端/API验证保持一致
+                (positive_selection.red_hot_warm_cold_ratios || []).forEach(ratio => {
                     const ids = hwcData[ratio] || [];
                     ids.forEach(id => candidateIds.add(id));
                 });
@@ -21970,7 +23436,7 @@ async function processHwcPositivePredictionTask(task_id, issues, positive_select
 
                     // 构建相克对Set（分析最近50期）
                     const conflictPairsSet = new Set();
-                    const recentIssues = await DLT.find({}).sort({ Issue: -1 }).limit(50).lean();
+                    const recentIssues = await hit_dlts.find({}).sort({ Issue: -1 }).limit(50).lean();
 
                     const pairCounts = new Map();
                     for (const issue of recentIssues) {
@@ -22152,7 +23618,7 @@ async function processHwcPositivePredictionTask(task_id, issues, positive_select
 
                 if (!isPredicted) {
                     // 获取开奖号码
-                    winningRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+                    winningRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
                     if (winningRecord) {
                         const winningRed = [winningRecord.Red1, winningRecord.Red2, winningRecord.Red3, winningRecord.Red4, winningRecord.Red5];
                         const winningBlue = [winningRecord.Blue1, winningRecord.Blue2];
@@ -22906,7 +24372,7 @@ class MegaConcurrencyBatchPredictor {
             const endIssue = parseInt(targetIssue) - 1;
             
             // 查询历史开奖数据
-            const historicalData = await DLT.find({
+            const historicalData = await hit_dlts.find({
                 Issue: { 
                     $gte: startIssue.toString(), 
                     $lte: endIssue.toString() 
@@ -23185,7 +24651,7 @@ class MegaConcurrencyBatchPredictor {
     async quickValidate(targetIssue, filteredReds) {
         try {
             // 获取实际开奖结果
-            const actualResult = await DLT.findOne({ Issue: parseInt(targetIssue) });
+            const actualResult = await hit_dlts.findOne({ Issue: parseInt(targetIssue) });
             if (!actualResult) {
                 return null; // 没有开奖结果，无法验证
             }
@@ -23227,7 +24693,7 @@ class MegaConcurrencyBatchPredictor {
         const startIssue = parseInt(targetIssue) - periods;
         const endIssue = parseInt(targetIssue) - 1;
         
-        const historicalData = await DLT.find({
+        const historicalData = await hit_dlts.find({
             Issue: { 
                 $gte: startIssue.toString(), 
                 $lte: endIssue.toString() 
@@ -23251,7 +24717,7 @@ class MegaConcurrencyBatchPredictor {
         const startIssue = parseInt(targetIssue) - periods;
         const endIssue = parseInt(targetIssue) - 1;
         
-        const historicalData = await DLT.find({
+        const historicalData = await hit_dlts.find({
             Issue: { 
                 $gte: startIssue.toString(), 
                 $lte: endIssue.toString() 
@@ -23286,7 +24752,7 @@ class MegaConcurrencyBatchPredictor {
             const startIssue = parseInt(targetIssue) - periods;
             const endIssue = parseInt(targetIssue) - 1;
             
-            const historicalData = await DLT.find({
+            const historicalData = await hit_dlts.find({
                 Issue: { 
                     $gte: startIssue.toString(), 
                     $lte: endIssue.toString() 
@@ -23328,7 +24794,7 @@ class MegaConcurrencyBatchPredictor {
             const baseIssue = parseInt(targetIssue) - 1;
             const recentIssues = Math.max(24001, baseIssue - 19); // 最近20期
 
-            const recentData = await DLT.find({
+            const recentData = await hit_dlts.find({
                 Issue: { $gte: recentIssues, $lte: baseIssue }
             }).lean();
 
@@ -24190,7 +25656,7 @@ app.post('/api/dlt/patterns/generate', async (req, res) => {
         log(`🔍 开始生成规律 - 分析期数: ${periods}, 最小置信度: ${minConfidence}`);
 
         // 1. 获取历史数据
-        const historicalData = await DLT.find({})
+        const historicalData = await hit_dlts.find({})
             .sort({ Issue: -1 })
             .limit(periods)
             .lean();
@@ -24621,7 +26087,7 @@ app.post('/api/dlt/patterns/validate/:patternId', async (req, res) => {
         }
 
         // 获取测试数据
-        const testData = await DLT.find({})
+        const testData = await hit_dlts.find({})
             .sort({ Issue: -1 })
             .limit(testPeriods)
             .lean();
@@ -24717,7 +26183,7 @@ app.get('/api/dlt/patterns/trend/:patternId', async (req, res) => {
         }
 
         // 获取历史数据
-        const historicalData = await DLT.find({})
+        const historicalData = await hit_dlts.find({})
             .sort({ Issue: -1 })
             .limit(parseInt(periods))
             .lean();
@@ -25015,7 +26481,7 @@ async function buildUnlimitedQuery(filters, targetIssue) {
 async function getRecentPeriodHtcRatios(targetIssue, periods) {
     try {
         // 1. 先查询目标期对应的ID（确保不使用目标期数据）
-        const targetRecord = await DLT.findOne({ Issue: targetIssue.toString() }).lean();
+        const targetRecord = await hit_dlts.findOne({ Issue: targetIssue.toString() }).lean();
         if (!targetRecord) {
             console.error(`未找到期号${targetIssue}的开奖数据`);
             return [];
@@ -25026,7 +26492,7 @@ async function getRecentPeriodHtcRatios(targetIssue, periods) {
         const startID = previousID - periods + 1;
 
         // 2. 基于ID查询最近N期数据
-        const recentData = await DLT.find({
+        const recentData = await hit_dlts.find({
             ID: {
                 $gte: startID,
                 $lte: previousID
@@ -25072,7 +26538,7 @@ async function getRecentPeriodHtcRatios(targetIssue, periods) {
 async function getRecentPeriodZoneRatios(targetIssue, periods) {
     try {
         // 1. 先查询目标期对应的ID（确保不使用目标期数据）
-        const targetRecord = await DLT.findOne({ Issue: targetIssue.toString() }).lean();
+        const targetRecord = await hit_dlts.findOne({ Issue: targetIssue.toString() }).lean();
         if (!targetRecord) {
             console.error(`未找到期号${targetIssue}的开奖数据`);
             return [];
@@ -25083,7 +26549,7 @@ async function getRecentPeriodZoneRatios(targetIssue, periods) {
         const startID = previousID - periods + 1;
 
         // 2. 基于ID查询最近N期数据
-        const recentData = await DLT.find({
+        const recentData = await hit_dlts.find({
             ID: {
                 $gte: startID,
                 $lte: previousID
@@ -25331,7 +26797,7 @@ app.post('/api/admin/dlt/import-draw-data', async (req, res) => {
                 }
 
                 // 检查是否已存在
-                const existing = await DLT.findOne({ Issue: data.Issue.toString() });
+                const existing = await hit_dlts.findOne({ Issue: data.Issue.toString() });
                 if (existing) {
                     importResults.skipped.push({
                         issue: data.Issue,
@@ -25341,11 +26807,11 @@ app.post('/api/admin/dlt/import-draw-data', async (req, res) => {
                 }
 
                 // 获取当前最大ID
-                const maxIDRecord = await DLT.findOne({}).sort({ ID: -1 }).select('ID');
+                const maxIDRecord = await hit_dlts.findOne({}).sort({ ID: -1 }).select('ID');
                 const nextID = maxIDRecord ? maxIDRecord.ID + 1 : 1;
 
                 // 创建新记录
-                const newRecord = new DLT({
+                const newRecord = new hit_dlts({
                     ID: nextID,
                     Issue: data.Issue.toString(),
                     Red1: parseInt(data.Red1),
@@ -25433,7 +26899,7 @@ app.post('/api/admin/dlt/add-single-record', async (req, res) => {
         }
 
         // 检查是否已存在
-        const existing = await DLT.findOne({ Issue: issue.toString() });
+        const existing = await hit_dlts.findOne({ Issue: issue.toString() });
         if (existing) {
             return res.json({
                 success: false,
@@ -25442,11 +26908,11 @@ app.post('/api/admin/dlt/add-single-record', async (req, res) => {
         }
 
         // 获取下一个ID
-        const maxIDRecord = await DLT.findOne({}).sort({ ID: -1 }).select('ID');
+        const maxIDRecord = await hit_dlts.findOne({}).sort({ ID: -1 }).select('ID');
         const nextID = maxIDRecord ? maxIDRecord.ID + 1 : 1;
 
         // 创建记录
-        const newRecord = new DLT({
+        const newRecord = new hit_dlts({
             ID: nextID,
             Issue: issue.toString(),
             Red1: parseInt(redBalls[0]),
@@ -25508,7 +26974,7 @@ app.post('/api/dlt/check-duplicates', async (req, res) => {
 
         log(`🔍 检查重复期号: ${issues.length} 个期号`);
 
-        const duplicates = await DLT.find({ Issue: { $in: issues } }).lean();
+        const duplicates = await hit_dlts.find({ Issue: { $in: issues } }).lean();
 
         log(`✅ 找到 ${duplicates.length} 个重复期号`);
 
@@ -25548,18 +27014,18 @@ app.post('/api/dlt/batch-import', async (req, res) => {
         const errors = [];
 
         // 获取当前最大ID
-        const maxIDRecord = await DLT.findOne({}).sort({ ID: -1 }).select('ID');
+        const maxIDRecord = await hit_dlts.findOne({}).sort({ ID: -1 }).select('ID');
         let nextID = maxIDRecord ? maxIDRecord.ID + 1 : 1;
 
         for (const record of records) {
             try {
                 if (action === 'overwrite') {
                     // 覆盖模式: 更新或插入
-                    const existing = await DLT.findOne({ Issue: record.Issue });
+                    const existing = await hit_dlts.findOne({ Issue: record.Issue });
 
                     if (existing) {
                         // 更新现有记录
-                        await DLT.updateOne(
+                        await hit_dlts.updateOne(
                             { Issue: record.Issue },
                             {
                                 $set: {
@@ -25585,7 +27051,7 @@ app.post('/api/dlt/batch-import', async (req, res) => {
                         log(`✅ 更新期号: ${record.Issue}`);
                     } else {
                         // 插入新记录
-                        const newRecord = new DLT({
+                        const newRecord = new hit_dlts({
                             ID: record.ID || nextID++,
                             Issue: record.Issue,
                             Red1: record.Red1,
@@ -25609,10 +27075,10 @@ app.post('/api/dlt/batch-import', async (req, res) => {
                     }
                 } else {
                     // 插入模式: 仅插入不存在的记录
-                    const existing = await DLT.findOne({ Issue: record.Issue });
+                    const existing = await hit_dlts.findOne({ Issue: record.Issue });
 
                     if (!existing) {
-                        const newRecord = new DLT({
+                        const newRecord = new hit_dlts({
                             ID: record.ID || nextID++,
                             Issue: record.Issue,
                             Red1: record.Red1,
@@ -25710,14 +27176,14 @@ app.get('/api/dlt/update-progress-stream', (req, res) => {
  */
 app.get('/api/dlt/data-status', async (req, res) => {
     try {
-        const mainLatest = await DLT.findOne({}).sort({ Issue: -1 });
-        const mainCount = await DLT.countDocuments();
+        const mainLatest = await hit_dlts.findOne({}).sort({ Issue: -1 });
+        const mainCount = await hit_dlts.countDocuments();
 
         const redMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories').countDocuments();
         const redMissingLatest = await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories')
             .findOne({}, { sort: { ID: -1 } });
 
-        const blueMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').countDocuments();
+        const blueMissingCount = await mongoose.connection.db.collection('hit_dlts').countDocuments();
 
         // 检查组合特征表
         const comboFeaturesCount = await DLTComboFeatures.countDocuments();
@@ -25729,7 +27195,7 @@ app.get('/api/dlt/data-status', async (req, res) => {
 
         const tables = [
             {
-                name: 'HIT_DLT',
+                name: 'hit_dlts',
                 count: mainCount,
                 latestIssue: mainLatestIssue,
                 status: 'ok'
@@ -25837,7 +27303,7 @@ app.post('/api/dlt/repair-data', async (req, res) => {
  */
 app.post('/api/dlt/cleanup-expired-cache', async (req, res) => {
     try {
-        const latestIssue = await DLT.findOne({}).sort({ Issue: -1 }).select('Issue');
+        const latestIssue = await hit_dlts.findOne({}).sort({ Issue: -1 }).select('Issue');
         const latestIssueNum = latestIssue ? latestIssue.Issue : 0;
 
         const result = await mongoose.connection.db.collection('hit_dlt_redcombinationshotwarmcolds').deleteMany({
@@ -26167,7 +27633,7 @@ async function generateUnifiedMissingTables() {
     log('🔄 步骤1/6: 生成遗漏值表');
     log('═══════════════════════════════════════════════════════════════\n');
 
-    const allRecords = await DLT.find({}).sort({ Issue: 1 }).lean();
+    const allRecords = await hit_dlts.find({}).sort({ Issue: 1 }).lean();
     log(`📊 基于 ${allRecords.length} 期数据生成遗漏值\n`);
 
     const redMissing = Array(35).fill(0);
@@ -26258,11 +27724,11 @@ async function generateUnifiedMissingTables() {
     log(`\n🔄 替换旧数据...`);
     // 删除旧集合
     await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories').drop().catch(() => {});
-    await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').drop().catch(() => {});
+    await mongoose.connection.db.collection('hit_dlts').drop().catch(() => {});
 
     // 重命名临时集合为正式集合
     await mongoose.connection.db.collection(redTempCollection).rename('hit_dlt_basictrendchart_redballmissing_histories');
-    await mongoose.connection.db.collection(blueTempCollection).rename('hit_dlt_basictrendchart_blueballmissing_histories');
+    await mongoose.connection.db.collection(blueTempCollection).rename('hit_dlts');
 
     log('✅ 数据替换完成\n');
 
@@ -26316,7 +27782,7 @@ async function generateUnifiedComboFeatures() {
         return combos;
     };
 
-    const allRecords = await DLT.find({}).sort({ ID: 1 }).lean();
+    const allRecords = await hit_dlts.find({}).sort({ ID: 1 }).lean();
     log(`📊 基于 ${allRecords.length} 期数据生成组合特征\n`);
 
     const batchSize = 100;
@@ -26374,7 +27840,7 @@ async function generateUnifiedStatistics() {
     log('📊 步骤3/6: 生成statistics字段（包含热温冷比）');
     log('═══════════════════════════════════════════════════════════════\n');
 
-    const allRecords = await DLT.find({}).sort({ ID: 1 }).lean();
+    const allRecords = await hit_dlts.find({}).sort({ ID: 1 }).lean();
     log(`📊 基于 ${allRecords.length} 期数据生成statistics字段\n`);
 
     // 获取所有遗漏值记录（用于获取热温冷比）
@@ -26476,7 +27942,7 @@ async function generateUnifiedStatistics() {
         };
 
         // 更新数据库
-        await DLT.updateOne(
+        await hit_dlts.updateOne(
             { ID: record.ID },
             { $set: { statistics, updatedAt: new Date() } }
         );
@@ -26506,7 +27972,7 @@ async function generateUnifiedHotWarmColdOptimizedTable(options = {}) {
     const startTime = Date.now();
 
     // 获取所有已开奖期号
-    const allIssues = await DLT.find({}).sort({ Issue: 1 }).lean();
+    const allIssues = await hit_dlts.find({}).sort({ Issue: 1 }).lean();
     log(`📊 找到 ${allIssues.length} 期已开奖数据\n`);
 
     if (allIssues.length < 1) {
@@ -26591,7 +28057,7 @@ async function generateUnifiedHotWarmColdOptimizedTable(options = {}) {
         for (const targetIssue of issuesToProcess) {
             try {
                 // ✅ 修复BUG：使用 ID-1 找到真正的上一期（Issue可能不连续）
-                const baseIssue = await DLT.findOne({ ID: targetIssue.ID - 1 })
+                const baseIssue = await hit_dlts.findOne({ ID: targetIssue.ID - 1 })
                     .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2')
                     .lean();
 
@@ -26690,7 +28156,7 @@ async function generateUnifiedHotWarmColdOptimizedTable(options = {}) {
 
     try {
         // ✅ 推算期使用 Issue-1 找上一期（因为推算期是我们按连续规则添加的）
-        const baseIssueForPrediction = await DLT.findOne({ Issue: predictedIssueNum - 1 })
+        const baseIssueForPrediction = await hit_dlts.findOne({ Issue: predictedIssueNum - 1 })
             .select('ID Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2')
             .lean();
 
@@ -26777,7 +28243,7 @@ async function cleanupUnifiedExpiredCache() {
     log('🧹 步骤5/6: 清理过期缓存');
     log('═══════════════════════════════════════════════════════════════\n');
 
-    const latestIssue = await DLT.findOne({}).sort({ Issue: -1 }).select('Issue');
+    const latestIssue = await hit_dlts.findOne({}).sort({ Issue: -1 }).select('Issue');
     const latestIssueNum = latestIssue ? latestIssue.Issue : 0;
 
     log(`📊 最新期号: ${latestIssueNum}`);
@@ -26800,18 +28266,18 @@ async function verifyUnifiedData() {
     log('✔️  步骤6/6: 验证数据完整性');
     log('═══════════════════════════════════════════════════════════════\n');
 
-    const dltCount = await DLT.countDocuments();
-    const dltLatest = await DLT.findOne({}).sort({ Issue: -1 });
+    const dltCount = await hit_dlts.countDocuments();
+    const dltLatest = await hit_dlts.findOne({}).sort({ Issue: -1 });
 
     const redMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_redballmissing_histories').countDocuments();
-    const blueMissingCount = await mongoose.connection.db.collection('hit_dlt_basictrendchart_blueballmissing_histories').countDocuments();
+    const blueMissingCount = await mongoose.connection.db.collection('hit_dlts').countDocuments();
     const comboFeaturesCount = await DLTComboFeatures.countDocuments();
     const hwcOptimizedCount = await DLTRedCombinationsHotWarmColdOptimized.countDocuments();
 
     // 检查statistics字段
-    const statisticsCount = await DLT.countDocuments({ statistics: { $exists: true } });
+    const statisticsCount = await hit_dlts.countDocuments({ statistics: { $exists: true } });
 
-    log(`📊 HIT_DLT: ${dltCount} 期，最新期号 ${dltLatest?.Issue}`);
+    log(`📊 hit_dlts: ${dltCount} 期，最新期号 ${dltLatest?.Issue}`);
     log(`📊 红球遗漏: ${redMissingCount} 期`);
     log(`📊 蓝球遗漏: ${blueMissingCount} 期`);
     log(`📊 组合特征: ${comboFeaturesCount} 期`);
@@ -26882,7 +28348,7 @@ async function precomputeConflictPairs(targetIssue, config) {
 
         // 1. 查询历史数据
         const targetIssueNum = parseInt(targetIssue);
-        const analysisData = await DLT.find({
+        const analysisData = await hit_dlts.find({
             Issue: { $lt: targetIssueNum }
         }).sort({ Issue: -1 }).limit(maxPeriods).lean();
 
@@ -27128,7 +28594,7 @@ async function precomputeCooccurrenceByIssues(targetIssue, config) {
         const { periods, combo2, combo3, combo4 } = config;
 
         // 1. 获取目标期号的ID
-        const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+        const targetRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
         if (!targetRecord) {
             return {
                 exclude_features: { combo_2: [], combo_3: [], combo_4: [] },
@@ -27139,7 +28605,7 @@ async function precomputeCooccurrenceByIssues(targetIssue, config) {
 
         // 2. 获取最近N期
         const startID = targetRecord.ID - periods;
-        const recentRecords = await DLT.find({
+        const recentRecords = await hit_dlts.find({
             ID: { $gte: startID, $lt: targetRecord.ID }
         }).select('ID Issue').sort({ ID: 1 }).lean();
 
@@ -27266,6 +28732,8 @@ async function precomputeExclusionsForTask(taskId) {
 
 // 导出app实例和初始化函数用于Electron
 module.exports = app;
+module.exports.httpServer = httpServer;  // ⭐ 2025-11-15: 导出HTTP服务器用于Electron
+module.exports.io = io;  // ⭐ 2025-11-15: 导出Socket.IO实例
 module.exports.ensureDatabaseIndexes = ensureDatabaseIndexes;
 module.exports.preloadComboFeaturesCache = preloadComboFeaturesCache;
 
@@ -27276,9 +28744,11 @@ if (require.main === module) {
     // 先连接MongoDB，再启动服务器
     connectMongoDB()
         .then(() => {
-            app.listen(PORT, () => {
+            // ⭐ 2025-11-15: 使用httpServer代替app.listen以支持Socket.IO
+            httpServer.listen(PORT, () => {
                 log(`Server is running on port ${PORT}`);
                 log('🚀 大乐透预测系统 v3 已启动，支持预生成表方案和优化期号缓存');
+                log('🔌 Socket.IO服务器已启动，支持实时进度推送');
 
                 // 性能优化：在后台异步创建数据库索引（不阻塞服务器启动）
                 ensureDatabaseIndexes().catch(err => {

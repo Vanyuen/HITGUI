@@ -13,7 +13,7 @@
 
 #### 步骤1: 获取开奖号码
 ```javascript
-// 从DLT表查询开奖结果
+// 从hit_dlts表查询开奖结果
 const actualRed = [Red1, Red2, Red3, Red4, Red5];  // 实际开奖的5个红球
 const actualBlue = [Blue1, Blue2];                  // 实际开奖的2个蓝球
 ```

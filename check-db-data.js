@@ -10,20 +10,20 @@ async function checkData() {
         console.log('✅ 已连接');
 
         const DLTSchema = new mongoose.Schema({}, { strict: false });
-        const DLT = mongoose.model('HIT_DLT', DLTSchema);
+        const hit_dlts = mongoose.model('hit_dlts', DLTSchema);
 
         const DLTRedMissingSchema = new mongoose.Schema({}, { collection: 'HIT_DLT_RedMissing', strict: false });
         const DLTRedMissing = mongoose.model('HIT_DLT_RedMissing_Check', DLTRedMissingSchema);
 
-        const count = await DLT.countDocuments();
+        const count = await hit_dlts.countDocuments();
         const missingCount = await DLTRedMissing.countDocuments();
 
         console.log(`📊 hit_dlts集合中有 ${count} 条记录`);
         console.log(`📊 HIT_DLT_RedMissing集合中有 ${missingCount} 条记录`);
 
         if (count > 0) {
-            const sample = await DLT.findOne().lean();
-            console.log('\n示例DLT数据:', JSON.stringify(sample, null, 2));
+            const sample = await hit_dlts.findOne().lean();
+            console.log('\n示例hit_dlts数据:', JSON.stringify(sample, null, 2));
         }
 
         if (missingCount > 0) {

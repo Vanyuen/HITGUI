@@ -13,9 +13,9 @@ async function verify() {
         console.log('║   验证修复效果                                           ║');
         console.log('╚══════════════════════════════════════════════════════════╝\n');
 
-        // 检查1: DLT期数
+        // 检查1: hit_dlts期数
         const dltCount = await mongoose.connection.db.collection('hit_dlts').countDocuments();
-        console.log(`📊 DLT期数: ${dltCount}`);
+        console.log(`📊 hit_dlts期数: ${dltCount}`);
 
         // 检查2: 红球组合表
         const redComboCount = await mongoose.connection.db.collection('hit_dlt_redcombinations').countDocuments();
@@ -80,7 +80,7 @@ async function verify() {
         const redMissingCount = await mongoose.connection.db
             .collection('hit_dlt_basictrendchart_redballmissing_histories').countDocuments();
         const blueMissingCount = await mongoose.connection.db
-            .collection('hit_dlt_basictrendchart_blueballmissing_histories').countDocuments();
+            .collection('hit_dlts').countDocuments();
 
         console.log(`修复前:`);
         console.log(`  - 逻辑: 先删除旧数据，再插入新数据`);

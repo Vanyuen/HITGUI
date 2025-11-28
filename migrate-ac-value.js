@@ -50,7 +50,7 @@ async function migrate() {
         console.log('========================================\n');
 
         // 定义Schema
-        const DLTRedCombinations = mongoose.model('HIT_DLT_RedCombinations',
+        const DLTRedCombinations = mongoose.model('hit_dlts',
             new mongoose.Schema({}, { strict: false }));
 
         // 统计总数

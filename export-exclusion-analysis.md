@@ -218,7 +218,7 @@ const columns = [
 **增加中奖分析**：
 ```javascript
 // 获取实际开奖数据
-const actualDraw = await DLT.findOne({ Issue: period }).lean();
+const actualDraw = await hit_dlts.findOne({ Issue: period }).lean();
 
 // 为每个组合计算中奖情况
 for (const combo of combinations) {

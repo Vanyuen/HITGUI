@@ -12,7 +12,7 @@ async function testConsecutiveBug() {
 
         // 2. 检查数据库中连号字段数据
         console.log('📊 步骤1: 检查数据库连号字段数据');
-        const DLTRedCombinations = mongoose.model('HIT_DLT_RedCombinations', new mongoose.Schema({}, { strict: false }), 'hit_dlt_redcombinations');
+        const DLTRedCombinations = mongoose.model('hit_dlts', new mongoose.Schema({}, { strict: false }), 'hit_dlt_redcombinations');
 
         const totalCount = await DLTRedCombinations.countDocuments({});
         console.log(`   总记录数: ${totalCount.toLocaleString()}`);

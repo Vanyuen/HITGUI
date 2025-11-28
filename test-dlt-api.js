@@ -1,5 +1,5 @@
 /**
- * 测试DLT API是否正确使用新的DrawDate字段
+ * 测试hit_dlts API是否正确使用新的DrawDate字段
  */
 
 require('dotenv').config();
@@ -26,7 +26,7 @@ const dltSchema = new mongoose.Schema({
     DrawDate: { type: Date, required: true }
 });
 
-const DLT = mongoose.model('HIT_DLT', dltSchema);
+const hit_dlts = mongoose.model('hit_dlts', dltSchema);
 
 // 测试查询
 async function testQueries() {
@@ -34,7 +34,7 @@ async function testQueries() {
         await connectDB();
 
         console.log('\n🧪 测试1: 查询最新5期数据');
-        const latestIssues = await DLT.find({})
+        const latestIssues = await hit_dlts.find({})
             .sort({ Issue: -1 })
             .limit(5)
             .select('Issue DrawDate');
@@ -45,7 +45,7 @@ async function testQueries() {
         })));
 
         console.log('\n🧪 测试2: 查询历史数据（含完整字段）');
-        const recentData = await DLT.find({})
+        const recentData = await hit_dlts.find({})
             .sort({ Issue: -1 })
             .limit(3)
             .select('Issue Red1 Red2 Red3 Red4 Red5 Blue1 Blue2 DrawDate');
@@ -61,7 +61,7 @@ async function testQueries() {
         });
 
         console.log('\n🧪 测试3: 检查是否还有旧字段残留');
-        const sampleWithAll = await DLT.findOne({}).lean();
+        const sampleWithAll = await hit_dlts.findOne({}).lean();
         const hasOldFields = {
             hasDrawingDay: 'DrawingDay' in sampleWithAll,
             hasDrawingWeek: 'DrawingWeek' in sampleWithAll,

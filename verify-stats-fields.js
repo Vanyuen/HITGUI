@@ -26,13 +26,13 @@ async function verifyStatisticsFields() {
             }
         }
 
-        // 2. 检查DLT主表
-        const DLT = mongoose.models.HIT_DLT || mongoose.model('HIT_DLT', dltSchema);
-        const dltCount = await DLT.countDocuments();
-        console.log(`\n2. DLT主表记录数: ${dltCount}`);
+        // 2. 检查hit_dlts主表
+        const hit_dlts = mongoose.models.hit_dlts || mongoose.model('hit_dlts', dltSchema);
+        const dltCount = await hit_dlts.countDocuments();
+        console.log(`\n2. hit_dlts主表记录数: ${dltCount}`);
 
         if (dltCount > 0) {
-            const dltSample = await DLT.findOne({}).sort({Issue: -1}).lean();
+            const dltSample = await hit_dlts.findOne({}).sort({Issue: -1}).lean();
             console.log(`   最新期号: ${dltSample.Issue}`);
             console.log(`   statistics字段存在: ${dltSample.statistics ? 'YES' : 'NO'}`);
 
@@ -60,15 +60,15 @@ async function verifyStatisticsFields() {
         }
 
         if (dltCount > 0) {
-            const withStats = await DLT.countDocuments({
+            const withStats = await hit_dlts.countDocuments({
                 'statistics.frontSum': { $exists: true }
             });
-            console.log(`   DLT主表有statistics的记录: ${withStats} / ${dltCount} (${(withStats/dltCount*100).toFixed(1)}%)`);
+            console.log(`   hit_dlts主表有statistics的记录: ${withStats} / ${dltCount} (${(withStats/dltCount*100).toFixed(1)}%)`);
         }
 
         // 4. 数据来源总结
         console.log(`\n4. 走势图数据来源策略:`);
-        console.log(`   优先级1: DLT主表的statistics字段 (预处理)`);
+        console.log(`   优先级1: hit_dlts主表的statistics字段 (预处理)`);
         console.log(`   优先级2: DLTRedMissing表的FrontHotWarmColdRatio (遗漏值表)`);
         console.log(`   优先级3: 实时计算 (兜底)`);
 

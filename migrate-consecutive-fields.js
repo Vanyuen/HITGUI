@@ -50,7 +50,7 @@ async function migrateConsecutiveFields() {
         console.log('✅ 数据库连接成功');
 
         // 获取红球组合集合（指定集合名）
-        const DLTRedCombinations = mongoose.model('HIT_DLT_RedCombinations', new mongoose.Schema({}, { strict: false }), 'hit_dlt_redcombinations');
+        const DLTRedCombinations = mongoose.model('hit_dlts', new mongoose.Schema({}, { strict: false }), 'hit_dlt_redcombinations');
 
         // 统计总数
         const totalCount = await DLTRedCombinations.countDocuments();

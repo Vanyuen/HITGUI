@@ -29,7 +29,7 @@ async function createOptimizedIndexes() {
 
         // 1.1 和值+跨度复合索引（高频查询组合）
         try {
-            await db.collection('HIT_DLT_RedCombinations').createIndex(
+            await db.collection('hit_dlts').createIndex(
                 {
                     sum_value: 1,
                     span_value: 1
@@ -50,7 +50,7 @@ async function createOptimizedIndexes() {
 
         // 1.2 区间比+奇偶比复合索引
         try {
-            await db.collection('HIT_DLT_RedCombinations').createIndex(
+            await db.collection('hit_dlts').createIndex(
                 {
                     zone_ratio: 1,
                     odd_even_ratio: 1
@@ -71,7 +71,7 @@ async function createOptimizedIndexes() {
 
         // 1.3 AC值索引
         try {
-            await db.collection('HIT_DLT_RedCombinations').createIndex(
+            await db.collection('hit_dlts').createIndex(
                 { ac_value: 1 },
                 {
                     name: 'idx_ac_value_optimized',
@@ -89,7 +89,7 @@ async function createOptimizedIndexes() {
 
         // 1.4 同出组合索引（combo_2, combo_3, combo_4）
         try {
-            await db.collection('HIT_DLT_RedCombinations').createIndex(
+            await db.collection('hit_dlts').createIndex(
                 { combo_2: 1 },
                 {
                     name: 'idx_combo_2_optimized',
@@ -106,7 +106,7 @@ async function createOptimizedIndexes() {
         }
 
         try {
-            await db.collection('HIT_DLT_RedCombinations').createIndex(
+            await db.collection('hit_dlts').createIndex(
                 { combo_3: 1 },
                 {
                     name: 'idx_combo_3_optimized',
@@ -123,7 +123,7 @@ async function createOptimizedIndexes() {
         }
 
         try {
-            await db.collection('HIT_DLT_RedCombinations').createIndex(
+            await db.collection('hit_dlts').createIndex(
                 { combo_4: 1 },
                 {
                     name: 'idx_combo_4_optimized',
@@ -184,7 +184,7 @@ async function createOptimizedIndexes() {
         console.log('\n📊 【历史数据表】创建索引...');
 
         try {
-            await db.collection('HIT_DLT').createIndex(
+            await db.collection('hit_dlts').createIndex(
                 { Issue: 1 },
                 {
                     name: 'idx_issue_optimized',
@@ -202,7 +202,7 @@ async function createOptimizedIndexes() {
         }
 
         try {
-            await db.collection('HIT_DLT').createIndex(
+            await db.collection('hit_dlts').createIndex(
                 { ID: 1 },
                 {
                     name: 'idx_id_optimized',
@@ -222,7 +222,7 @@ async function createOptimizedIndexes() {
         console.log('\n📊 【蓝球组合表】创建索引...');
 
         try {
-            await db.collection('HIT_DLT_BlueCombinations').createIndex(
+            await db.collection('hit_dlts').createIndex(
                 { combination_id: 1 },
                 {
                     name: 'idx_combination_id_optimized',
@@ -262,10 +262,10 @@ async function createOptimizedIndexes() {
         console.log('\n📋 【索引统计】');
 
         const collections = [
-            'HIT_DLT_RedCombinations',
+            'hit_dlts',
             'HIT_DLT_RedCombinationsHotWarmColdOptimized',
-            'HIT_DLT',
-            'HIT_DLT_BlueCombinations',
+            'hit_dlts',
+            'hit_dlts',
             'PredictionTask'
         ];
 

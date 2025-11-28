@@ -21,16 +21,16 @@ async function diagnose() {
         });
         console.log('✅ 数据库连接成功\n');
 
-        // ========== 检查1: DLT开奖数据 ==========
+        // ========== 检查1: hit_dlts开奖数据 ==========
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('检查1: DLT开奖数据');
+        console.log('检查1: hit_dlts开奖数据');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
         const dltCount = await mongoose.connection.db.collection('hit_dlts').countDocuments();
-        console.log(`📊 HIT_DLT记录数: ${dltCount}`);
+        console.log(`📊 hit_dlts记录数: ${dltCount}`);
 
         if (dltCount === 0) {
-            console.log('❌ 问题: DLT开奖数据为空!');
+            console.log('❌ 问题: hit_dlts开奖数据为空!');
             console.log('   解决方案: 请先导入开奖数据\n');
             await mongoose.disconnect();
             return;
@@ -50,7 +50,7 @@ async function diagnose() {
 
         console.log(`   最早期号: ${earliestDlt.Issue} (ID: ${earliestDlt.ID})`);
         console.log(`   最新期号: ${latestDlt.Issue} (ID: ${latestDlt.ID})`);
-        console.log(`✅ DLT数据正常\n`);
+        console.log(`✅ hit_dlts数据正常\n`);
 
         // ========== 检查2: 红球组合表 ==========
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -117,7 +117,7 @@ async function diagnose() {
         }
 
         if (redMissingCount < dltCount) {
-            console.log(`⚠️  警告: 遗漏值记录数(${redMissingCount}) < DLT记录数(${dltCount})`);
+            console.log(`⚠️  警告: 遗漏值记录数(${redMissingCount}) < hit_dlts记录数(${dltCount})`);
             console.log('   建议重新生成遗漏值表');
         } else {
             console.log('✅ 遗漏值记录数量正常\n');
@@ -130,7 +130,7 @@ async function diagnose() {
 
         if (!sampleMissing) {
             console.log(`❌ 问题: 找不到ID=${earliestDlt.ID}的遗漏值记录`);
-            console.log('   原因: 遗漏值表与DLT表的ID不匹配\n');
+            console.log('   原因: 遗漏值表与hit_dlts表的ID不匹配\n');
             await mongoose.disconnect();
             return;
         }

@@ -104,7 +104,7 @@ async function generateAllCombinations() {
         });
 
         const DLTRedCombinations = mongoose.model(
-            'HIT_DLT_RedCombinations',
+            'hit_dlts',
             dltRedCombinationsSchema,
             'hit_dlt_redcombinations'
         );

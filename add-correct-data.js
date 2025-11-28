@@ -13,7 +13,7 @@ async function addData() {
 
         console.log('✅ 已连接');
 
-        // 定义DLT Schema
+        // 定义hit_dlts Schema
         const DLTSchema = new mongoose.Schema({
             ID: Number,
             Issue: Number,
@@ -56,12 +56,12 @@ async function addData() {
             });
         }
 
-        const DLT = mongoose.model('HIT_DLT', DLTSchema);
+        const hit_dlts = mongoose.model('hit_dlts', DLTSchema);
         const DLTRedMissing = mongoose.model('HIT_DLT_Basictrendchart_redballmissing_history', DLTRedMissingSchema);
         const DLTBlueMissing = mongoose.model('HIT_DLT_Basictrendchart_blueballmissing_history', DLTBlueMissingSchema);
 
         // 清除现有数据
-        await DLT.deleteMany({});
+        await hit_dlts.deleteMany({});
         await DLTRedMissing.deleteMany({});
         await DLTBlueMissing.deleteMany({});
         console.log('✅ 已清除现有数据');
@@ -96,7 +96,7 @@ async function addData() {
 
             const drawDate = new Date(2025, 9, 1 + i * 2);
 
-            // DLT主表数据
+            // hit_dlts主表数据
             dltData.push({
                 ID: id,
                 Issue: issue,
@@ -161,8 +161,8 @@ async function addData() {
         }
 
         // 插入数据
-        await DLT.insertMany(dltData);
-        console.log(`✅ 已插入 ${dltData.length} 期DLT数据`);
+        await hit_dlts.insertMany(dltData);
+        console.log(`✅ 已插入 ${dltData.length} 期hit_dlts数据`);
 
         await DLTRedMissing.insertMany(redMissingData);
         console.log(`✅ 已插入 ${redMissingData.length} 期红球遗漏值数据`);
@@ -171,10 +171,10 @@ async function addData() {
         console.log(`✅ 已插入 ${blueMissingData.length} 期蓝球遗漏值数据`);
 
         // 验证
-        const dltCount = await DLT.countDocuments();
+        const dltCount = await hit_dlts.countDocuments();
         const redMissingCount = await DLTRedMissing.countDocuments();
         const blueMissingCount = await DLTBlueMissing.countDocuments();
-        console.log(`\n📊 验证: DLT=${dltCount}, RedMissing=${redMissingCount}, BlueMissing=${blueMissingCount}`);
+        console.log(`\n📊 验证: hit_dlts=${dltCount}, RedMissing=${redMissingCount}, BlueMissing=${blueMissingCount}`);
 
         console.log(`\n期号范围: ${startIssue} - ${startIssue + 29}`);
         console.log(`第一期: ${dltData[0].Red1}-${dltData[0].Red2}-${dltData[0].Red3}-${dltData[0].Red4}-${dltData[0].Red5} + ${dltData[0].Blue1}-${dltData[0].Blue2}`);

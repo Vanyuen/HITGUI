@@ -21,7 +21,7 @@ const DLTSchema = new mongoose.Schema({
     Blue2: Number
 }, { collection: 'hit_dlts' }); // 使用小写集合名称
 
-const DLT = mongoose.model('DLT_Test', DLTSchema);
+const hit_dlts = mongoose.model('DLT_Test', DLTSchema);
 
 async function testHistoricalExclusion() {
     try {
@@ -41,7 +41,7 @@ async function testHistoricalExclusion() {
         console.log(`基准期号（目标期-1）: ${baseIssue1}`);
 
         // 查找基准期记录
-        const baseRecord1 = await DLT.findOne({ Issue: baseIssue1 });
+        const baseRecord1 = await hit_dlts.findOne({ Issue: baseIssue1 });
         if (!baseRecord1) {
             console.log(`❌ 基准期${baseIssue1}不存在，测试失败`);
             return;
@@ -51,7 +51,7 @@ async function testHistoricalExclusion() {
 
         // 从基准期倒推10期
         const lookbackCount = 10;
-        const historicalRecords1 = await DLT.find({ ID: { $lte: baseRecord1.ID } })
+        const historicalRecords1 = await hit_dlts.find({ ID: { $lte: baseRecord1.ID } })
             .sort({ ID: -1 })
             .limit(lookbackCount)
             .lean();
@@ -85,7 +85,7 @@ async function testHistoricalExclusion() {
         console.log('========================================');
 
         // 找到数据库中第11期作为目标期（确保历史只有10期）
-        const allIssues = await DLT.find({}).sort({ ID: 1 }).limit(11).lean();
+        const allIssues = await hit_dlts.find({}).sort({ ID: 1 }).limit(11).lean();
         if (allIssues.length < 11) {
             console.log('⚠️ 数据库历史数据不足11期，跳过此测试');
         } else {
@@ -95,13 +95,13 @@ async function testHistoricalExclusion() {
             console.log(`目标期号: ${targetIssue2}`);
             console.log(`基准期号（目标期-1）: ${baseIssue2}`);
 
-            const baseRecord2 = await DLT.findOne({ Issue: baseIssue2 });
+            const baseRecord2 = await hit_dlts.findOne({ Issue: baseIssue2 });
             if (!baseRecord2) {
                 console.log(`❌ 基准期${baseIssue2}不存在`);
             } else {
                 console.log(`基准期ID: ${baseRecord2.ID}`);
 
-                const historicalRecords2 = await DLT.find({ ID: { $lte: baseRecord2.ID } })
+                const historicalRecords2 = await hit_dlts.find({ ID: { $lte: baseRecord2.ID } })
                     .sort({ ID: -1 })
                     .limit(lookbackCount)
                     .lean();
@@ -130,13 +130,13 @@ async function testHistoricalExclusion() {
 
         if (baseRecord1) {
             // 使用 $lt（旧代码的BUG）
-            const recordsWithLt = await DLT.find({ ID: { $lt: baseRecord1.ID } })
+            const recordsWithLt = await hit_dlts.find({ ID: { $lt: baseRecord1.ID } })
                 .sort({ ID: -1 })
                 .limit(lookbackCount)
                 .lean();
 
             // 使用 $lte（修复后的代码）
-            const recordsWithLte = await DLT.find({ ID: { $lte: baseRecord1.ID } })
+            const recordsWithLte = await hit_dlts.find({ ID: { $lte: baseRecord1.ID } })
                 .sort({ ID: -1 })
                 .limit(lookbackCount)
                 .lean();

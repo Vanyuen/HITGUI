@@ -1,10 +1,10 @@
 const mongoose = require('mongoose');
 
 mongoose.connect('mongodb://127.0.0.1:27017/lottery').then(async () => {
-    const DLT = mongoose.model('HIT_DLT', new mongoose.Schema({}, { strict: false, collection: 'HIT_DLT' }));
+    const hit_dlts = mongoose.model('hit_dlts', new mongoose.Schema({}, { strict: false, collection: 'hit_dlts' }));
 
     // 获取最新的5条记录
-    const records = await DLT.find().sort({ Issue: -1 }).limit(5).lean();
+    const records = await hit_dlts.find().sort({ Issue: -1 }).limit(5).lean();
 
     console.log('========== 数据库中最新的5条记录 ==========\n');
     records.forEach(r => {
@@ -18,8 +18,8 @@ mongoose.connect('mongodb://127.0.0.1:27017/lottery').then(async () => {
     });
 
     // 检查25122和25123是否存在
-    const check122 = await DLT.findOne({ Issue: '25122' }).lean();
-    const check123 = await DLT.findOne({ Issue: '25123' }).lean();
+    const check122 = await hit_dlts.findOne({ Issue: '25122' }).lean();
+    const check123 = await hit_dlts.findOne({ Issue: '25123' }).lean();
 
     console.log('\n========== 检查特定期号 ==========');
     console.log('期号 25122:', check122 ? '✅ 存在' : '❌ 不存在');

@@ -1,0 +1,57 @@
+{
+  "timestamp": "2025-11-23T12:17:48.358Z",
+  "issues": [
+    {
+      "type": "COUNT_MISMATCH",
+      "description": "热温冷比优化表记录数(2793)与预期(2791)不符",
+      "severity": "high"
+    },
+    {
+      "type": "INCOMPLETE_RECORDS",
+      "description": "发现 2792 条不完整记录",
+      "details": [
+        {
+          "_id": "6922f747abb1937108802979",
+          "base_issue": "10001",
+          "target_issue": "10001",
+          "is_predicted": false
+        },
+        {
+          "_id": "6922f747abb193710880297a",
+          "base_issue": "10002",
+          "target_issue": "10002",
+          "is_predicted": false
+        },
+        {
+          "_id": "6922f747abb193710880297b",
+          "base_issue": "10003",
+          "target_issue": "10003",
+          "is_predicted": false
+        },
+        {
+          "_id": "6922f747abb193710880297c",
+          "base_issue": "10004",
+          "target_issue": "10004",
+          "is_predicted": false
+        },
+        {
+          "_id": "6922f747abb193710880297d",
+          "base_issue": "10005",
+          "target_issue": "10005",
+          "is_predicted": false
+        }
+      ]
+    }
+  ],
+  "details": {
+    "hitDltsCount": 2792,
+    "hwcCount": 2793,
+    "expectedPairs": 2791,
+    "issueRange": {
+      "min": "10001",
+      "max": "9153"
+    },
+    "uniqueBaseIssues": 2792,
+    "uniqueTargetIssues": 2793
+  }
+}

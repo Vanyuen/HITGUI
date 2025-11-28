@@ -8,10 +8,10 @@ async function checkHWCFormat() {
 
         // 定义Schema
         const dltSchema = new mongoose.Schema({}, { strict: false, collection: 'hit_dlts' });
-        const DLT = mongoose.models.HIT_DLT || mongoose.model('HIT_DLT', dltSchema);
+        const hit_dlts = mongoose.models.hit_dlts || mongoose.model('hit_dlts', dltSchema);
 
         // 取最新10期的数据
-        const records = await DLT.find({})
+        const records = await hit_dlts.find({})
             .select('Issue Red1 Red2 Red3 Red4 Red5 statistics')
             .sort({ Issue: -1 })
             .limit(10)
@@ -38,7 +38,7 @@ async function checkHWCFormat() {
         // 统计不同热温冷比的分布
         console.log('\n=== 热温冷比分布统计 ===\n');
 
-        const allRecords = await DLT.find({
+        const allRecords = await hit_dlts.find({
             'statistics.frontHotWarmColdRatio': { $exists: true, $ne: null }
         })
         .select('statistics.frontHotWarmColdRatio')

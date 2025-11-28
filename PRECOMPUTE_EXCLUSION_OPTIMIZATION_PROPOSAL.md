@@ -226,7 +226,7 @@ async function precomputeConflictPairs(targetIssue, config) {
 
     // 1. 查询历史数据
     const targetIssueNum = parseInt(targetIssue);
-    const analysisData = await DLT.find({
+    const analysisData = await hit_dlts.find({
         Issue: { $lt: targetIssueNum }
     }).sort({ Issue: -1 }).limit(maxPeriods).lean();
 
@@ -371,7 +371,7 @@ async function precomputeCooccurrenceByIssues(targetIssue, config) {
     const { periods, combo2, combo3, combo4 } = config;
 
     // 1. 获取目标期号的ID
-    const targetRecord = await DLT.findOne({ Issue: parseInt(targetIssue) }).lean();
+    const targetRecord = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
     if (!targetRecord) {
         return {
             exclude_features: { combo_2: [], combo_3: [], combo_4: [] },
@@ -382,7 +382,7 @@ async function precomputeCooccurrenceByIssues(targetIssue, config) {
 
     // 2. 获取最近N期
     const startID = targetRecord.ID - periods;
-    const recentRecords = await DLT.find({
+    const recentRecords = await hit_dlts.find({
         ID: { $gte: startID, $lt: targetRecord.ID }
     }).select('ID Issue').sort({ ID: 1 }).lean();
 

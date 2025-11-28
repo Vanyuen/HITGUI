@@ -19,13 +19,13 @@ const dltSchema = new mongoose.Schema({
     Date: String
 }, { collection: 'hit_dlts' });
 
-const DLT = mongoose.model('DLT', dltSchema);
+const hit_dlts = mongoose.model('hit_dlts', dltSchema);
 
 /**
  * 推算下一期期号
  */
 async function predictNextIssue() {
-    const latestRecord = await DLT.findOne({}).sort({ Issue: -1 }).select('Issue').lean();
+    const latestRecord = await hit_dlts.findOne({}).sort({ Issue: -1 }).select('Issue').lean();
     if (!latestRecord) return null;
     return latestRecord.Issue + 1;
 }
@@ -38,7 +38,7 @@ async function testRecentLogic(recentCount) {
     console.log('='.repeat(60));
 
     // 按ID顺序(Issue降序)取最近N条记录
-    const recentData = await DLT.find({})
+    const recentData = await hit_dlts.find({})
         .sort({ Issue: -1 })
         .limit(recentCount)
         .select('Issue')
@@ -77,11 +77,11 @@ async function main() {
         console.log('✅ 已连接到数据库');
 
         // 获取总记录数
-        const totalCount = await DLT.countDocuments();
+        const totalCount = await hit_dlts.countDocuments();
         console.log(`📚 数据库总记录数: ${totalCount}`);
 
         // 获取最新期号
-        const latestRecord = await DLT.findOne({}).sort({ Issue: -1 }).select('Issue').lean();
+        const latestRecord = await hit_dlts.findOne({}).sort({ Issue: -1 }).select('Issue').lean();
         console.log(`📅 最新已开奖期号: ${latestRecord.Issue}`);
 
         // 测试最近10期

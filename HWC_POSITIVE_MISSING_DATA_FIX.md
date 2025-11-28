@@ -20,25 +20,25 @@
 
 ## 根本原因分析
 
-### 问题1: DLT Model 指向错误的集合
+### 问题1: hit_dlts Model 指向错误的集合
 
 **位置：** `src/server/server.js:230`
 
 **原代码：**
 ```javascript
-const DLT = mongoose.model('HIT_DLT', dltSchema);
+const hit_dlts = mongoose.model('hit_dlts', dltSchema);
 ```
 
 **问题：**
-- Mongoose 默认将 Model 名称转换为小写复数形式：`HIT_DLT` → `hit_dlts`
+- Mongoose 默认将 Model 名称转换为小写复数形式：`hit_dlts` → `hit_dlts`
 - 但由于名称中包含下划线和大写字母，实际创建的集合名是 `hit_dlts`
 - 数据库中存在两个集合：
-  - `HIT_DLT`：**空集合**（0条记录）← DLT Model 实际使用的
+  - `hit_dlts`：**空集合**（0条记录）← hit_dlts Model 实际使用的
   - `hit_dlts`：**有数据**（2792条记录，期号 7001-25124）
 
 **影响：**
-1. `generateUnifiedMissingTables()` 函数在第24640行调用 `DLT.find({})` 获取数据
-2. 因为 DLT Model 指向空集合 `HIT_DLT`，返回 0 条记录
+1. `generateUnifiedMissingTables()` 函数在第24640行调用 `hit_dlts.find({})` 获取数据
+2. 因为 hit_dlts Model 指向空集合 `hit_dlts`，返回 0 条记录
 3. 生成的遗漏值表 `hit_dlt_basictrendchart_redballmissing_histories` 也是空的
 4. 热温冷正选任务调用动态计算时，找不到遗漏数据，导致 0 个组合
 
@@ -67,7 +67,7 @@ node check-missing-data.js
 ```
 
 **原因：**
-- 用户通过管理后台生成遗漏数据时，因为 DLT Model 指向空集合，所以生成了空的遗漏值表
+- 用户通过管理后台生成遗漏数据时，因为 hit_dlts Model 指向空集合，所以生成了空的遗漏值表
 - `DLTRedMissing` Model 指向 `hit_dlt_basictrendchart_redballmissing_histories` 表
 - 该表只有旧数据（期号 9153 之前），没有期号 25114 的数据
 
@@ -94,17 +94,17 @@ const zoneSet = new Set(positiveSelection.zone_ratios.map(r =>
 
 ## 修复方案
 
-### ✅ 修复1: 明确指定 DLT Model 使用的集合名
+### ✅ 修复1: 明确指定 hit_dlts Model 使用的集合名
 
 **文件：** `src/server/server.js:230`
 
 **修改：**
 ```javascript
 // 修复前
-const DLT = mongoose.model('HIT_DLT', dltSchema);
+const hit_dlts = mongoose.model('hit_dlts', dltSchema);
 
 // 修复后（添加第三个参数明确指定集合名）
-const DLT = mongoose.model('HIT_DLT', dltSchema, 'hit_dlts');
+const hit_dlts = mongoose.model('hit_dlts', dltSchema, 'hit_dlts');
 ```
 
 **验证：**
@@ -112,7 +112,7 @@ const DLT = mongoose.model('HIT_DLT', dltSchema, 'hit_dlts');
 node verify-dlt-model-fix.js
 
 # 输出：
-✅ DLT.countDocuments(): 2792
+✅ hit_dlts.countDocuments(): 2792
 最新5期:
   期号: 25124, Red: 6-9-14-26-27
   期号: 25123, Red: 8-13-24-25-31
@@ -176,16 +176,16 @@ node verify-dlt-model-fix.js
 
 ## 技术细节
 
-### DLT Model 集合名解析规则
+### hit_dlts Model 集合名解析规则
 
 Mongoose 的 Model 集合名转换规则：
 ```javascript
 // 不指定集合名时，Mongoose 自动转换：
-mongoose.model('HIT_DLT', schema)
+mongoose.model('hit_dlts', schema)
 // → 集合名: hit_dlts (小写 + 复数)
 
 // 明确指定集合名（推荐）：
-mongoose.model('HIT_DLT', schema, 'hit_dlts')
+mongoose.model('hit_dlts', schema, 'hit_dlts')
 // → 集合名: hit_dlts (精确匹配)
 ```
 
@@ -212,7 +212,7 @@ mongoose.model('HIT_DLT', schema, 'hit_dlts')
 
 ## 相关文件
 
-- **问题代码：** `src/server/server.js:230` (DLT Model)
+- **问题代码：** `src/server/server.js:230` (hit_dlts Model)
 - **修复代码：** `src/server/server.js:230` (添加第三参数)
 - **动态计算逻辑：** `src/server/server.js:14466-14498`
 - **遗漏值生成函数：** `src/server/server.js:24635-24750`
@@ -228,7 +228,7 @@ mongoose.model('HIT_DLT', schema, 'hit_dlts')
 
 ## 附录：完整验证脚本
 
-### 1. 检查 DLT Model 是否正确
+### 1. 检查 hit_dlts Model 是否正确
 ```bash
 node verify-dlt-model-fix.js
 ```
@@ -245,4 +245,4 @@ node test-hwc-pos-task-creation.js
 
 ---
 
-**总结：** 修复了 DLT Model 指向错误集合的问题，用户现在可以通过管理后台重新生成遗漏数据，然后就能正常创建热温冷正选批量预测任务了。
+**总结：** 修复了 hit_dlts Model 指向错误集合的问题，用户现在可以通过管理后台重新生成遗漏数据，然后就能正常创建热温冷正选批量预测任务了。

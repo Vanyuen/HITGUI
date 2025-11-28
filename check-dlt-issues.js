@@ -43,8 +43,8 @@ const { MongoClient } = require('mongodb');
         console.log(`\n期号范围: ${firstIssue[0].Issue} - ${latestDlt[0].Issue}`);
     }
 
-    // 检查 HIT_DLT 表
-    const hitDltCount = await db.collection('HIT_DLT').countDocuments();
+    // 检查 hit_dlts 表
+    const hitDltCount = await db.collection('hit_dlts').countDocuments();
     console.log('\n\nHIT_DLT 总记录数:', hitDltCount);
 
     await client.close();

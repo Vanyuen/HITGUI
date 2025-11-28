@@ -43,7 +43,7 @@ const dltRedCombinationsSchema = new mongoose.Schema({
     created_at: { type: Date, default: Date.now }
 });
 
-const DLTRedCombinations = mongoose.model('HIT_DLT_RedCombinations', dltRedCombinationsSchema);
+const DLTRedCombinations = mongoose.model('hit_dlts', dltRedCombinationsSchema);
 
 // ===== 组合特征生成工具函数 =====
 function generateCombo2(balls) {

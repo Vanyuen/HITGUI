@@ -51,7 +51,7 @@ async function processHwcPositiveTask(taskId) {
                             log(`  🔥 应用相克全局Top排除: 分析${period}期, 排除前${top}对`);
 
                             // 获取基准期ID（目标期-1）
-                            const basePeriodRecord = await DLT.findOne({ Issue: parseInt(baseIssue) });
+                            const basePeriodRecord = await hit_dlts.findOne({ Issue: parseInt(baseIssue) });
                             if (basePeriodRecord) {
                                 // 获取热号保护列表（如果启用）
                                 let protectedHotNumbers = [];
@@ -81,7 +81,7 @@ async function processHwcPositiveTask(taskId) {
                             const { period, top } = conflictConfig.perBallTop;
                             log(`  🔥 应用相克每号Top排除: 分析${period}期, 每号排除前${top}个`);
 
-                            const basePeriodRecord = await DLT.findOne({ Issue: parseInt(baseIssue) });
+                            const basePeriodRecord = await hit_dlts.findOne({ Issue: parseInt(baseIssue) });
                             if (basePeriodRecord) {
                                 // 获取热号保护列表（如果启用）
                                 let protectedHotNumbers = [];
@@ -140,7 +140,7 @@ async function processHwcPositiveTask(taskId) {
                                 log(`  🔗 应用同现比历史排除: 倒推${period}期`);
 
                                 // 获取基准期ID（目标期-1）
-                                const basePeriodRecord = await DLT.findOne({ Issue: parseInt(baseIssue) });
+                                const basePeriodRecord = await hit_dlts.findOne({ Issue: parseInt(baseIssue) });
                                 if (basePeriodRecord) {
                                     // 提取历史同出组合
                                     const historicalCombos = await getHistoricalCoOccurrenceCombos(

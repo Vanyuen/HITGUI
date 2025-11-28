@@ -3,11 +3,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // 初始化页面状态恢复
     restorePageState();
     
-    // 强制检查DLT组合预测面板并初始化（备用方案）
+    // 强制检查hit_dlts组合预测面板并初始化（备用方案）
     setTimeout(() => {
         const dltCombinationPanel = document.getElementById('dlt-combination');
         if (dltCombinationPanel && dltCombinationPanel.classList.contains('active')) {
-            console.log('🎯 页面加载时检测到DLT组合预测面板已激活，强制初始化...');
+            console.log('🎯 页面加载时检测到hit_dlts组合预测面板已激活，强制初始化...');
             if (typeof initDLTCombinationModule === 'function') {
                 console.log('⚡ 强制执行initDLTCombinationModule()...');
                 initDLTCombinationModule();
@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         console.log('⚡ 延迟执行initDLTCombinationModule()...');
                         initDLTCombinationModule();
                     } else {
-                        console.error('❌ DLT模块加载失败！');
+                        console.error('❌ hit_dlts模块加载失败！');
                     }
                 }, 2000);
             }
@@ -44,7 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof DLTModule !== 'undefined' && DLTModule.init) {
         DLTModule.init();
     } else {
-        // 如果DLT模块还没加载，延迟初始化
+        // 如果hit_dlts模块还没加载，延迟初始化
         setTimeout(() => {
             if (typeof DLTModule !== 'undefined' && DLTModule.init) {
                 console.log('延迟初始化大乐透系统');
@@ -77,7 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // 初始化大乐透预选行事件
     if (window.DLTModule && typeof window.DLTModule === 'object') {
-        // 确保DLT模块已加载，然后初始化预选功能
+        // 确保hit_dlts模块已加载，然后初始化预选功能
         setTimeout(() => {
             if (typeof initDLTPreSelectRows === 'function') {
                 initDLTPreSelectRows();
@@ -342,7 +342,7 @@ function initSubNavigation() {
                             window.DLTModule.loadTrendData();
                         }
                     } else if (contentType === 'dlt-combination') {
-                        console.log('🎯 用户切换到DLT组合预测面板');
+                        console.log('🎯 用户切换到hit_dlts组合预测面板');
 
                         // 当用户点击组合预测时，确保期号数据已加载
                         if (window.loadLatestIssues) {
@@ -352,8 +352,8 @@ function initSubNavigation() {
                             console.log('⚠️ loadLatestIssues函数不存在');
                         }
 
-                        // 初始化DLT组合预测模块（包括数据生成管理）- 总是执行
-                        console.log('🔧 开始初始化DLT组合预测模块...');
+                        // 初始化hit_dlts组合预测模块（包括数据生成管理）- 总是执行
+                        console.log('🔧 开始初始化hit_dlts组合预测模块...');
                         if (typeof initDLTCombinationModule === 'function') {
                             console.log('✅ 找到initDLTCombinationModule函数，开始执行...');
                             setTimeout(() => {
@@ -394,11 +394,11 @@ function initSubNavigation() {
         });
     });
     
-    // 添加立即检查当前激活的DLT组合面板（用于页面刷新后的状态恢复）
+    // 添加立即检查当前激活的hit_dlts组合面板（用于页面刷新后的状态恢复）
     setTimeout(() => {
         const dltCombinationPanel = document.getElementById('dlt-combination');
         if (dltCombinationPanel && dltCombinationPanel.classList.contains('active')) {
-            console.log('🔄 initSubNavigation完成后检测到DLT组合预测面板激活，立即初始化...');
+            console.log('🔄 initSubNavigation完成后检测到hit_dlts组合预测面板激活，立即初始化...');
             if (typeof initDLTCombinationModule === 'function') {
                 console.log('⚡ 立即执行initDLTCombinationModule()...');
                 initDLTCombinationModule();
@@ -413,7 +413,7 @@ function initRefreshButtons() {
     
     refreshButtons.forEach(button => {
         button.addEventListener('click', () => {
-            // 旧版DLT组合预测按钮已删除，只使用新版界面
+            // 旧版hit_dlts组合预测按钮已删除，只使用新版界面
             
             const contentType = button.closest('.panel-content').id.split('-')[1];
             loadSSQContent(contentType, true);

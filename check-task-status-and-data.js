@@ -55,8 +55,8 @@ async function check() {
 
         console.log(`✅ 找到 ${results.length} 个期号结果（显示前2个）\n`);
 
-        // 4. 查询DLT数据
-        const DLT = mongoose.model('HIT_DLT', new mongoose.Schema({}, { strict: false }));
+        // 4. 查询hit_dlts数据
+        const hit_dlts = mongoose.model('hit_dlts', new mongoose.Schema({}, { strict: false }));
 
         for (const result of results) {
             console.log(`\n${'='.repeat(70)}`);
@@ -69,11 +69,11 @@ async function check() {
             console.log(`      类型: ${typeof result.winning_numbers}`);
             console.log(`      值: ${JSON.stringify(result.winning_numbers)}`);
 
-            // 查询DLT实际数据
-            const actualData = await DLT.findOne({ Issue: parseInt(result.period) }).lean();
+            // 查询hit_dlts实际数据
+            const actualData = await hit_dlts.findOne({ Issue: parseInt(result.period) }).lean();
 
             if (actualData) {
-                console.log(`\n   ✅ DLT实际开奖数据存在:`);
+                console.log(`\n   ✅ hit_dlts实际开奖数据存在:`);
                 console.log(`      红球: [${actualData.Red1}, ${actualData.Red2}, ${actualData.Red3}, ${actualData.Red4}, ${actualData.Red5}]`);
                 console.log(`      蓝球: [${actualData.Blue1}, ${actualData.Blue2}]`);
 
@@ -85,10 +85,10 @@ async function check() {
                     console.log(`      保存的蓝球: ${JSON.stringify(result.winning_numbers.blue_balls)}`);
                     console.log(`      实际的蓝球: [${actualData.Blue1}, ${actualData.Blue2}]`);
                 } else {
-                    console.log(`\n   ❌ 问题: winning_numbers 未保存，但DLT数据存在！`);
+                    console.log(`\n   ❌ 问题: winning_numbers 未保存，但hit_dlts数据存在！`);
                 }
             } else {
-                console.log(`\n   ⚠️ DLT中无期号${result.period}（推算期）`);
+                console.log(`\n   ⚠️ hit_dlts中无期号${result.period}（推算期）`);
             }
 
             // 检查 hit_analysis

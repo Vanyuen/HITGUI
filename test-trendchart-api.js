@@ -39,8 +39,8 @@ async function runTests() {
     console.log('🧪 测试大乐透API...\n');
 
     try {
-        await testAPI('http://localhost:3003/api/dlt/history?page=1&limit=5', 'DLT历史数据');
-        await testAPI('http://localhost:3003/api/dlt/trendchart?recentPeriods=5', 'DLT趋势图');
+        await testAPI('http://localhost:3003/api/dlt/history?page=1&limit=5', 'hit_dlts历史数据');
+        await testAPI('http://localhost:3003/api/dlt/trendchart?recentPeriods=5', 'hit_dlts趋势图');
 
         console.log('\n✅ 所有测试完成！');
     } catch (error) {

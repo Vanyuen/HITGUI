@@ -507,7 +507,7 @@ dltRedCombinationsSchema.index({ ac_value: 1 });
 
 **验证方法**:
 ```bash
-node -e "const mongoose = require('mongoose'); mongoose.connect('mongodb://127.0.0.1:27017/lottery'); const Model = mongoose.model('HIT_DLT_RedCombinations', new mongoose.Schema({}, {strict: false})); Model.collection.getIndexes().then(idx => { console.log(Object.keys(idx).filter(k => k.includes('ac_value'))); mongoose.disconnect(); });"
+node -e "const mongoose = require('mongoose'); mongoose.connect('mongodb://127.0.0.1:27017/lottery'); const Model = mongoose.model('hit_dlts', new mongoose.Schema({}, {strict: false})); Model.collection.getIndexes().then(idx => { console.log(Object.keys(idx).filter(k => k.includes('ac_value'))); mongoose.disconnect(); });"
 ```
 
 ### 2. AC值定义的一致性
@@ -523,7 +523,7 @@ node -e "const mongoose = require('mongoose'); mongoose.connect('mongodb://127.0
 
 虽然此次迁移只是添加新字段，不会修改现有数据，但建议在生产环境执行前备份数据库:
 ```bash
-mongodump --db lottery --collection HIT_DLT_RedCombinations --out backup_before_ac_migration
+mongodump --db lottery --collection hit_dlts --out backup_before_ac_migration
 ```
 
 ### 4. 性能考虑

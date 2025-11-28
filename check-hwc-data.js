@@ -20,7 +20,7 @@ const dltSchema = new mongoose.Schema({
     }
 }, { collection: 'hit_dlts', strict: false });
 
-const DLT = mongoose.model('HIT_DLT_Check2', dltSchema);
+const hit_dlts = mongoose.model('HIT_DLT_Check2', dltSchema);
 
 async function checkHWCData() {
     try {
@@ -29,7 +29,7 @@ async function checkHWCData() {
         console.log('✅ 数据库连接成功\n');
 
         // 查询最近3期的完整数据
-        const records = await DLT.find({})
+        const records = await hit_dlts.find({})
             .sort({ issue: -1 })
             .limit(3)
             .lean();

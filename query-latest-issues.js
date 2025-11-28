@@ -8,16 +8,16 @@ const DLTSchema = new mongoose.Schema({
     Red3: Number,
     Red4: Number,
     Red5: Number
-}, { collection: 'HIT_DLT' });
+}, { collection: 'hit_dlts' });
 
-const DLT = mongoose.model('DLT_LatestQuery', DLTSchema);
+const hit_dlts = mongoose.model('DLT_LatestQuery', DLTSchema);
 
 async function queryLatestIssues() {
     try {
         await mongoose.connect('mongodb://127.0.0.1:27017/lottery');
         console.log('✅ 已连接到MongoDB\n');
 
-        const count = await DLT.countDocuments();
+        const count = await hit_dlts.countDocuments();
         console.log(`数据库总记录数: ${count}期\n`);
 
         if (count === 0) {
@@ -25,10 +25,10 @@ async function queryLatestIssues() {
             return;
         }
 
-        const latest = await DLT.findOne({}).sort({ ID: -1 }).lean();
+        const latest = await hit_dlts.findOne({}).sort({ ID: -1 }).lean();
         console.log(`最新期号: ${latest.Issue} (ID=${latest.ID})\n`);
 
-        const records = await DLT.find({}).sort({ ID: -1 }).limit(15).lean();
+        const records = await hit_dlts.find({}).sort({ ID: -1 }).limit(15).lean();
         console.log('最近15期:');
         records.forEach((r, index) => {
             const redBalls = [r.Red1, r.Red2, r.Red3, r.Red4, r.Red5];
