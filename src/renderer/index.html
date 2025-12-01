@@ -3819,23 +3819,36 @@
                                         <span style="color: #78716c; font-size: 13px;">(包含被各条件排除的组合，便于分析)</span>
                                     </div>
 
-                                    <!-- 排除明细存储优化配置 -->
-                                    <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 12px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px;">
-                                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                            <input type="checkbox" id="hwc-save-exclusion-limited" checked style="width: 18px; height: 18px;">
-                                            <span style="font-weight: 500;">仅保存部分期号的排除明细</span>
-                                        </label>
-                                        <span style="color: #78716c; font-size: 13px;">保存最近</span>
-                                        <input type="number" id="hwc-exclusion-save-periods" value="2" min="1" max="10"
-                                               style="width: 60px; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 4px; text-align: center;">
-                                        <span style="color: #78716c; font-size: 13px;">期 + 推算期</span>
+                                    <!-- ⭐ 2025-11-28: 排除详情保存配置（优化版） -->
+                                    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px; padding: 12px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                                <input type="checkbox" id="hwc-exclusion-details-enabled" checked style="width: 18px; height: 18px;">
+                                                <span style="font-weight: 500;">保存排除详情</span>
+                                            </label>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 10px; margin-left: 26px;">
+                                            <label style="font-weight: 500; min-width: 80px;">保存范围:</label>
+                                            <select id="hwc-exclusion-details-mode" style="padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; min-width: 200px;">
+                                                <option value="top_hit" selected>🎯 命中红球最多的N期 + 推算期</option>
+                                                <option value="recent">📅 最近N期 + 推算期</option>
+                                                <option value="all">📦 全部期号 (不推荐大规模任务)</option>
+                                                <option value="none">❌ 仅推算期</option>
+                                            </select>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 10px; margin-left: 26px;">
+                                            <label style="font-weight: 500; min-width: 80px;">保存期数:</label>
+                                            <input type="number" id="hwc-exclusion-details-count" value="10" min="1" max="100"
+                                                   style="width: 70px; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; text-align: center;">
+                                            <span style="color: #78716c; font-size: 13px;">除推算期外，额外保存的期数</span>
+                                        </div>
                                     </div>
                                     <div style="margin-top: 8px; padding: 10px; background: #ecfdf5; border-radius: 4px; font-size: 12px; color: #047857;">
                                         <strong>性能优化提示：</strong>
-                                        勾选后可大幅减少存储空间和处理时间。所有期号的预测结果和命中分析仍会完整保存，
-                                        此选项仅控制排除组合明细的保存范围。
+                                        排除详情会在任务完成后异步保存，不会阻塞任务进度。所有期号的预测结果和命中分析仍会完整保存，
+                                        此选项仅控制排除详情的保存范围。
                                         <br>
-                                        <span style="color: #059669;">10期任务减少约60%存储量，50期任务减少约90%存储量</span>
+                                        <span style="color: #059669;">💡 推荐选择"命中最多N期"模式，可快速找到最有价值的排除分析数据</span>
                                     </div>
                                 </div>
                             </div>
@@ -3952,6 +3965,14 @@
                                     <div class="info-section">
                                         <h4>🚫 排除条件</h4>
                                         <div class="conditions-display" id="hwc-pos-modal-exclusion-conditions">
+                                            加载中...
+                                        </div>
+                                    </div>
+
+                                    <!-- ⭐ 2025-11-28新增：排除详情保存状态 -->
+                                    <div class="info-section" id="hwc-pos-modal-exclusion-details-section" style="display: none;">
+                                        <h4>📋 排除详情保存状态</h4>
+                                        <div class="conditions-display" id="hwc-pos-modal-exclusion-details-status">
                                             加载中...
                                         </div>
                                     </div>

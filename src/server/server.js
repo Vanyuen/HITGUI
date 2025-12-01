@@ -1294,7 +1294,19 @@ const hwcPositivePredictionTaskSchema = new mongoose.Schema({
             enum: ['comprehensive', 'simple', 'minimal'],
             default: 'comprehensive'
         },
-        includeExclusionDetails: { type: Boolean, default: false }
+        includeExclusionDetails: { type: Boolean, default: false },
+
+        // ⭐ 2025-11-28新增：排除详情保存配置
+        exclusion_details: {
+            enabled: { type: Boolean, default: true },  // 是否保存排除详情
+            mode: {
+                type: String,
+                enum: ['none', 'top_hit', 'recent', 'all'],
+                default: 'top_hit'  // 默认保存命中红球最多的N期
+            },
+            top_hit_count: { type: Number, default: 10 },   // top_hit模式下保存前N期
+            recent_count: { type: Number, default: 10 }     // recent模式下保存最近N期
+        }
     },
 
     // 任务状态
@@ -1324,6 +1336,30 @@ const hwcPositivePredictionTaskSchema = new mongoose.Schema({
         third_prize_count: { type: Number, default: 0 }, // 三等奖次数
         total_prize_amount: { type: Number, default: 0 } // 总奖金
     },
+
+    // ⭐ 2025-11-28新增：排除详情保存状态追踪
+    exclusion_details_status: {
+        type: String,
+        enum: ['pending', 'saving', 'completed', 'partial', 'failed', 'skipped'],
+        default: 'pending'
+    },
+
+    // 排除详情保存进度
+    exclusion_details_progress: {
+        current: { type: Number, default: 0 },      // 当前已保存期数
+        total: { type: Number, default: 0 },        // 需保存总期数
+        percentage: { type: Number, default: 0 },   // 保存进度百分比
+        current_period: { type: String }            // 当前正在保存的期号
+    },
+
+    // 需要保存排除详情的期号列表
+    exclusion_details_periods: [{ type: String }],
+
+    // 保存失败的错误信息
+    exclusion_details_errors: [{
+        period: { type: String },
+        error: { type: String }
+    }],
 
     error_message: { type: String }, // 错误信息（失败时）
     created_at: { type: Date, default: Date.now }, // 创建时间
@@ -1428,6 +1464,10 @@ const hwcPositivePredictionTaskResultSchema = new mongoose.Schema({
         step6_retained_count: { type: Number },           // Step 6 AC值筛选后保留数量
         final_retained_count: { type: Number }            // 最终保留数量（6步后+排除前）
     },
+
+    // ⭐ 2025-11-28新增：排除详情保存标记
+    has_exclusion_details: { type: Boolean, default: false },  // 是否已保存排除详情
+    hit_rank: { type: Number },                                 // 命中排名（用于筛选保存排除详情的期号）
 
     created_at: { type: Date, default: Date.now } // 创建时间
 });
@@ -12388,7 +12428,7 @@ class StreamBatchPredictor {
      * 流式批量预测主入口
      */
     async streamPredict(config, progressCallback) {
-        const { targetIssues, filters, exclude_conditions, maxRedCombinations, maxBlueCombinations, enableValidation, combination_mode } = config;
+        const { targetIssues, filters, exclude_conditions, maxRedCombinations, maxBlueCombinations, enableValidation, combination_mode, exclusionDetailsConfig } = config;
 
         this.isRunning = true;
         this.progressCallback = progressCallback;
@@ -12425,7 +12465,7 @@ class StreamBatchPredictor {
                 await this.checkMemoryAndCleanup();
 
                 // 处理单个批次
-                const batchResults = await this.processBatch(batch, filters, exclude_conditions, maxRedCombinations, maxBlueCombinations, enableValidation, combination_mode);
+                const batchResults = await this.processBatch(batch, filters, exclude_conditions, maxRedCombinations, maxBlueCombinations, enableValidation, combination_mode, exclusionDetailsConfig);
 
                 // 累积结果
                 this.results.push(...batchResults);
@@ -15377,9 +15417,9 @@ class HwcPositivePredictor extends StreamBatchPredictor {
      *
      * @returns {Object} {combinations: Array, statistics: Object, exclusionsToSave: Array}
      */
-    async applyPositiveSelection(baseIssue, targetIssue, positiveSelection) {
+    async applyPositiveSelection(baseIssue, targetIssue, positiveSelection, collectDetails = false) {
         const startTime = Date.now();
-        log(`🎯 [${this.sessionId}] 开始6步正选筛选: ${baseIssue}→${targetIssue}`);
+        log(`🎯 [${this.sessionId}] 开始6步正选筛选: ${baseIssue}→${targetIssue}${collectDetails ? ' (收集详情)' : ''}`);
 
         // ⭐ 新增：统计信息对象（字段名匹配Schema）
         const statistics = {
@@ -15393,6 +15433,7 @@ class HwcPositivePredictor extends StreamBatchPredictor {
         };
 
         // ⭐ 新增：排除详情数组（用于保存到数据库）
+        // 🐛 内存优化 2025-11-27: 仅在collectDetails=true时收集detailsMap
         const exclusionsToSave = [];
 
         // ============ Step 1: 热温冷比筛选 ============
@@ -15497,18 +15538,20 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                 }
             }));
             const beforeCount = filteredCombos.length;
-            const detailsMap = {};
+            const detailsMap = collectDetails ? {} : null;  // 🐛 内存优化: 仅在需要时收集
             const excludedIds = [];
 
             filteredCombos = filteredCombos.filter(c => {
                 const isIncluded = zoneSet.has(c.zone_ratio);
                 if (!isIncluded) {
                     excludedIds.push(c.combination_id);
-                    detailsMap[c.combination_id] = {
-                        actual_ratio: c.zone_ratio,
-                        allowed_ratios: Array.from(zoneSet).join(', '),
-                        description: `区间比 ${c.zone_ratio} 不在允许范围 [${Array.from(zoneSet).join(', ')}]`
-                    };
+                    if (collectDetails) {  // 🐛 内存优化: 条件收集
+                        detailsMap[c.combination_id] = {
+                            actual_ratio: c.zone_ratio,
+                            allowed_ratios: Array.from(zoneSet).join(', '),
+                            description: `区间比 ${c.zone_ratio} 不在允许范围 [${Array.from(zoneSet).join(', ')}]`
+                        };
+                    }
                 }
                 return isIncluded;
             });
@@ -15538,7 +15581,7 @@ class HwcPositivePredictor extends StreamBatchPredictor {
         // Step 3: 和值范围筛选
         if (positiveSelection.sum_ranges && positiveSelection.sum_ranges.length > 0) {
             const beforeCount = filteredCombos.length;
-            const detailsMap = {};
+            const detailsMap = collectDetails ? {} : null;  // 🐛 内存优化
             const excludedIds = [];
 
             filteredCombos = filteredCombos.filter(c => {
@@ -15547,12 +15590,14 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                 );
                 if (!isIncluded) {
                     excludedIds.push(c.combination_id);
-                    const rangesStr = positiveSelection.sum_ranges.map(r => `[${r.min}-${r.max}]`).join(', ');
-                    detailsMap[c.combination_id] = {
-                        actual_sum: c.sum_value,
-                        allowed_ranges: rangesStr,
-                        description: `和值 ${c.sum_value} 不在允许范围 ${rangesStr}`
-                    };
+                    if (collectDetails) {  // 🐛 内存优化
+                        const rangesStr = positiveSelection.sum_ranges.map(r => `[${r.min}-${r.max}]`).join(', ');
+                        detailsMap[c.combination_id] = {
+                            actual_sum: c.sum_value,
+                            allowed_ranges: rangesStr,
+                            description: `和值 ${c.sum_value} 不在允许范围 ${rangesStr}`
+                        };
+                    }
                 }
                 return isIncluded;
             });
@@ -15582,7 +15627,7 @@ class HwcPositivePredictor extends StreamBatchPredictor {
         // Step 4: 跨度范围筛选
         if (positiveSelection.span_ranges && positiveSelection.span_ranges.length > 0) {
             const beforeCount = filteredCombos.length;
-            const detailsMap = {};
+            const detailsMap = collectDetails ? {} : null;  // 🐛 内存优化
             const excludedIds = [];
 
             filteredCombos = filteredCombos.filter(c => {
@@ -15591,12 +15636,14 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                 );
                 if (!isIncluded) {
                     excludedIds.push(c.combination_id);
-                    const rangesStr = positiveSelection.span_ranges.map(r => `[${r.min}-${r.max}]`).join(', ');
-                    detailsMap[c.combination_id] = {
-                        actual_span: c.span_value,
-                        allowed_ranges: rangesStr,
-                        description: `跨度 ${c.span_value} 不在允许范围 ${rangesStr}`
-                    };
+                    if (collectDetails) {  // 🐛 内存优化
+                        const rangesStr = positiveSelection.span_ranges.map(r => `[${r.min}-${r.max}]`).join(', ');
+                        detailsMap[c.combination_id] = {
+                            actual_span: c.span_value,
+                            allowed_ranges: rangesStr,
+                            description: `跨度 ${c.span_value} 不在允许范围 ${rangesStr}`
+                        };
+                    }
                 }
                 return isIncluded;
             });
@@ -15634,18 +15681,20 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                 }
             }));
             const beforeCount = filteredCombos.length;
-            const detailsMap = {};
+            const detailsMap = collectDetails ? {} : null;  // 🐛 内存优化
             const excludedIds = [];
 
             filteredCombos = filteredCombos.filter(c => {
                 const isIncluded = oeSet.has(c.odd_even_ratio);
                 if (!isIncluded) {
                     excludedIds.push(c.combination_id);
-                    detailsMap[c.combination_id] = {
-                        actual_ratio: c.odd_even_ratio,
-                        allowed_ratios: Array.from(oeSet).join(', '),
-                        description: `奇偶比 ${c.odd_even_ratio} 不在允许范围 [${Array.from(oeSet).join(', ')}]`
-                    };
+                    if (collectDetails) {  // 🐛 内存优化
+                        detailsMap[c.combination_id] = {
+                            actual_ratio: c.odd_even_ratio,
+                            allowed_ratios: Array.from(oeSet).join(', '),
+                            description: `奇偶比 ${c.odd_even_ratio} 不在允许范围 [${Array.from(oeSet).join(', ')}]`
+                        };
+                    }
                 }
                 return isIncluded;
             });
@@ -15676,18 +15725,20 @@ class HwcPositivePredictor extends StreamBatchPredictor {
         if (positiveSelection.ac_values && positiveSelection.ac_values.length > 0) {
             const acSet = new Set(positiveSelection.ac_values);
             const beforeCount = filteredCombos.length;
-            const detailsMap = {};
+            const detailsMap = collectDetails ? {} : null;  // 🐛 内存优化
             const excludedIds = [];
 
             filteredCombos = filteredCombos.filter(c => {
                 const isIncluded = acSet.has(c.ac_value);
                 if (!isIncluded) {
                     excludedIds.push(c.combination_id);
-                    detailsMap[c.combination_id] = {
-                        actual_ac: c.ac_value,
-                        allowed_acs: Array.from(acSet).join(', '),
-                        description: `AC值 ${c.ac_value} 不在允许范围 [${Array.from(acSet).join(', ')}]`
-                    };
+                    if (collectDetails) {  // 🐛 内存优化
+                        detailsMap[c.combination_id] = {
+                            actual_ac: c.ac_value,
+                            allowed_acs: Array.from(acSet).join(', '),
+                            description: `AC值 ${c.ac_value} 不在允许范围 [${Array.from(acSet).join(', ')}]`
+                        };
+                    }
                 }
                 return isIncluded;
             });
@@ -15737,8 +15788,8 @@ class HwcPositivePredictor extends StreamBatchPredictor {
      *
      * @returns {Object} {combinations: Array, summary: Object, exclusionsToSave: Array}
      */
-    async applyExclusionConditions(baseIssue, targetIssue, combinations, exclusionConditions) {
-        log(`🚫 [${this.sessionId}] 开始5步排除: ${baseIssue}→${targetIssue}, 初始组合=${combinations.length}个`);
+    async applyExclusionConditions(baseIssue, targetIssue, combinations, exclusionConditions, collectDetails = false) {
+        log(`🚫 [${this.sessionId}] 开始5步排除: ${baseIssue}→${targetIssue}, 初始组合=${combinations.length}个${collectDetails ? ' (收集详情)' : ''}`);
 
         // ⭐ 2025-11-14修复: 基于target_issue的ID-1规则计算历史统计起点
         const targetIssueID = this.issueToIdMap.get(targetIssue.toString());
@@ -15872,7 +15923,7 @@ class HwcPositivePredictor extends StreamBatchPredictor {
         // ============ Exclude 5: 相克对排除 (Step 9, ⚡ 分批处理) ============
         if (exclusionConditions.conflictPairs?.enabled && this.historicalStatsCache.conflictPairs) {
             const beforeCount = filtered.length;
-            const detailsMap = {};
+            const detailsMap = collectDetails ? {} : null;  // 🐛 内存优化
             const excludedIds = [];
 
             // ⚡ 分批处理相克对检查（避免大数组一次性处理）
@@ -15896,11 +15947,13 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                                 if (this.historicalStatsCache.conflictPairs.has(key)) {
                                     // 记录排除详情
                                     excludedIds.push(c.combination_id);
-                                    detailsMap[c.combination_id] = {
-                                        conflict_pair: key,
-                                        balls: balls.join(','),
-                                        description: `包含相克对 ${key}`
-                                    };
+                                    if (collectDetails) {  // 🐛 内存优化
+                                        detailsMap[c.combination_id] = {
+                                            conflict_pair: key,
+                                            balls: balls.join(','),
+                                            description: `包含相克对 ${key}`
+                                        };
+                                    }
                                     return false; // 包含相克对,排除
                                 }
                             }
@@ -15937,12 +15990,14 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                     // 如果命中至少一个相克对，则排除并记录详情
                     if (hitPairs.length > 0) {
                         excludedIds.push(c.combination_id);
-                        const pairsStr = hitPairs.map(p => `${p[0]}-${p[1]}`).join(', ');
-                        detailsMap[c.combination_id] = {
-                            conflictPairs: hitPairs,  // ⭐ 保存所有命中的相克对数组
-                            balls: balls.join(','),
-                            description: `包含相克对 ${pairsStr}`
-                        };
+                        if (collectDetails) {  // 🐛 内存优化
+                            const pairsStr = hitPairs.map(p => `${p[0]}-${p[1]}`).join(', ');
+                            detailsMap[c.combination_id] = {
+                                conflictPairs: hitPairs,  // ⭐ 保存所有命中的相克对数组
+                                balls: balls.join(','),
+                                description: `包含相克对 ${pairsStr}`
+                            };
+                        }
                         return false; // 包含相克对,排除
                     }
                     return true; // 不包含相克对,保留
@@ -15985,7 +16040,7 @@ class HwcPositivePredictor extends StreamBatchPredictor {
             if (groups && groups.length > 0) {
                 log(`  🔢 应用连号组数排除: 排除 ${groups.join(', ')} 组`);
                 const beforeCount = filtered.length;
-                const detailsMap = {};
+                const detailsMap = collectDetails ? {} : null;  // 🐛 内存优化
                 const excludedIds = [];
 
                 // 过滤: 排除指定连号组数的组合
@@ -16004,11 +16059,13 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                     const isExcluded = groups.includes(consecutiveGroups);
                     if (isExcluded) {
                         excludedIds.push(c.combination_id);
-                        detailsMap[c.combination_id] = {
-                            actual_groups: consecutiveGroups,
-                            excluded_groups: groups.join(', '),
-                            description: `连号组数 ${consecutiveGroups} 在排除列表 [${groups.join(', ')}]`
-                        };
+                        if (collectDetails) {  // 🐛 内存优化
+                            detailsMap[c.combination_id] = {
+                                actual_groups: consecutiveGroups,
+                                excluded_groups: groups.join(', '),
+                                description: `连号组数 ${consecutiveGroups} 在排除列表 [${groups.join(', ')}]`
+                            };
+                        }
                     }
 
                     // 保留: 连号组数不在排除列表中
@@ -16043,7 +16100,7 @@ class HwcPositivePredictor extends StreamBatchPredictor {
             if (lengths && lengths.length > 0) {
                 log(`  📏 应用最长连号长度排除: 排除 ${lengths.join(', ')}`);
                 const beforeCount = filtered.length;
-                const detailsMap = {};
+                const detailsMap = collectDetails ? {} : null;  // 🐛 内存优化
                 const excludedIds = [];
 
                 // 过滤: 排除指定最长连号长度的组合
@@ -16062,11 +16119,13 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                     const isExcluded = lengths.includes(maxConsecutiveLength);
                     if (isExcluded) {
                         excludedIds.push(c.combination_id);
-                        detailsMap[c.combination_id] = {
-                            actual_length: maxConsecutiveLength,
-                            excluded_lengths: lengths.join(', '),
-                            description: `最长连号长度 ${maxConsecutiveLength} 在排除列表 [${lengths.join(', ')}]`
-                        };
+                        if (collectDetails) {  // 🐛 内存优化
+                            detailsMap[c.combination_id] = {
+                                actual_length: maxConsecutiveLength,
+                                excluded_lengths: lengths.join(', '),
+                                description: `最长连号长度 ${maxConsecutiveLength} 在排除列表 [${lengths.join(', ')}]`
+                            };
+                        }
                     }
 
                     // 保留: 最长连号长度不在排除列表中
@@ -16101,7 +16160,7 @@ class HwcPositivePredictor extends StreamBatchPredictor {
 
             const beforeCount = filtered.length;
             const excludedIds = [];
-            const detailsMap = {};
+            const detailsMap = collectDetails ? {} : null;  // 🐛 内存优化
 
             // 🔧 同现比配置说明：
             // - mode: 'all' 或特定模式 'combo_2', 'combo_3', 'combo_4'
@@ -16223,11 +16282,13 @@ class HwcPositivePredictor extends StreamBatchPredictor {
 
                     if (matchedFeatures.length > 0) {
                         excludedIds.push(c.combination_id);
-                        detailsMap[c.combination_id] = {
-                            matchedFeatures: matchedFeatures,
-                            balls: balls.join(','),
-                            description: `包含历史同现特征 ${matchedFeatures.slice(0, 3).join(', ')}${matchedFeatures.length > 3 ? '...' : ''}`
-                        };
+                        if (collectDetails) {  // 🐛 内存优化
+                            detailsMap[c.combination_id] = {
+                                matchedFeatures: matchedFeatures,
+                                balls: balls.join(','),
+                                description: `包含历史同现特征 ${matchedFeatures.slice(0, 3).join(', ')}${matchedFeatures.length > 3 ? '...' : ''}`
+                            };
+                        }
                         return false;  // 排除
                     }
                     return true;  // 保留
@@ -16307,24 +16368,122 @@ class HwcPositivePredictor extends StreamBatchPredictor {
             .lean();
 
         if (!firstIssueRecord) {
-            log(`❌ [${this.sessionId}] 第一个期号${firstIssueNum}在数据库中不存在`);
+            log(`⚠️ [${this.sessionId}] 第一个期号${firstIssueNum}在数据库中不存在，尝试查找其他存在的期号...`);
+
+            // 🐛 BUG修复 2025-11-29: 不直接return，尝试查找任何存在的期号
+            const existingRecords = await hit_dlts.find({ Issue: { $in: issueNumbers } })
+                .select('Issue ID')
+                .sort({ Issue: 1 })
+                .lean();
+
+            if (existingRecords.length === 0) {
+                log(`❌ [${this.sessionId}] 没有任何期号存在于数据库中，无法继续`);
+                // 初始化空缓存，避免后续访问报错
+                this.hwcOptimizedCache = new Map();
+                this.idToRecordMap = new Map();
+                this.issueToIdMap = new Map();
+                return;
+            }
+
+            log(`  ✅ 找到${existingRecords.length}个存在的期号，继续处理...`);
+
+            // 使用第一个存在的期号
+            const actualFirstRecord = existingRecords[0];
+            const allIssueNums = [actualFirstRecord.ID - 1, ...existingRecords.map(r => r.Issue)];
+
+            const allRecords = await hit_dlts.find({
+                $or: [
+                    { ID: { $in: allIssueNums } },
+                    { Issue: { $in: issueNumbers } }
+                ]
+            })
+                .select('Issue ID')
+                .sort({ ID: 1 })
+                .lean();
+
+            // 继续构建映射和期号对（复用下面的代码逻辑）
+            const idToRecordMap = new Map(allRecords.map(r => [r.ID, r]));
+            this.idToRecordMap = idToRecordMap;
+
+            const issueRecords = allRecords.filter(r => issueNumbers.includes(r.Issue));
+            log(`  📋 共${issueRecords.length}个目标期号`);
+
+            for (const record of issueRecords) {
+                const targetID = record.ID;
+                const targetIssue = record.Issue.toString();
+                const baseRecord = idToRecordMap.get(targetID - 1);
+
+                if (baseRecord) {
+                    issuePairs.push({
+                        base_issue: baseRecord.Issue.toString(),
+                        target_issue: targetIssue
+                    });
+                    log(`  ✅ 期号对: ${baseRecord.Issue}→${targetIssue} (ID ${baseRecord.ID}→${targetID})`);
+                }
+            }
+
+            log(`  ✅ 共生成${issuePairs.length}个期号对`);
+
+            if (issuePairs.length > 0) {
+                const firstPair = issuePairs[0];
+                const baseIssueNum = parseInt(firstPair.base_issue);
+                const baseRecord = allRecords.find(r => r.Issue === baseIssueNum);
+
+                if (baseRecord) {
+                    this.firstIssuePreviousRecord = {
+                        issue: firstPair.base_issue,
+                        id: baseRecord.ID
+                    };
+                    log(`  🔧 设置第一个期号的上一期: ${firstPair.base_issue} (ID=${baseRecord.ID})`);
+                }
+            }
+
+            this.issueToIdMap = new Map();
+            for (const record of allRecords) {
+                this.issueToIdMap.set(record.Issue.toString(), record.ID);
+            }
+            log(`  ✅ 期号→ID映射已构建: ${this.issueToIdMap.size}个期号`);
+
+            await this.preloadHwcOptimizedData(issuePairs);
+            return;  // 已完成预加载，直接返回
+        }
+
+        // 🐛 BUG修复 2025-11-29: 使用ID范围查询而不是期号列表查询
+        // 问题：当期号不连续时（如 25077 → 25124），中间期号的 ID-1 记录不在查询结果中
+        // 解决：先获取所有目标期号的ID范围，然后查询完整的ID范围
+
+        // 2.2 查询所有目标期号获取它们的 ID
+        const targetRecords = await hit_dlts.find({ Issue: { $in: issueNumbers } })
+            .select('Issue ID')
+            .sort({ ID: 1 })
+            .lean();
+
+        if (targetRecords.length === 0) {
+            log(`⚠️ [${this.sessionId}] 没有找到任何目标期号，跳过HWC预加载`);
+            this.hwcOptimizedCache = new Map();
+            this.idToRecordMap = new Map();
+            this.issueToIdMap = new Map();
             return;
         }
 
-        // 查询所有期号（包括第一个期号的上一期）
-        const allIssueNums = [firstIssueRecord.ID - 1, ...issueNumbers];
+        // 2.3 计算ID范围（minID-1 到 maxID，确保包含所有基准期）
+        const minID = targetRecords[0].ID;
+        const maxID = targetRecords[targetRecords.length - 1].ID;
+        log(`  📊 目标期号ID范围: ${minID} - ${maxID}，共${targetRecords.length}个目标期号`);
+
+        // 2.4 使用ID范围查询，包含所有可能的基准期记录
         const allRecords = await hit_dlts.find({
-            $or: [
-                { ID: { $in: allIssueNums } },
-                { Issue: { $in: issueNumbers } }
-            ]
+            ID: { $gte: minID - 1, $lte: maxID }
         })
             .select('Issue ID')
             .sort({ ID: 1 })
             .lean();
 
-        // 构建ID→Record映射
+        log(`  📋 ID范围查询结果: ${allRecords.length}条记录 (ID ${minID-1} ~ ${maxID})`);
+
+        // 构建ID→Record映射 🐛 BUG修复 2025-11-27: 保存到this供processBatch使用
         const idToRecordMap = new Map(allRecords.map(r => [r.ID, r]));
+        this.idToRecordMap = idToRecordMap;  // 保存引用供processBatch使用
 
         // ⭐ 2025-11-14修复: 统一使用ID-1规则生成所有期号对
         // 不再使用数组索引相邻配对，避免期号不连续时产生错误的配对
@@ -16352,6 +16511,26 @@ class HwcPositivePredictor extends StreamBatchPredictor {
         }
 
         log(`  ✅ 共生成${issuePairs.length}个期号对`);
+
+        // 🐛 BUG修复 2025-11-27: 设置第一个期号的上一期缓存
+        // 此前 firstIssuePreviousRecord 被初始化为 null 但从未被设置
+        // 导致 processBatch 中第一个期号总是被跳过
+        if (issuePairs.length > 0) {
+            const firstPair = issuePairs[0];
+            // 从 idToRecordMap 中查找 base_issue 对应的记录获取 ID
+            const baseIssueNum = parseInt(firstPair.base_issue);
+            const baseRecord = allRecords.find(r => r.Issue === baseIssueNum);
+
+            if (baseRecord) {
+                this.firstIssuePreviousRecord = {
+                    issue: firstPair.base_issue,
+                    id: baseRecord.ID
+                };
+                log(`  🔧 设置第一个期号的上一期: ${firstPair.base_issue} (ID=${baseRecord.ID})`);
+            } else {
+                log(`  ⚠️ 无法找到第一个期号的上一期记录`);
+            }
+        }
 
         // ⭐ 2025-11-14新增: 构建期号→ID映射（用于历史统计）
         this.issueToIdMap = new Map();
@@ -16410,14 +16589,115 @@ class HwcPositivePredictor extends StreamBatchPredictor {
         return { hitAnalysis, winningNumbers };
     }
 
-    async processBatch(issuesBatch, filters, exclude_conditions, maxRedCombinations, maxBlueCombinations, enableValidation, combinationMode) {
+    async processBatch(issuesBatch, filters, exclude_conditions, maxRedCombinations, maxBlueCombinations, enableValidation, combinationMode, exclusionDetailsConfig = null) {
         const batchStartTime = Date.now();
         const batchResults = [];
 
-        // 🆕 v3.0优化: Issue → ID 转换 (使用全局缓存的映射)
+        // 🐛 2025-11-29: 根据配置预计算哪些期号需要收集详情
+        const collectDetailsForIssues = new Set();
+        const detailsMode = exclusionDetailsConfig?.mode || 'recent';
+        const recentCount = exclusionDetailsConfig?.recent_count || 10;
+
+        // 预计算需要收集详情的期号
+        if (detailsMode === 'all') {
+            // 全部期号都收集详情
+            issuesBatch.forEach(issue => collectDetailsForIssues.add(issue.toString()));
+            log(`📝 [${this.sessionId}] 排除详情模式: all - 所有${issuesBatch.length}期都收集详情`);
+        } else if (detailsMode === 'recent' || detailsMode === 'top_hit') {
+            // recent模式: 最后N期 + 推算期
+            // top_hit模式: 预处理时无法确定命中最多的期号，暂时使用recent逻辑，后续会在任务完成时筛选
+            const sortedIssues = [...issuesBatch].sort((a, b) => parseInt(b) - parseInt(a));
+            for (let i = 0; i < Math.min(recentCount, sortedIssues.length); i++) {
+                collectDetailsForIssues.add(sortedIssues[i].toString());
+            }
+            log(`📝 [${this.sessionId}] 排除详情模式: ${detailsMode} - 预收集最近${collectDetailsForIssues.size}期详情`);
+        } else if (detailsMode === 'none') {
+            // none模式: 仅推算期收集详情（在循环中判断）
+            log(`📝 [${this.sessionId}] 排除详情模式: none - 仅推算期收集详情`);
+        }
+
+        // 🐛 BUG修复 2025-11-29: 验证关键缓存是否已初始化
+        // 如果缓存未初始化，记录错误并尝试重新构建
+        if (!this.hwcOptimizedCache || this.hwcOptimizedCache.size === 0) {
+            log(`⚠️ [${this.sessionId}] hwcOptimizedCache 未初始化或为空，尝试重新加载...`);
+
+            // 尝试重新构建期号对并加载HWC数据
+            try {
+                const issueNumbers = issuesBatch.map(i => parseInt(i.toString ? i.toString() : String(i)));
+                const firstIssueNum = issueNumbers[0];
+
+                const firstIssueRecord = await hit_dlts.findOne({ Issue: firstIssueNum })
+                    .select('Issue ID')
+                    .lean();
+
+                if (firstIssueRecord) {
+                    const allIssueNums = [firstIssueRecord.ID - 1, ...issueNumbers];
+                    const allRecords = await hit_dlts.find({
+                        $or: [
+                            { ID: { $in: allIssueNums } },
+                            { Issue: { $in: issueNumbers } }
+                        ]
+                    })
+                        .select('Issue ID')
+                        .sort({ ID: 1 })
+                        .lean();
+
+                    // 重新构建映射
+                    this.idToRecordMap = new Map(allRecords.map(r => [r.ID, r]));
+                    this.issueToIdMap = new Map();
+                    for (const record of allRecords) {
+                        this.issueToIdMap.set(record.Issue.toString(), record.ID);
+                    }
+
+                    // 重新生成期号对
+                    const issueRecords = allRecords.filter(r => issueNumbers.includes(r.Issue));
+                    const issuePairs = [];
+
+                    for (const record of issueRecords) {
+                        const targetID = record.ID;
+                        const targetIssue = record.Issue.toString();
+                        const baseRecord = this.idToRecordMap.get(targetID - 1);
+
+                        if (baseRecord) {
+                            issuePairs.push({
+                                base_issue: baseRecord.Issue.toString(),
+                                target_issue: targetIssue
+                            });
+                        }
+                    }
+
+                    // 设置 firstIssuePreviousRecord
+                    if (issuePairs.length > 0) {
+                        const firstPair = issuePairs[0];
+                        const baseIssueNum = parseInt(firstPair.base_issue);
+                        const baseRecord = allRecords.find(r => r.Issue === baseIssueNum);
+                        if (baseRecord) {
+                            this.firstIssuePreviousRecord = {
+                                issue: firstPair.base_issue,
+                                id: baseRecord.ID
+                            };
+                        }
+                    }
+
+                    // 重新加载HWC数据
+                    if (issuePairs.length > 0) {
+                        await this.preloadHwcOptimizedData(issuePairs);
+                        log(`✅ [${this.sessionId}] hwcOptimizedCache 重新加载成功: ${this.hwcOptimizedCache?.size || 0}个期号对`);
+                    }
+                } else {
+                    log(`❌ [${this.sessionId}] 无法找到期号${firstIssueNum}，hwcOptimizedCache 加载失败`);
+                }
+            } catch (reloadError) {
+                log(`❌ [${this.sessionId}] 重新加载hwcOptimizedCache失败: ${reloadError.message}`);
+            }
+        }
+
+        // 🐛 BUG修复 2025-11-27: 使用this.issueToIdMap代替globalCacheManager.issueToIDMap
+        // 因为HwcPositivePredictor不调用globalCacheManager.ensureCacheReady()
+        // 导致globalCacheManager.issueToIDMap始终为null
         const issueToIDArray = issuesBatch.map((issue, index) => {
             const issueStr = issue.toString();
-            const id = globalCacheManager.issueToIDMap?.get(issueStr);
+            const id = this.issueToIdMap?.get(issueStr);  // 使用preloadData中构建的映射
             if (!id) {
                 log(`⚠️ [${this.sessionId}] Issue ${issueStr} 没有对应的ID, 将使用Issue查询`);
             }
@@ -16461,17 +16741,42 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                     continue;
                 }
             } else {
-                // 其余期号：使用数组中的前一个记录
-                baseIssue = issueToIDArray[i - 1].issue;
-                baseID = issueToIDArray[i - 1].id;
+                // 🐛 BUG修复 2025-11-27: 使用ID-1规则（与preloadData一致）
+                // 此前使用数组索引 issueToIDArray[i-1]，导致缓存key不匹配
+                // 正确做法：根据当前期号的ID-1找到上一期记录
+                const baseRecord = this.idToRecordMap?.get(targetID - 1);
+
+                if (baseRecord) {
+                    baseIssue = baseRecord.Issue.toString();
+                    baseID = baseRecord.ID;
+                    log(`  📌 [${this.sessionId}] 期号${targetIssue}使用ID-1规则找到上一期${baseIssue} (ID ${baseID}→${targetID})`);
+                } else {
+                    // Fallback: 使用数组索引（兼容性，但可能不准确）
+                    baseIssue = issueToIDArray[i - 1].issue;
+                    baseID = issueToIDArray[i - 1].id;
+                    log(`  ⚠️ [${this.sessionId}] 期号${targetIssue}的ID-1记录不存在，使用数组fallback: ${baseIssue}`);
+                }
             }
 
             try {
+                // 🐛 2025-11-29: 提前判断是否是推算期，用于决定是否收集详情
+                const targetData = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
+                const isPredicted = !targetData;  // 未找到记录 = 推算期
+
+                // 🐛 2025-11-29: 根据配置决定是否收集详情
+                // 推算期始终收集详情；已开奖期号根据配置决定
+                const shouldCollectDetails = isPredicted || collectDetailsForIssues.has(targetIssue.toString());
+
+                if (shouldCollectDetails) {
+                    log(`  📝 期号${targetIssue}: ${isPredicted ? '推算期' : '配置指定'} - 收集排除详情`);
+                }
+
                 // 1. 6步正选筛选 ⭐ 解构返回的统计信息和排除详情
                 const positiveResult = await this.applyPositiveSelection(
                     baseIssue,
                     targetIssue,
-                    filters.positiveSelection
+                    filters.positiveSelection,
+                    shouldCollectDetails  // 🐛 传递collectDetails参数
                 );
                 let redCombinations = positiveResult.combinations;
                 const positiveSelectionDetails = positiveResult.statistics;
@@ -16482,7 +16787,8 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                     baseIssue,
                     targetIssue,
                     redCombinations,
-                    exclude_conditions
+                    exclude_conditions,
+                    shouldCollectDetails  // 🐛 传递collectDetails参数
                 );
                 redCombinations = exclusionResult.combinations;
                 const exclusionSummary = exclusionResult.summary;
@@ -16497,16 +16803,10 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                 // 4. 命中分析 (如果启用)
                 let hitAnalysis = null;
                 let winningNumbers = null;
-                let isPredicted = false;
-
-                // ⭐ 2025-11-15修复: 始终查询数据库判断是否开奖，确保is_predicted字段准确性
-                // 即使enableValidation=false，也要正确标记开奖/推算状态
-                const targetData = await hit_dlts.findOne({ Issue: parseInt(targetIssue) }).lean();
+                // isPredicted 和 targetData 已在上面判断
 
                 if (targetData) {
                     // 已开奖
-                    isPredicted = false;
-
                     if (enableValidation) {
                         // 启用命中分析：计算完整命中统计
                         const hitInfo = await this.calculateHitAnalysisForIssue(
@@ -16528,7 +16828,6 @@ class HwcPositivePredictor extends StreamBatchPredictor {
                     }
                 } else {
                     // 未开奖
-                    isPredicted = true;
                     log(`  🔮 期号${targetIssue}: 未开奖(推算), is_predicted=true`);
                 }
 
@@ -17940,6 +18239,214 @@ app.post('/api/dlt/positive-prediction/create-task', async (req, res) => {
     }
 });
 
+// ========== ⭐ 2025-11-28新增：排除详情智能保存辅助函数 ==========
+
+/**
+ * 计算需要保存排除详情的期号
+ * @param {Array} results - 所有期号的处理结果
+ * @param {Object} config - 排除详情保存配置
+ * @returns {Set<string>} - 需要保存排除详情的期号集合
+ */
+function determinePeriodsToSaveDetails(results, config) {
+    const periodsToSave = new Set();
+
+    // 1. 推算期始终保存
+    results.filter(r => r.is_predicted).forEach(r => {
+        periodsToSave.add(String(r.target_issue));
+    });
+
+    // 2. 如果配置为"不保存"或未启用，只返回推算期
+    if (!config || !config.enabled || config.mode === 'none') {
+        return periodsToSave;
+    }
+
+    // 3. 根据配置模式确定其他期号
+    const drawnPeriods = results.filter(r => !r.is_predicted && r.hit_analysis);
+
+    if (config.mode === 'top_hit') {
+        // 按命中红球数排序，取前N期
+        const sortedByHit = [...drawnPeriods].sort((a, b) => {
+            const hitA = a.hit_analysis?.max_red_hit || 0;
+            const hitB = b.hit_analysis?.max_red_hit || 0;
+            return hitB - hitA;  // 降序
+        });
+
+        const topN = config.top_hit_count || 10;
+        for (let i = 0; i < Math.min(topN, sortedByHit.length); i++) {
+            periodsToSave.add(String(sortedByHit[i].target_issue));
+        }
+
+    } else if (config.mode === 'recent') {
+        // 最近N期
+        const sortedByIssue = [...drawnPeriods].sort((a, b) => {
+            return parseInt(b.target_issue) - parseInt(a.target_issue);
+        });
+
+        const recentN = config.recent_count || 10;
+        for (let i = 0; i < Math.min(recentN, sortedByIssue.length); i++) {
+            periodsToSave.add(String(sortedByIssue[i].target_issue));
+        }
+
+    } else if (config.mode === 'all') {
+        // 全部保存（不推荐大规模任务）
+        results.forEach(r => periodsToSave.add(String(r.target_issue)));
+    }
+
+    return periodsToSave;
+}
+
+/**
+ * 异步保存排除详情，实时推送进度
+ * @param {string} taskId - 任务ID
+ * @param {Set<string>} periodsToSave - 需要保存的期号集合
+ * @param {Array} allResults - 所有期号的处理结果（包含exclusions_to_save）
+ * @param {Object} io - Socket.IO实例
+ */
+async function saveExclusionDetailsAsync(taskId, periodsToSave, allResults, io) {
+    try {
+        log(`📥 [${taskId}] 开始异步保存排除详情: 共${periodsToSave.size}期...`);
+
+        // 1. 更新任务排除详情状态
+        await HwcPositivePredictionTask.updateOne(
+            { task_id: taskId },
+            {
+                $set: {
+                    exclusion_details_status: 'saving',
+                    exclusion_details_progress: {
+                        current: 0,
+                        total: periodsToSave.size,
+                        percentage: 0,
+                        current_period: null
+                    },
+                    exclusion_details_periods: Array.from(periodsToSave)
+                }
+            }
+        );
+
+        // 2. 通知前端开始保存
+        io.emit('hwc-exclusion-details-started', {
+            task_id: taskId,
+            total_periods: periodsToSave.size,
+            periods: Array.from(periodsToSave)
+        });
+
+        // 3. 使用p-limit控制并发
+        const limit = pLimit(3);  // 最大3并发
+        let savedCount = 0;
+        const errors = [];
+        const periodsArray = Array.from(periodsToSave);
+
+        // 4. 逐期保存
+        for (const period of periodsArray) {
+            const result = allResults.find(r => String(r.target_issue) === period);
+            if (!result || !result.exclusions_to_save?.length) {
+                savedCount++;
+                continue;
+            }
+
+            try {
+                // 构建resultId
+                const resultId = `${taskId}-${period}`;
+
+                // 保存该期的排除详情
+                await limit(() => saveExclusionDetailsBatch(
+                    taskId,
+                    resultId,
+                    period,
+                    result.exclusions_to_save
+                ));
+
+                savedCount++;
+
+                // 更新该期结果的has_exclusion_details标记
+                await HwcPositivePredictionTaskResult.updateOne(
+                    { result_id: resultId },
+                    { $set: { has_exclusion_details: true } }
+                );
+
+                // 更新进度
+                const percentage = Math.round((savedCount / periodsToSave.size) * 100);
+                await HwcPositivePredictionTask.updateOne(
+                    { task_id: taskId },
+                    {
+                        $set: {
+                            'exclusion_details_progress.current': savedCount,
+                            'exclusion_details_progress.percentage': percentage,
+                            'exclusion_details_progress.current_period': period
+                        }
+                    }
+                );
+
+                // 推送进度
+                io.emit('hwc-exclusion-details-progress', {
+                    task_id: taskId,
+                    current: savedCount,
+                    total: periodsToSave.size,
+                    percentage: percentage,
+                    current_period: period,
+                    message: `正在保存期号 ${period} 的排除详情 (${savedCount}/${periodsToSave.size})`
+                });
+
+                log(`    ✅ [${taskId}] 期号${period}排除详情保存成功 (${savedCount}/${periodsToSave.size})`);
+
+            } catch (error) {
+                errors.push({ period, error: error.message });
+                log(`    ⚠️ [${taskId}] 期号${period}排除详情保存失败: ${error.message}`);
+                savedCount++;  // 继续处理下一个
+            }
+        }
+
+        // 5. 更新最终状态
+        const finalStatus = errors.length === 0 ? 'completed' : 'partial';
+        await HwcPositivePredictionTask.updateOne(
+            { task_id: taskId },
+            {
+                $set: {
+                    exclusion_details_status: finalStatus,
+                    'exclusion_details_progress.percentage': 100,
+                    exclusion_details_errors: errors.length > 0 ? errors : []
+                }
+            }
+        );
+
+        // 6. 通知前端完成
+        io.emit('hwc-exclusion-details-completed', {
+            task_id: taskId,
+            status: finalStatus,
+            saved_count: savedCount - errors.length,
+            error_count: errors.length,
+            message: errors.length === 0
+                ? `排除详情保存完成 (${savedCount}期)`
+                : `排除详情保存完成，${errors.length}期失败`
+        });
+
+        log(`✅ [${taskId}] 排除详情异步保存完成: ${savedCount - errors.length}成功, ${errors.length}失败`);
+
+    } catch (error) {
+        log(`❌ [${taskId}] 排除详情异步保存整体失败: ${error.message}`);
+
+        // 更新状态为失败
+        await HwcPositivePredictionTask.updateOne(
+            { task_id: taskId },
+            {
+                $set: {
+                    exclusion_details_status: 'failed',
+                    exclusion_details_errors: [{ period: 'all', error: error.message }]
+                }
+            }
+        );
+
+        // 通知前端
+        io.emit('hwc-exclusion-details-completed', {
+            task_id: taskId,
+            status: 'failed',
+            saved_count: 0,
+            error_count: 1,
+            message: `排除详情保存失败: ${error.message}`
+        });
+    }
+}
+
 /**
  * 处理热温冷正选任务 (异步)
  */
@@ -18017,7 +18524,14 @@ async function processHwcPositiveTask(taskId) {
             maxRedCombinations: 324632,
             maxBlueCombinations: 66,
             enableValidation: task.output_config?.enableHitAnalysis || false,
-            combination_mode: task.output_config?.pairingMode || 'truly-unlimited'
+            combination_mode: task.output_config?.pairingMode || 'truly-unlimited',
+            // 🐛 2025-11-29: 传递排除详情配置，支持前端的4种模式
+            exclusionDetailsConfig: task.output_config?.exclusion_details || {
+                enabled: true,
+                mode: 'top_hit',
+                top_hit_count: 10,
+                recent_count: 10
+            }
         }, (progress) => {
             // 更新任务进度
             const progressPercent = Math.round((progress.processedCount / progress.totalCount) * 100);
@@ -18047,7 +18561,6 @@ async function processHwcPositiveTask(taskId) {
 
         // 4. 保存结果到数据库
         log(`💾 保存结果到数据库: ${result.data.length}条记录...`);
-        const exclusionSavePromises = [];  // ⭐ 2025-11-14: 收集排除详情保存Promise，避免并发耗尽连接池
         let savedCount = 0;
 
         for (const periodResult of result.data) {
@@ -18116,48 +18629,20 @@ async function processHwcPositiveTask(taskId) {
             });
             savedCount++;
 
-            // ⭐ 新增：保存排除详情到DLTExclusionDetails集合
+            // ⭐ 2025-11-28: 排除详情保存改为异步处理，此处只记录日志
             const exclusionsToSave = periodResult.exclusions_to_save || [];
             if (exclusionsToSave.length > 0) {
-                log(`    💾 准备保存排除详情 (${exclusionsToSave.length}个步骤)...`);
-                // ⚡ 2025-11-14: 收集保存函数（而非Promise），使用p-limit控制并发
-                exclusionSavePromises.push({
-                    period: periodResult.target_issue,
-                    saveFn: () => saveExclusionDetailsBatch(
-                        taskId,
-                        resultId,
-                        periodResult.target_issue,
-                        exclusionsToSave
-                    ),
-                    count: exclusionsToSave.length
-                });
+                log(`    📝 期号${periodResult.target_issue}: 有${exclusionsToSave.length}个排除步骤待异步保存`);
             }
         }
 
-        // ⚡ 2025-11-14: 使用p-limit控制并发数（最大3并发），避免耗尽MongoDB连接池
-        if (exclusionSavePromises.length > 0) {
-            log(`📥 开始受控并发保存排除详情: 共${exclusionSavePromises.length}期 (最大并发3)...`);
-            const limit = pLimit(3);  // 限制最大3个并发操作
-
-            const results = await Promise.allSettled(
-                exclusionSavePromises.map(task =>
-                    limit(async () => {
-                        try {
-                            await task.saveFn();
-                            log(`    ✅ 期号${task.period}排除详情保存成功 (${task.count}个步骤)`);
-                            return { success: true, period: task.period };
-                        } catch (error) {
-                            log(`    ⚠️ 期号${task.period}排除详情保存失败: ${error.message}`);
-                            return { success: false, period: task.period, error: error.message };
-                        }
-                    })
-                )
-            );
-
-            const successCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
-            const failedCount = results.filter(r => r.status === 'fulfilled' && !r.value.success).length;
-            log(`✅ 排除详情保存完成: ${successCount}成功, ${failedCount}失败 (共${exclusionSavePromises.length}期)`);
-        }
+        // ⭐ 2025-11-28: 获取排除详情保存配置
+        const exclusionDetailsConfig = task.output_config?.exclusion_details || {
+            enabled: true,
+            mode: 'top_hit',
+            top_hit_count: 10,
+            recent_count: 10
+        };
 
         // 5. 计算任务统计数据
         log(`📊 计算任务统计数据...`);
@@ -18228,6 +18713,38 @@ async function processHwcPositiveTask(taskId) {
             total_combinations: totalCombinations,
             message: `任务完成！共处理${issue_range.length}期`
         });
+
+        // ⭐ 2025-11-28: 异步保存排除详情（不阻塞主流程）
+        if (exclusionDetailsConfig.enabled && exclusionDetailsConfig.mode !== 'none') {
+            // 确定需要保存排除详情的期号
+            const periodsToSave = determinePeriodsToSaveDetails(result.data, exclusionDetailsConfig);
+            log(`📝 [${taskId}] 确定需保存排除详情的期号: ${periodsToSave.size}期 (模式: ${exclusionDetailsConfig.mode})`);
+            log(`    期号列表: ${Array.from(periodsToSave).join(', ')}`);
+
+            if (periodsToSave.size > 0) {
+                // 使用setImmediate异步执行，不阻塞当前函数返回
+                setImmediate(() => {
+                    saveExclusionDetailsAsync(taskId, periodsToSave, result.data, io)
+                        .catch(err => {
+                            log(`❌ [${taskId}] 异步保存排除详情出错: ${err.message}`);
+                        });
+                });
+                log(`📥 [${taskId}] 排除详情异步保存已启动 (后台进行)`);
+            } else {
+                // 无需保存，更新状态为skipped
+                await HwcPositivePredictionTask.updateOne(
+                    { task_id: taskId },
+                    { $set: { exclusion_details_status: 'skipped' } }
+                );
+            }
+        } else {
+            // 配置为不保存，更新状态为skipped
+            await HwcPositivePredictionTask.updateOne(
+                { task_id: taskId },
+                { $set: { exclusion_details_status: 'skipped' } }
+            );
+            log(`⏭️ [${taskId}] 排除详情保存已跳过 (配置禁用)`);
+        }
 
         // ⚡ 性能优化: 清理任务特定缓存（HWC + 历史数据），释放内存
         globalCacheManager.clearTaskSpecificCache();
@@ -20124,7 +20641,14 @@ async function executePredictionTask(taskId) {
             maxRedCombinations: maxRedCombinations,
             maxBlueCombinations: maxBlueCombinations,
             enableValidation: true,  // 启用命中验证
-            combination_mode: combinationMode  // ⭐ 修复：添加顶层combination_mode参数
+            combination_mode: combinationMode,  // ⭐ 修复：添加顶层combination_mode参数
+            // 🐛 2025-11-29: 传递排除详情配置，支持前端的4种模式
+            exclusionDetailsConfig: task.output_config?.exclusion_details || {
+                enabled: true,
+                mode: 'top_hit',
+                top_hit_count: 10,
+                recent_count: 10
+            }
         };
 
         log(`🔧 [${sessionId}] 预测配置:`, {
@@ -21534,9 +22058,17 @@ app.post('/api/dlt/hwc-positive-tasks/create', async (req, res) => {
 
         // 🔧 修复：添加output_config字段（包含enableHitAnalysis和pairingMode）
         // ✅ 强制启用命中分析（不管前端是否传递）
+        // ⭐ 2025-11-28新增：支持排除详情保存配置
         const safeOutputConfig = {
             enableHitAnalysis: true,  // ✅ 强制启用
-            pairingMode: output_config?.pairingMode || 'truly-unlimited'
+            pairingMode: output_config?.pairingMode || 'truly-unlimited',
+            // 排除详情保存配置
+            exclusion_details: {
+                enabled: output_config?.exclusion_details?.enabled !== false,  // 默认启用
+                mode: output_config?.exclusion_details?.mode || 'top_hit',      // 默认命中最多模式
+                top_hit_count: output_config?.exclusion_details?.top_hit_count || 10,
+                recent_count: output_config?.exclusion_details?.recent_count || 10
+            }
         };
 
         // 创建任务记录
@@ -22715,7 +23247,8 @@ async function saveExclusionDetailsBatch(task_id, result_id, period, exclusionsT
 
         // 遍历所有步骤，智能选择存储策略
         for (const exclusion of exclusionsToSave) {
-            const { step, condition, excludedIds, detailsMap = {}, metadata = {} } = exclusion;  // ⭐ 提取metadata
+            const { step, condition, excludedIds, detailsMap, metadata = {} } = exclusion;
+            const safeDetailsMap = detailsMap || {};  // 🐛 修复: null时使用空对象
 
             if (!excludedIds || excludedIds.length === 0) {
                 continue; // 跳过空数据
@@ -22730,7 +23263,7 @@ async function saveExclusionDetailsBatch(task_id, result_id, period, exclusionsT
                 condition,
                 excluded_combination_ids: excludedIds,
                 excluded_count: excludedIds.length,
-                exclusion_details_map: detailsMap,
+                exclusion_details_map: safeDetailsMap,  // 🐛 使用safeDetailsMap
                 metadata: metadata  // ⭐ 添加元数据
             };
 
@@ -22749,7 +23282,7 @@ async function saveExclusionDetailsBatch(task_id, result_id, period, exclusionsT
                 // 策略2: compressed 压缩存储（5-16MB）
                 const dataToCompress = JSON.stringify({
                     excluded_combination_ids: excludedIds,
-                    exclusion_details_map: detailsMap
+                    exclusion_details_map: safeDetailsMap  // 🐛 使用safeDetailsMap
                 });
 
                 const compressedData = await gzip(dataToCompress);
@@ -22781,7 +23314,7 @@ async function saveExclusionDetailsBatch(task_id, result_id, period, exclusionsT
                     step,
                     condition,
                     excludedIds,
-                    detailsMap,
+                    detailsMap: safeDetailsMap,  // 🐛 使用safeDetailsMap
                     docSize,
                     metadata: metadata  // ⭐ 传递元数据到分片函数
                 });

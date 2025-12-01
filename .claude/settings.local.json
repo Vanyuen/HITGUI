@@ -37,7 +37,14 @@
       "Bash(node -e:*)",
       "Bash(node:*)",
       "Bash(git -C E:/HITGUI log --oneline -5)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nchore: 大规模存档 - 热温冷优化、Bug修复和诊断工具\n\n主要更改:\n- 热温冷(HWC)正选批量预测功能优化和Bug修复\n- 性能优化Phase 1-3实施完成 (Worker线程、位图索引、数据库索引)\n- 大量诊断脚本和测试工具\n- 文档更新和问题分析报告\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push:*)",
+      "Bash(ping:*)",
+      "Bash(git config:*)",
+      "Bash(git -C E:/HITGUI diff --stat)",
+      "Bash(git -C E:/HITGUI add -A)",
+      "Bash(git -C E:/HITGUI commit -m \"$(cat <<''EOF''\nchore: 存档 - HWC批量预测功能增强和诊断工具\n\n主要更改:\n- src/server/server.js: 服务端功能增强 (+809行)\n- src/renderer/dlt-module.js: 前端模块优化 (+268行)\n- src/renderer/index.html: 界面更新 (+47行)\n- 新增多个HWC批量预测优化计划文档 (V1-V3)\n- 新增诊断和测试脚本:\n  - check-*.js: 数据检查脚本\n  - diagnose-*.js: 问题诊断工具\n  - compare-*.js: 结果比较工具\n  - simulate-*.js: 模拟测试脚本\n  - verify-*.js, test-*.js: 验证和测试工具\n- scripts/目录: 工具脚本集合\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []

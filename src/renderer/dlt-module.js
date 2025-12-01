@@ -165,6 +165,26 @@ function initSocketIO() {
             handleHwcTaskError(data);
         });
 
+        // ===== ⭐ 2025-11-28: 排除详情保存进度事件监听 =====
+
+        // 5. 排除详情开始保存
+        dltSocket.on('hwc-exclusion-details-started', (data) => {
+            console.log('📥 排除详情开始保存:', data);
+            handleExclusionDetailsStarted(data);
+        });
+
+        // 6. 排除详情保存进度
+        dltSocket.on('hwc-exclusion-details-progress', (data) => {
+            console.log('📊 排除详情保存进度:', data);
+            handleExclusionDetailsProgress(data);
+        });
+
+        // 7. 排除详情保存完成
+        dltSocket.on('hwc-exclusion-details-completed', (data) => {
+            console.log('✅ 排除详情保存完成:', data);
+            handleExclusionDetailsCompleted(data);
+        });
+
         console.log('✅ Socket.IO事件监听已设置');
 
     } catch (error) {
@@ -280,6 +300,100 @@ function handleHwcTaskError(data) {
 
     // 刷新任务列表
     refreshHwcPosTasks();
+}
+
+// ===== ⭐ 2025-11-28: 排除详情保存进度事件处理函数 =====
+
+/**
+ * 处理排除详情开始保存事件
+ */
+function handleExclusionDetailsStarted(data) {
+    const { task_id, total_periods, periods } = data;
+    console.log(`📥 任务 ${task_id} 开始保存排除详情: 共${total_periods}期`);
+
+    // 在任务卡片中显示排除详情保存状态
+    const taskCard = document.querySelector(`[data-task-id="${task_id}"]`);
+    if (taskCard) {
+        // 添加排除详情保存状态行
+        const taskBody = taskCard.querySelector('.task-card-body');
+        if (taskBody) {
+            // 移除旧的排除详情状态行（如果存在）
+            const oldExclusionRow = taskBody.querySelector('.exclusion-details-row');
+            if (oldExclusionRow) {
+                oldExclusionRow.remove();
+            }
+
+            const exclusionDiv = document.createElement('div');
+            exclusionDiv.className = 'task-info-row exclusion-details-row';
+            exclusionDiv.style.cssText = 'margin-top: 8px; padding: 8px; background: #fef3c7; border-radius: 4px;';
+            exclusionDiv.innerHTML = `
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <span style="color: #b45309;">📥 排除详情保存中 (0/${total_periods}期)</span>
+                    <div style="width: 100%; height: 4px; background: #fde68a; border-radius: 2px; overflow: hidden;">
+                        <div class="exclusion-progress-bar" style="width: 0%; height: 100%; background: #f59e0b; transition: width 0.3s;"></div>
+                    </div>
+                </div>
+            `;
+            taskBody.appendChild(exclusionDiv);
+        }
+    }
+}
+
+/**
+ * 处理排除详情保存进度更新事件
+ */
+function handleExclusionDetailsProgress(data) {
+    const { task_id, current, total, percentage, current_period, message } = data;
+    console.log(`📊 任务 ${task_id} 排除详情保存进度: ${current}/${total} (${percentage}%)`);
+
+    // 更新任务卡片中的排除详情保存进度
+    const taskCard = document.querySelector(`[data-task-id="${task_id}"]`);
+    if (taskCard) {
+        const exclusionRow = taskCard.querySelector('.exclusion-details-row');
+        if (exclusionRow) {
+            const statusSpan = exclusionRow.querySelector('span');
+            if (statusSpan) {
+                statusSpan.textContent = `📥 排除详情保存中 (${current}/${total}期, ${percentage}%)`;
+            }
+
+            const progressBar = exclusionRow.querySelector('.exclusion-progress-bar');
+            if (progressBar) {
+                progressBar.style.width = `${percentage}%`;
+            }
+        }
+    }
+}
+
+/**
+ * 处理排除详情保存完成事件
+ */
+function handleExclusionDetailsCompleted(data) {
+    const { task_id, status, saved_count, error_count, message } = data;
+    console.log(`✅ 任务 ${task_id} 排除详情保存完成: ${message}`);
+
+    // 更新任务卡片中的排除详情保存状态
+    const taskCard = document.querySelector(`[data-task-id="${task_id}"]`);
+    if (taskCard) {
+        const exclusionRow = taskCard.querySelector('.exclusion-details-row');
+        if (exclusionRow) {
+            if (status === 'completed') {
+                exclusionRow.style.background = '#d1fae5';
+                exclusionRow.innerHTML = `
+                    <span style="color: #059669;">✅ 排除详情已保存 (${saved_count}期)</span>
+                `;
+            } else if (status === 'partial') {
+                exclusionRow.style.background = '#fef3c7';
+                exclusionRow.innerHTML = `
+                    <span style="color: #b45309;">⚠️ 排除详情部分保存 (${saved_count}成功, ${error_count}失败)</span>
+                `;
+            } else {
+                exclusionRow.style.background = '#fee2e2';
+                exclusionRow.innerHTML = `
+                    <span style="color: #dc2626;">❌ 排除详情保存失败</span>
+                `;
+            }
+        }
+    }
 }
 
 // ===== 大乐透批量预测命中对比分析模块 =====
@@ -17013,9 +17127,13 @@ async function createHwcPositiveTask() {
                 autoExport: outputConfig.autoExport,
                 previewMode: outputConfig.previewMode,
                 includeExclusionDetails: outputConfig.includeExclusionDetails,
-                // 排除明细存储优化配置
-                saveExclusionLimited: document.getElementById('hwc-save-exclusion-limited')?.checked ?? true,
-                exclusionSavePeriods: parseInt(document.getElementById('hwc-exclusion-save-periods')?.value) || 2
+                // ⭐ 2025-11-28: 排除详情保存配置（优化版）
+                exclusion_details: {
+                    enabled: document.getElementById('hwc-exclusion-details-enabled')?.checked !== false,  // 默认启用
+                    mode: document.getElementById('hwc-exclusion-details-mode')?.value || 'top_hit',       // 默认命中最多模式
+                    top_hit_count: parseInt(document.getElementById('hwc-exclusion-details-count')?.value) || 10,
+                    recent_count: parseInt(document.getElementById('hwc-exclusion-details-count')?.value) || 10
+                }
             }
         };
 
@@ -17168,6 +17286,69 @@ function renderHwcPosTaskCards(tasks) {
 }
 
 /**
+ * ⭐ 2025-11-28: 生成排除详情保存状态HTML
+ * @param {Object} task - 任务对象
+ * @returns {string} HTML字符串
+ */
+function getExclusionDetailsStatusHtml(task) {
+    const status = task.exclusion_details_status;
+    const progress = task.exclusion_details_progress || {};
+    const periods = task.exclusion_details_periods || [];
+
+    if (!status || status === 'pending') {
+        return ''; // 尚未开始保存，不显示
+    }
+
+    let bgColor, textColor, icon, text;
+
+    switch (status) {
+        case 'saving':
+            bgColor = '#fef3c7';
+            textColor = '#b45309';
+            icon = '📥';
+            text = `排除详情保存中 (${progress.current || 0}/${progress.total || 0}期, ${progress.percentage || 0}%)`;
+            break;
+        case 'completed':
+            bgColor = '#d1fae5';
+            textColor = '#059669';
+            icon = '📋';
+            text = `排除详情已保存 (${periods.length}期)`;
+            break;
+        case 'partial':
+            bgColor = '#fef3c7';
+            textColor = '#b45309';
+            icon = '⚠️';
+            text = `排除详情部分保存 (${periods.length}期)`;
+            break;
+        case 'failed':
+            bgColor = '#fee2e2';
+            textColor = '#dc2626';
+            icon = '❌';
+            text = '排除详情保存失败';
+            break;
+        case 'skipped':
+            bgColor = '#f3f4f6';
+            textColor = '#6b7280';
+            icon = '⏭️';
+            text = '排除详情已跳过';
+            break;
+        default:
+            return '';
+    }
+
+    return `
+        <div class="task-info-row exclusion-details-row" style="margin-top: 8px; padding: 8px; background: ${bgColor}; border-radius: 4px;">
+            <span style="color: ${textColor}; font-size: 13px;">${icon} ${text}</span>
+            ${status === 'saving' ? `
+                <div style="margin-top: 4px; width: 100%; height: 4px; background: #fde68a; border-radius: 2px; overflow: hidden;">
+                    <div class="exclusion-progress-bar" style="width: ${progress.percentage || 0}%; height: 100%; background: #f59e0b; transition: width 0.3s;"></div>
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+/**
  * 创建热温冷正选任务卡片
  */
 function createHwcPosTaskCard(task) {
@@ -17308,6 +17489,7 @@ function createHwcPosTaskCard(task) {
                 <div class="task-info-row">
                     <span>💰 总奖金: ¥${totalPrize.toLocaleString()}</span>
                 </div>
+                ${getExclusionDetailsStatusHtml(task)}
             ` : ''}
             <div class="task-info-row">
                 <span class="text-muted">🕒 创建时间: ${createdAt}</span>
@@ -17766,8 +17948,79 @@ function renderHwcPosTaskDetail(data) {
     exclusionHtml += '</div>';
     document.getElementById('hwc-pos-modal-exclusion-conditions').innerHTML = exclusionHtml;
 
+    // ⭐ 2025-11-28新增：显示排除详情保存状态
+    const exclusionDetailsSection = document.getElementById('hwc-pos-modal-exclusion-details-section');
+    const exclusionDetailsStatusDiv = document.getElementById('hwc-pos-modal-exclusion-details-status');
+
+    if (exclusionDetailsSection && exclusionDetailsStatusDiv) {
+        const detailsStatus = task.exclusion_details_status;
+        const detailsProgress = task.exclusion_details_progress || {};
+        const detailsPeriods = task.exclusion_details_periods || [];
+
+        // 只有当有排除详情状态时才显示此区域
+        if (detailsStatus && detailsStatus !== 'pending') {
+            exclusionDetailsSection.style.display = 'block';
+
+            let statusHtml = '<div style="padding: 10px; background: #f8f9fa; border-radius: 6px;">';
+
+            // 状态显示
+            const statusMap = {
+                'saving': { icon: '⏳', text: '保存中', color: '#2196F3' },
+                'completed': { icon: '✅', text: '已完成', color: '#4CAF50' },
+                'partial': { icon: '⚠️', text: '部分完成', color: '#FF9800' },
+                'failed': { icon: '❌', text: '保存失败', color: '#F44336' },
+                'skipped': { icon: '⏭️', text: '已跳过', color: '#9E9E9E' }
+            };
+
+            const statusInfo = statusMap[detailsStatus] || { icon: '❓', text: detailsStatus, color: '#666' };
+            statusHtml += `<p><strong>状态:</strong> <span style="color: ${statusInfo.color};">${statusInfo.icon} ${statusInfo.text}</span></p>`;
+
+            // 进度显示
+            if (detailsStatus === 'saving' && detailsProgress.total > 0) {
+                const percentage = detailsProgress.percentage || 0;
+                statusHtml += `
+                    <p><strong>保存进度:</strong> ${detailsProgress.current}/${detailsProgress.total}期 (${percentage}%)</p>
+                    <div style="background: #e0e0e0; border-radius: 4px; height: 8px; margin: 8px 0;">
+                        <div style="background: #2196F3; height: 100%; border-radius: 4px; width: ${percentage}%; transition: width 0.3s;"></div>
+                    </div>
+                `;
+                if (detailsProgress.current_period) {
+                    statusHtml += `<p style="font-size: 12px; color: #666;">当前保存: ${detailsProgress.current_period}期</p>`;
+                }
+            }
+
+            // 已保存期号列表
+            if (detailsPeriods.length > 0) {
+                statusHtml += `<p><strong>已保存排除详情的期号 (${detailsPeriods.length}期):</strong></p>`;
+                statusHtml += `<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;">`;
+                detailsPeriods.forEach(period => {
+                    statusHtml += `<span style="padding: 2px 8px; background: #e3f2fd; border-radius: 12px; font-size: 12px;">${period}</span>`;
+                });
+                statusHtml += `</div>`;
+            }
+
+            // 错误信息
+            if (task.exclusion_details_errors && task.exclusion_details_errors.length > 0) {
+                statusHtml += `<p style="color: #F44336; margin-top: 8px;"><strong>保存失败的期号:</strong></p>`;
+                statusHtml += `<ul style="margin: 4px 0; padding-left: 20px; font-size: 12px;">`;
+                task.exclusion_details_errors.forEach(err => {
+                    statusHtml += `<li>${err.period}: ${err.error}</li>`;
+                });
+                statusHtml += `</ul>`;
+            }
+
+            statusHtml += '</div>';
+            exclusionDetailsStatusDiv.innerHTML = statusHtml;
+        } else {
+            exclusionDetailsSection.style.display = 'none';
+        }
+    }
+
     // 各期结果 - 添加操作按钮
     const resultsBody = document.getElementById('hwc-pos-modal-results-tbody');
+    // ⭐ 2025-11-28新增：获取已保存排除详情的期号列表
+    const exclusionDetailsPeriods = new Set((task.exclusion_details_periods || []).map(String));
+
     if (resultsBody) {
         if (period_results && period_results.length > 0) {
             resultsBody.innerHTML = period_results.map(result => {
@@ -17775,6 +18028,10 @@ function renderHwcPosTaskDetail(data) {
                 const hit = result.hit_analysis || {};
                 const prizeStats = hit.prize_stats || {};
                 const isPredicted = result.is_predicted || false;
+
+                // ⭐ 2025-11-28新增：检查该期是否有保存排除详情
+                const periodStr = String(result.period);
+                const hasExclusionDetails = exclusionDetailsPeriods.has(periodStr);
 
                 // ⭐ 修复：计算真实的组合数量（处理旧格式数据）
                 let displayCount = result.combination_count || 0;
@@ -17813,7 +18070,10 @@ function renderHwcPosTaskDetail(data) {
 
                 return `
                     <tr>
-                        <td>${result.period || '-'}${isPredicted ? ' (推算)' : ''}</td>
+                        <td>
+                            ${result.period || '-'}${isPredicted ? ' (推算)' : ''}
+                            ${hasExclusionDetails ? '<span style="color: #4CAF50; margin-left: 4px;" title="已保存排除详情">📋</span>' : ''}
+                        </td>
                         <td>${displayCount.toLocaleString()}</td>
                         <td>${hit.max_red_hit || 0}/5</td>
                         <td>${hit.max_blue_hit || 0}/2</td>
