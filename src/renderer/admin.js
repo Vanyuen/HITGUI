@@ -110,7 +110,7 @@ function displayStatus(data) {
 
             html += `
                 <div class="status-item ${statusClass}">
-                    <h4>${table.name}</h4>
+                    <h4>${table.displayName || table.name}</h4>
                     <div class="value">${table.count}</div>
                     <div class="label">${statusText}</div>
                 </div>
@@ -484,7 +484,38 @@ async function clearExpiredCache() {
     }
 }
 
-// 增量更新热温冷优化表
+
+// 一键增量更新所有数据表
+async function executeUnifiedUpdateIncremental() {
+    if (!confirm('确定要一键增量更新所有数据表吗？\n\n将按顺序更新：遗漏值表 → statistics → 组合特征表 → 热温冷优化表（含推算期）')) {
+        return;
+    }
+
+    addLog('🚀 开始一键增量更新所有数据表...', 'info');
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/dlt/unified-update-incremental`, {
+            method: 'POST'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            addLog(`✅ 一键增量更新完成，总耗时${result.totalTime}`, 'success');
+            addLog(`   遗漏值表: +${result.results.missingTable.newRecords}条`, 'info');
+            addLog(`   statistics: +${result.results.statistics.newRecords}条`, 'info');
+            addLog(`   组合特征表: +${result.results.comboFeatures.newRecords}条`, 'info');
+            addLog(`   热温冷优化表: +${result.results.hwcOptimized.createdCount}条`, 'info');
+            await refreshStatus();
+        } else {
+            addLog(`❌ 更新失败: ${result.message}`, 'error');
+        }
+    } catch (error) {
+        addLog(`❌ 请求失败: ${error.message}`, 'error');
+    }
+}
+
+// 增量更新热温冷优化表（保留兼容）
 async function updateHwcOptimizedIncremental() {
     if (!confirm('确定要增量更新热温冷优化表吗？\n\n将删除推算期记录和最近10期数据，然后重新生成。')) {
         return;
@@ -509,35 +540,6 @@ async function updateHwcOptimizedIncremental() {
     } catch (error) {
         addLog(`❌ 网络错误: ${error.message}`, 'error');
         showAlert('增量更新失败: 网络错误', 'error');
-    }
-}
-
-// 全量重建热温冷优化表
-async function rebuildHwcOptimizedAll() {
-    if (!confirm('⚠️ 确定要全量重建热温冷优化表吗？\n\n这将删除所有现有数据并重新生成全部2792条记录，预计需要5-10分钟。')) {
-        return;
-    }
-
-    addLog('🔄 开始全量重建热温冷优化表...', 'info');
-    addLog('预计需要5-10分钟，请耐心等待...', 'warning');
-
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/dlt/hwc-optimized/rebuild-all`, {
-            method: 'POST'
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            addLog(`✅ 全量重建成功: ${result.message}`, 'success');
-            showAlert('热温冷优化表全量重建成功！', 'success');
-        } else {
-            addLog(`❌ 全量重建失败: ${result.message}`, 'error');
-            showAlert(`全量重建失败: ${result.message}`, 'error');
-        }
-    } catch (error) {
-        addLog(`❌ 网络错误: ${error.message}`, 'error');
-        showAlert('全量重建失败: 网络错误', 'error');
     }
 }
 

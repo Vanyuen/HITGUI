@@ -100,10 +100,26 @@ This is an Electron app with a classic multi-process architecture:
 - `hit_dlts` - 大乐透历史数据 (2,792 records, periods 7001-25124)
 - `hit_dlt_redcombinations` - 红球组合数据 (324,632 records for C(35,5))
 - `hit_dlt_bluecombinations` - 蓝球组合数据 (66 records for C(12,2))
-- `HIT_DLT_RedCombinationsHotWarmColdOptimized` - 热温冷比优化表
+- `hit_dlt_redcombinationshotwarmcoldoptimizeds` - 热温冷比优化表 (2810 records)
+- `hit_dlt_hwcpositivepredictiontasks` - 热温冷正选批量预测任务 (40 records)
+- `hit_dlt_hwcpositivepredictiontaskresults` - 热温冷正选批量预测结果 (3853 records)
 - `PredictionTask` - 预测任务
 - `PredictionTaskResult` - 任务结果
 - `DLTExclusionDetails` - 排除详情记录
+
+**IMPORTANT - Mongoose Model to Collection Mapping (Updated 2025-12-13):**
+Mongoose模型名与实际MongoDB集合名的映射关系（已在mongoose.model第三个参数中明确指定）：
+
+| Mongoose模型变量 | 模型名 | 实际集合名 |
+|-----------------|--------|-----------|
+| `DLTComboFeatures` | HIT_DLT_ComboFeatures | `hit_dlt_combofeatures` |
+| `DLTRedMissing` | HIT_DLT_Basictrendchart_redballmissing_history | `hit_dlt_basictrendchart_redballmissing_histories` |
+| `DLTBlueMissing` | HIT_DLT_Basictrendchart_blueballmissing_history | `hit_dlt_basictrendchart_blueballmissing_histories` |
+| `DLTRedCombinationsHotWarmColdOptimized` | HIT_DLT_RedCombinationsHotWarmColdOptimized | `hit_dlt_redcombinationshotwarmcoldoptimizeds` |
+| `HwcPositivePredictionTask` | HIT_DLT_HwcPositivePredictionTask | `hit_dlt_hwcpositivepredictiontasks` |
+| `HwcPositivePredictionTaskResult` | HIT_DLT_HwcPositivePredictionTaskResult | `hit_dlt_hwcpositivepredictiontaskresults` |
+
+⚠️ **注意**: 如果定义新的Mongoose模型，必须在`mongoose.model()`的第三个参数中明确指定集合名，避免Mongoose自动转换导致的集合名不匹配问题。
 
 **IMPORTANT - DLT Collection Names (Updated 2025-11-16):**
 See `PLAN_C_COMPLETION_REPORT.md` for full details on the collection naming unification.
@@ -112,6 +128,18 @@ See `PLAN_C_COMPLETION_REPORT.md` for full details on the collection naming unif
 - ✅ Blue combinations: `hit_dlt_bluecombinations` (lowercase, singular dlt)
 - ❌ DO NOT use: `HIT_DLT`, `hit_dlt`, `DLT` (empty collections, deprecated)
 - ❌ DO NOT use: `HIT_DLT_RedCombinations`, `HIT_DLT_BlueCombinations` (empty or duplicate)
+
+**IMPORTANT - 走势图遗漏值集合 (Updated 2025-12-08):**
+走势图功能依赖以下两个遗漏值集合，由"一键全量更新"生成：
+- ✅ 前区遗漏值: `hit_dlt_basictrendchart_redballmissing_histories` (35个红球遗漏值)
+- ✅ 后区遗漏值: `hit_dlt_basictrendchart_blueballmissing_histories` (12个蓝球遗漏值)
+- ❌ DO NOT use: `hit_dlts_backup_missing_values` (旧备份，已废弃)
+
+相关代码位置：
+- Schema定义: `src/server/server.js:573` (DLTBlueMissing), `src/server/server.js:558` (DLTRedMissing)
+- 走势图API: `GET /api/dlt/trendchart` (line 3219-3419)
+- 全量更新: `generateUnifiedMissingTables()` (line 28280-28414)
+- 数据状态监控: `/api/dlt/data-status` (line 27720-27800)
 
 ### Data Processing Pipeline
 

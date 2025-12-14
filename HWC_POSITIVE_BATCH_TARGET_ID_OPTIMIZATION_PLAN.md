@@ -548,3 +548,62 @@ curl http://localhost:3003/api/dlt/hwc-positive-tasks/{task_id}
 4. 修改 `HwcPositivePredictor` 类的预加载逻辑
 5. 添加兼容性转换函数
 6. 测试验证
+
+---
+
+## ✅ 实施完成记录 (2025-12-08)
+
+### 已完成的修改
+
+| 序号 | 修改内容 | 文件位置 | 状态 |
+|------|----------|----------|------|
+| 1 | 为现有2806条HWC记录补充 target_id 和 base_id | fix-hwc-add-ids.js | ✅ |
+| 2 | 修改已开奖期 .create() 自动填充 ID 字段 | server.js:28775-28776 | ✅ |
+| 3 | 修改推算期 .create() 自动填充 ID 字段 | server.js:28867-28868 | ✅ |
+| 4 | 修改 generate-missing-hwc API 自动填充 ID | server.js:18011-18020 | ✅ |
+| 5 | 修改 preloadHwcOptimizedData 使用 target_id 范围查询 | server.js:15119-15137 | ✅ |
+| 6 | 创建第一期特殊记录 target_issue=7001 | create-first-hwc.js | ✅ |
+| 7 | 修改 data-status API 使用 target_id 排序 | server.js:27755 | ✅ |
+
+### 关键代码修改
+
+#### 1. 已开奖期创建 (server.js:28775-28776)
+```javascript
+base_id: baseIssue.ID,      // 🆕 添加 base_id
+target_id: targetIssue.ID,  // 🆕 添加 target_id
+```
+
+#### 2. 推算期创建 (server.js:28867-28868)
+```javascript
+base_id: baseIssueForPrediction.ID,  // 🆕 添加 base_id
+target_id: null,                     // 🆕 推算期 target_id 为 null
+```
+
+#### 3. preloadHwcOptimizedData 优化 (server.js:15119-15137)
+```javascript
+const targetIds = issuePairs
+    .map(p => this.issueToIdMap?.get(p.target_issue))
+    .filter(id => id !== undefined);
+if (targetIds.length > 0 && this.issueToIdMap) {
+    const minId = Math.min(...targetIds);
+    const maxId = Math.max(...targetIds);
+    hwcDataList = await DLTRedCombinationsHotWarmColdOptimized.find({
+        target_id: { $gte: minId, $lte: maxId }
+    }).lean();
+}
+```
+
+### 数据验证结果
+
+- HWC表记录数: 2807条 (含第一期特殊记录)
+- 所有记录已补充 target_id 和 base_id 字段
+- 第一期记录: target_issue="7001", target_id=1, base_id=null
+- 最新记录: target_issue="25125", target_id=2792 (或推算期 target_id=null)
+
+### 辅助脚本
+
+| 脚本 | 用途 |
+|------|------|
+| fix-hwc-add-ids.js | 批量补充现有记录的ID字段 |
+| create-first-hwc.js | 创建第一期特殊记录 |
+| check-hwc-structure.js | 检查HWC表结构 |

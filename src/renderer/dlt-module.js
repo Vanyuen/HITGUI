@@ -16195,6 +16195,19 @@ function initHwcEventListeners() {
         cb.addEventListener('change', updateAcPositiveStats);
     });
 
+    // 历史和值正选事件绑定
+    const sumHistoricalCheckbox = document.getElementById('sum-pos-historical-enabled');
+    const sumHistoricalConfig = document.getElementById('sum-pos-historical-config');
+    if (sumHistoricalCheckbox) {
+        sumHistoricalCheckbox.addEventListener('change', function() {
+            if (sumHistoricalConfig) {
+                sumHistoricalConfig.style.opacity = this.checked ? '1' : '0.5';
+                sumHistoricalConfig.style.pointerEvents = this.checked ? 'auto' : 'none';
+            }
+            updateSumRangeStats();
+        });
+    }
+
     // 和值范围复选框和输入框
     for (let i = 1; i <= 3; i++) {
         const checkbox = document.getElementById(`sum-pos-range${i}-enabled`);
@@ -16863,8 +16876,25 @@ async function createHwcPositiveTask() {
             sumRanges: [],
             spanRanges: [],
             oddEvenRatios: Array.from(document.querySelectorAll('.odd-even-pos-cb:checked')).map(cb => cb.value),
-            acValues: Array.from(document.querySelectorAll('.ac-pos-cb:checked')).map(cb => parseInt(cb.value))
+            acValues: Array.from(document.querySelectorAll('.ac-pos-cb:checked')).map(cb => parseInt(cb.value)),
+            // ⭐ 2025-12-10新增: 正选红球配置 (字段名必须是 red_balls 与Schema一致)
+            red_balls: {
+                ball_1: Array.from(document.querySelectorAll('.red-ball-pos-cb[data-position="1"]:checked')).map(cb => parseInt(cb.value)),
+                ball_2: Array.from(document.querySelectorAll('.red-ball-pos-cb[data-position="2"]:checked')).map(cb => parseInt(cb.value)),
+                ball_3: Array.from(document.querySelectorAll('.red-ball-pos-cb[data-position="3"]:checked')).map(cb => parseInt(cb.value)),
+                ball_4: Array.from(document.querySelectorAll('.red-ball-pos-cb[data-position="4"]:checked')).map(cb => parseInt(cb.value)),
+                ball_5: Array.from(document.querySelectorAll('.red-ball-pos-cb[data-position="5"]:checked')).map(cb => parseInt(cb.value))
+            }
         };
+
+        // 历史和值正选
+        const sumHistoricalEnabled = document.getElementById('sum-pos-historical-enabled')?.checked;
+        if (sumHistoricalEnabled) {
+            positiveSelection.sumHistorical = {
+                enabled: true,
+                period: parseInt(document.getElementById('sum-pos-historical-period')?.value) || 200
+            };
+        }
 
         // 和值范围
         for (let i = 1; i <= 3; i++) {
@@ -17118,6 +17148,9 @@ async function createHwcPositiveTask() {
                     allow_2_consecutive: true,
                     allow_3_consecutive: false
                 }
+            ,
+                // ⭐ 2025-12-10新增: 正选红球配置
+                red_balls: positiveSelection.red_balls || {}
             },
             exclusion_conditions: exclusionConditions,
             output_config: {
@@ -17431,6 +17464,21 @@ function createHwcPosTaskCard(task) {
     // 质合比（如果有）
     if (positiveSel.primes_ratios && positiveSel.primes_ratios.length > 0) {
         positiveHtml += `<p style="margin: 2px 0;"><strong>🔬 质合比:</strong> ${positiveSel.primes_ratios.join(', ')}</p>`;
+    }
+
+    
+    // ⭐ 2025-12-10新增: 正选红球
+    if (positiveSel.red_balls) {
+        const rb = positiveSel.red_balls;
+        const rbParts = [];
+        if (rb.ball_1?.length > 0 && rb.ball_1.length < 35) rbParts.push(`红1:${rb.ball_1.length}个`);
+        if (rb.ball_2?.length > 0 && rb.ball_2.length < 34) rbParts.push(`红2:${rb.ball_2.length}个`);
+        if (rb.ball_3?.length > 0 && rb.ball_3.length < 33) rbParts.push(`红3:${rb.ball_3.length}个`);
+        if (rb.ball_4?.length > 0 && rb.ball_4.length < 32) rbParts.push(`红4:${rb.ball_4.length}个`);
+        if (rb.ball_5?.length > 0 && rb.ball_5.length < 31) rbParts.push(`红5:${rb.ball_5.length}个`);
+        if (rbParts.length > 0) {
+            positiveHtml += `<p style="margin: 2px 0;"><strong>🎱 正选红球:</strong> ${rbParts.join(', ')}</p>`;
+        }
     }
 
     // ⭐ 新增：生成排除条件摘要（完整版本）
@@ -17849,6 +17897,23 @@ function renderHwcPosTaskDetail(data) {
     // 质合比
     if (positiveConditions.primes_ratios && positiveConditions.primes_ratios.length > 0) {
         positiveHtml += `<p><strong>🔬 质合比:</strong> ${positiveConditions.primes_ratios.join(', ')}</p>`;
+    }
+
+    
+    // ⭐ 2025-12-10新增: 正选红球
+    if (positiveConditions.red_balls) {
+        const rb = positiveConditions.red_balls;
+        let rbHtml = '<ul style="margin: 5px 0; padding-left: 20px; font-size: 13px;">';
+        if (rb.ball_1?.length > 0) rbHtml += `<li>红球1: ${rb.ball_1.join(', ')}</li>`;
+        if (rb.ball_2?.length > 0) rbHtml += `<li>红球2: ${rb.ball_2.join(', ')}</li>`;
+        if (rb.ball_3?.length > 0) rbHtml += `<li>红球3: ${rb.ball_3.join(', ')}</li>`;
+        if (rb.ball_4?.length > 0) rbHtml += `<li>红球4: ${rb.ball_4.join(', ')}</li>`;
+        if (rb.ball_5?.length > 0) rbHtml += `<li>红球5: ${rb.ball_5.join(', ')}</li>`;
+        rbHtml += '</ul>';
+        const hasAnyLimit = (rb.ball_1?.length > 0) || (rb.ball_2?.length > 0) || (rb.ball_3?.length > 0) || (rb.ball_4?.length > 0) || (rb.ball_5?.length > 0);
+        if (hasAnyLimit) {
+            positiveHtml += `<p><strong>🎱 正选红球:</strong></p>${rbHtml}`;
+        }
     }
 
     positiveHtml += '</div>';
@@ -19108,3 +19173,109 @@ if (typeof window !== 'undefined') {
     window.closeExclusionDetailsModal = closeExclusionDetailsModal;
     window.exportPeriodExcel = exportPeriodExcel;
 }
+
+// ⭐ 2025-12-10新增: 正选红球相关函数
+
+/**
+ * 切换指定位置的所有红球选中状态
+ */
+function toggleRedBallPos(position, selectAll) {
+    const checkboxes = document.querySelectorAll(`.red-ball-pos-cb[data-position="${position}"]`);
+    checkboxes.forEach(cb => {
+        cb.checked = selectAll;
+    });
+    updateRedBallPosSummary();
+}
+
+/**
+ * 正选红球预设
+ */
+function setRedBallPosPreset(preset) {
+    // 清空所有
+    document.querySelectorAll('.red-ball-pos-cb').forEach(cb => cb.checked = false);
+
+    switch (preset) {
+        case 'clear':
+            // 不选择任何，表示不限制
+            break;
+        case 'small':
+            // 小号优先 (1-18)
+            for (let pos = 1; pos <= 5; pos++) {
+                const minVal = pos;
+                const checkboxes = document.querySelectorAll(`.red-ball-pos-cb[data-position="${pos}"]`);
+                checkboxes.forEach(cb => {
+                    const val = parseInt(cb.value);
+                    if (val <= 18) {
+                        cb.checked = true;
+                    }
+                });
+            }
+            break;
+        case 'large':
+            // 大号优先 (18-35)
+            for (let pos = 1; pos <= 5; pos++) {
+                const checkboxes = document.querySelectorAll(`.red-ball-pos-cb[data-position="${pos}"]`);
+                checkboxes.forEach(cb => {
+                    const val = parseInt(cb.value);
+                    if (val >= 18) {
+                        cb.checked = true;
+                    }
+                });
+            }
+            break;
+        case 'odd':
+            // 奇数优先
+            for (let pos = 1; pos <= 5; pos++) {
+                const checkboxes = document.querySelectorAll(`.red-ball-pos-cb[data-position="${pos}"]`);
+                checkboxes.forEach(cb => {
+                    const val = parseInt(cb.value);
+                    if (val % 2 === 1) {
+                        cb.checked = true;
+                    }
+                });
+            }
+            break;
+        case 'even':
+            // 偶数优先
+            for (let pos = 1; pos <= 5; pos++) {
+                const checkboxes = document.querySelectorAll(`.red-ball-pos-cb[data-position="${pos}"]`);
+                checkboxes.forEach(cb => {
+                    const val = parseInt(cb.value);
+                    if (val % 2 === 0) {
+                        cb.checked = true;
+                    }
+                });
+            }
+            break;
+    }
+
+    updateRedBallPosSummary();
+}
+
+/**
+ * 更新正选红球统计摘要
+ */
+function updateRedBallPosSummary() {
+    const summaryEl = document.getElementById('red-ball-pos-summary');
+    if (!summaryEl) return;
+
+    const limits = [];
+    for (let pos = 1; pos <= 5; pos++) {
+        const checked = document.querySelectorAll(`.red-ball-pos-cb[data-position="${pos}"]:checked`);
+        const total = document.querySelectorAll(`.red-ball-pos-cb[data-position="${pos}"]`);
+        if (checked.length > 0 && checked.length < total.length) {
+            limits.push(`红${pos}:${checked.length}个`);
+        }
+    }
+
+    if (limits.length === 0) {
+        summaryEl.textContent = '不限制';
+    } else {
+        summaryEl.textContent = limits.join(', ');
+    }
+}
+
+// 暴露到全局
+window.toggleRedBallPos = toggleRedBallPos;
+window.setRedBallPosPreset = setRedBallPosPreset;
+window.updateRedBallPosSummary = updateRedBallPosSummary;

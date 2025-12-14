@@ -761,13 +761,10 @@
 
                 <div class="btn-group">
                     <button class="btn btn-primary" id="updateBtn" onclick="executeUnifiedUpdate()">
-                        🚀 一键更新全部数据表
+                        🚀 一键全量更新数据表
                     </button>
-                    <button class="btn btn-success" onclick="updateHwcOptimizedIncremental()">
-                        ⚡ 增量更新热温冷优化表
-                    </button>
-                    <button class="btn btn-danger" onclick="rebuildHwcOptimizedAll()">
-                        🔄 全量重建热温冷优化表
+                    <button class="btn btn-success" onclick="executeUnifiedUpdateIncremental()">
+                        ⚡ 一键增量更新数据表
                     </button>
                     <button class="btn btn-warning" onclick="clearExpiredCache()">
                         🧹 清理过期缓存

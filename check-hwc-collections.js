@@ -1,41 +1,27 @@
 const mongoose = require('mongoose');
 
-async function check() {
+async function checkCollections() {
     await mongoose.connect('mongodb://127.0.0.1:27017/lottery');
-    console.log('检查所有HWC优化表collection:\n');
 
-    const collections = [
-        'hit_dlt_redcombinationshotwarmcoldoptimizeds',
-        'hit_dlt_redcombinationshotwarmcoldoptimized',
-        'dltredcombinationshotwarmcoldoptimizeds',
-        'hit_dlt_redcombinationshwcoptimized',
-        'HIT_DLT_RedCombinationsHotWarmColdOptimized',
-        'HIT_DLT_RedCombinationsHWCOptimized'
-    ];
+    const db = mongoose.connection.db;
+    const collections = await db.listCollections().toArray();
 
-    for (const name of collections) {
-        try {
-            const coll = mongoose.connection.db.collection(name);
-            const count = await coll.countDocuments();
-            console.log(`${name}:`);
-            console.log(`  记录数: ${count}`);
+    console.log('=== 所有集合及记录数 ===\n');
 
-            if (count > 0) {
-                const sample = await coll.findOne();
-                console.log('  样本字段:', Object.keys(sample).join(', '));
-                console.log('  样本数据:');
-                console.log('    base_issue:', sample.base_issue);
-                console.log('    target_issue:', sample.target_issue);
-                console.log('    base_id:', sample.base_id);
-                console.log('    target_id:', sample.target_id);
-            }
-            console.log('');
-        } catch (e) {
-            console.log(`${name}: 错误 - ${e.message}\n`);
+    const sortedCollections = collections.sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const c of sortedCollections) {
+        const count = await db.collection(c.name).countDocuments();
+        if (c.name.toLowerCase().includes('hwc') ||
+            c.name.toLowerCase().includes('hotwarmcold') ||
+            c.name.toLowerCase().includes('optimized')) {
+            console.log('* ' + c.name + ': ' + count + ' records <- HWC related');
+        } else {
+            console.log('  ' + c.name + ': ' + count + ' records');
         }
     }
 
     await mongoose.disconnect();
 }
 
-check();
+checkCollections().catch(e => { console.error(e); process.exit(1); });
